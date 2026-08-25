@@ -2,6 +2,7 @@
 
 use luar_diagnostics::{FileId, Span};
 
+use crate::keyword::Keyword;
 use crate::token::{Token, TokenKind};
 
 /// Every operator and punctuator, longest first.
@@ -113,6 +114,10 @@ impl<'src> Lexer<'src> {
             return self.emit(TokenKind::Eof, 0);
         };
 
+        if starts_word(next) {
+            return self.word(rest);
+        }
+
         for &(text, kind) in OPERATORS {
             if rest.starts_with(text) {
                 return self.emit(kind, text.len());
@@ -122,6 +127,15 @@ impl<'src> Lexer<'src> {
         // Advance by a whole character, not a byte, so that the rest of the
         // file still lexes as UTF-8.
         self.emit(TokenKind::Unknown, next.len_utf8())
+    }
+
+    /// An identifier, or the keyword it spells.
+    fn word(&mut self, rest: &str) -> Token {
+        let len = rest
+            .find(|c: char| !continues_word(c))
+            .unwrap_or(rest.len());
+        let kind = Keyword::lookup(&rest[..len]).map_or(TokenKind::Ident, TokenKind::Keyword);
+        self.emit(kind, len)
     }
 
     fn skip_whitespace(&mut self) {
@@ -136,6 +150,16 @@ impl<'src> Lexer<'src> {
         self.offset += len;
         Token::new(kind, span)
     }
+}
+
+/// §3.1: a name starts with a letter or an underscore.
+fn starts_word(c: char) -> bool {
+    c.is_alphabetic() || c == '_'
+}
+
+/// §3.1: and continues with letters, digits, and underscores.
+fn continues_word(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
 }
 
 /// Every token in `source`, ending with [`TokenKind::Eof`].
@@ -226,6 +250,19 @@ mod tests {
         let tokens = tokenize("a ??\tb", FILE);
         let spans: Vec<(u32, u32)> = tokens.iter().map(|t| (t.span.start, t.span.end)).collect();
         assert_eq!(spans, [(0, 1), (2, 4), (5, 6), (6, 6)]);
+    }
+
+    /// §3.1: a word runs to its end, so a keyword spelled as a prefix of a
+    /// longer name does not split it.
+    #[test]
+    fn words_are_lexed_whole() {
+        use TokenKind::{Eof, Ident, Keyword as Kw};
+
+        assert_eq!(kinds("end if"), [Kw(Keyword::End), Kw(Keyword::If), Eof]);
+        assert_eq!(
+            kinds("endif ending _end énd"),
+            [Ident, Ident, Ident, Ident, Eof]
+        );
     }
 
     /// A stray character costs one character, not one byte, so the text after

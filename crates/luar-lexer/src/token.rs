@@ -8,6 +8,8 @@
 
 use luar_diagnostics::Span;
 
+use crate::keyword::Keyword;
+
 /// One token and where it came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Token {
@@ -24,6 +26,11 @@ impl Token {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TokenKind {
+    /// A name (§3.1). Its text is the source under its span.
+    Ident,
+    /// A reserved word (§3.2).
+    Keyword(Keyword),
+
     // Delimiters.
     LeftParen,
     RightParen,
