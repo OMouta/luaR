@@ -1,0 +1,9 @@
+--- expect: compile-ok
+--- spec: §4.4
+export function main()
+    local whole = 1.0
+    local pi = 3.14159
+    local scaled = 1.5e10
+    local small = 2.5e-3
+    print(whole + pi + scaled + small)
+end

@@ -11,7 +11,7 @@ use luar_diagnostics::Span;
 use crate::keyword::Keyword;
 
 /// One token and where it came from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Token {
     pub kind: TokenKind,
     pub span: Span,
@@ -24,7 +24,12 @@ impl Token {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// A token's kind, and the value of a literal that has one.
+///
+/// Not `Eq`, because a float literal's value is not: nothing needs tokens in a
+/// set or a map, and storing the bits instead of the number to keep the trait
+/// would make every use site convert.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TokenKind {
     /// A name (§3.1). Its text is the source under its span.
     Ident,
@@ -37,6 +42,8 @@ pub enum TokenKind {
     /// type it takes is decided later, from context (§39). A literal is
     /// never negative; `-10` is negation applied to `10` (§11.1).
     Integer(u64),
+    /// A floating-point literal, and its value (§4.4).
+    Float(f64),
 
     // Delimiters.
     LeftParen,

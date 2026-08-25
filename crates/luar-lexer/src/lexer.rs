@@ -164,15 +164,13 @@ impl<'src> Lexer<'src> {
         token
     }
 
-    /// An integer literal (§4.3).
+    /// A numeric literal (§4.3, §4.4).
     ///
     /// The literal runs to the end of the word-like text, not to the first
     /// character that cannot appear in it, so `0b12` is one bad literal
     /// rather than `0b1` beside `2`.
     fn number(&mut self, rest: &str) -> Token {
-        let len = rest
-            .find(|c: char| !continues_word(c))
-            .unwrap_or(rest.len());
+        let len = number_len(rest);
         let text = &rest[..len];
 
         let (radix, digits) = match text.as_bytes() {
@@ -182,24 +180,34 @@ impl<'src> Lexer<'src> {
             _ => (10, text),
         };
 
-        let value = read_digits(digits, radix);
-        let token = self.emit(TokenKind::Integer(value.unwrap_or(0)), len);
+        // A radix prefix means an integer: §4.4 states no hexadecimal or
+        // binary spelling of a floating-point literal, so `0x1.8` is a bad
+        // integer rather than a float.
+        let read = if radix == 10 && text.contains(['.', 'e', 'E']) {
+            read_float(text).map(TokenKind::Float)
+        } else {
+            read_digits(digits, radix).map(TokenKind::Integer)
+        };
 
-        // The value of a rejected literal is not used: the diagnostic already
-        // rejects the program, and lexing continues only to report the rest.
-        match value {
+        // The value of a rejected literal is never used: the diagnostic
+        // already rejects the program, and lexing continues only to report
+        // whatever else is wrong with the file.
+        let token = self.emit(read.unwrap_or(TokenKind::Integer(0)), len);
+
+        match read {
             Ok(_) => {}
-            Err(DigitError::Malformed) => self.diagnostics.push(
+            Err(NumberError::Malformed) => self.diagnostics.push(
                 Diagnostic::error(
                     codes::MALFORMED_NUMBER,
                     token.span,
-                    format!("`{text}` is not a valid integer literal"),
+                    format!("`{text}` is not a valid number"),
                 )
                 .note(
-                    "Integers are written 42, 0xff, 0o755, or 0b1010, and `_` may separate digits.",
+                    "Integers are written 42, 0xff, 0o755, or 0b1010, floats are written 1.0 or \
+                     1.5e10, and `_` may separate digits.",
                 ),
             ),
-            Err(DigitError::TooLarge) => self.diagnostics.push(Diagnostic::error(
+            Err(NumberError::TooLarge) => self.diagnostics.push(Diagnostic::error(
                 codes::INTEGER_LITERAL_TOO_LARGE,
                 token.span,
                 format!("`{text}` does not fit in a 64-bit integer"),
@@ -224,13 +232,51 @@ impl<'src> Lexer<'src> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DigitError {
+enum NumberError {
     Malformed,
     TooLarge,
 }
 
+/// How far a numeric literal reaches.
+///
+/// Digits, letters, and separators run together, so `0xff` and `1e10` are one
+/// literal each. A `.` extends it only when a digit follows, which is what
+/// keeps `0..<10` from lexing as a float (§10.4, §89.1), and `0.length` from
+/// swallowing the field. An exponent's sign extends it too, since `+` and `-`
+/// are otherwise operators.
+fn number_len(rest: &str) -> usize {
+    let word = |from: usize| {
+        rest[from..]
+            .find(|c: char| !continues_word(c))
+            .map_or(rest.len(), |len| from + len)
+    };
+
+    let mut len = word(0);
+
+    if rest[len..].starts_with('.') && rest[len + 1..].starts_with(|c: char| c.is_ascii_digit()) {
+        len = word(len + 1);
+    }
+
+    if rest[..len].ends_with(['e', 'E']) {
+        let after = &rest[len..];
+        let signed =
+            after.starts_with(['+', '-']) && after[1..].starts_with(|c: char| c.is_ascii_digit());
+        if signed {
+            len = word(len + 1);
+        }
+    }
+
+    len
+}
+
+/// The value of a floating-point literal (§4.4), ignoring `_` separators.
+fn read_float(text: &str) -> Result<f64, NumberError> {
+    let digits: String = text.chars().filter(|&c| c != '_').collect();
+    digits.parse().map_err(|_| NumberError::Malformed)
+}
+
 /// The value of `digits` in `radix`, ignoring `_` separators (§4.3).
-fn read_digits(digits: &str, radix: u32) -> Result<u64, DigitError> {
+fn read_digits(digits: &str, radix: u32) -> Result<u64, NumberError> {
     let mut value: u64 = 0;
     let mut seen = false;
 
@@ -238,18 +284,18 @@ fn read_digits(digits: &str, radix: u32) -> Result<u64, DigitError> {
         if c == '_' {
             continue;
         }
-        let digit = c.to_digit(radix).ok_or(DigitError::Malformed)?;
+        let digit = c.to_digit(radix).ok_or(NumberError::Malformed)?;
         value = value
             .checked_mul(u64::from(radix))
             .and_then(|v| v.checked_add(u64::from(digit)))
-            .ok_or(DigitError::TooLarge)?;
+            .ok_or(NumberError::TooLarge)?;
         seen = true;
     }
 
     if seen {
         Ok(value)
     } else {
-        Err(DigitError::Malformed)
+        Err(NumberError::Malformed)
     }
 }
 
@@ -264,7 +310,7 @@ fn continues_word(c: char) -> bool {
 }
 
 /// What lexing one file produced.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Lexed {
     /// Every token, ending with [`TokenKind::Eof`].
     pub tokens: Vec<Token>,
@@ -399,6 +445,22 @@ mod tests {
         assert_eq!(kinds("0xDEAD_beef"), [Integer(0xDEAD_BEEF), Eof]);
     }
 
+    /// §4.4: a fraction, an exponent, or both.
+    #[allow(
+        clippy::approx_constant,
+        reason = "3.14159 is the literal §4.4 gives as an example"
+    )]
+    #[test]
+    fn float_literals_carry_their_value() {
+        use TokenKind::{Eof, Float};
+
+        assert_eq!(kinds("1.0 3.14159"), [Float(1.0), Float(3.14159), Eof]);
+        assert_eq!(
+            kinds("1.5e10 1e10 2.5e-3"),
+            [Float(1.5e10), Float(1e10), Float(2.5e-3), Eof]
+        );
+    }
+
     /// §10.4: a range is not a float, so the bound ends at the dots.
     #[test]
     fn a_range_bound_is_not_part_of_the_number() {
@@ -409,6 +471,15 @@ mod tests {
             kinds("1..=10"),
             [Integer(1), DotDotEquals, Integer(10), Eof]
         );
+    }
+
+    /// §89.1: `0.` is a float only when a digit follows, which is what leaves
+    /// a method call on a number readable.
+    #[test]
+    fn a_dot_without_a_digit_is_not_part_of_the_number() {
+        use TokenKind::{Dot, Eof, Ident, Integer};
+
+        assert_eq!(kinds("0.reversed"), [Integer(0), Dot, Ident, Eof]);
     }
 
     /// §4.3: a literal that is not one of the stated forms is rejected as one
