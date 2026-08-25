@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "crates/luar-ast",
+    "crates/luar-diagnostics",
     "crates/luar-lexer",
     "crates/luar-parser",
     "crates/luar-sema",
@@ -20,6 +21,7 @@ repository = "https://github.com/OMouta/luaR"
 
 [workspace.dependencies]
 luar-ast = { path = "crates/luar-ast" }
+luar-diagnostics = { path = "crates/luar-diagnostics" }
 luar-lexer = { path = "crates/luar-lexer" }
 luar-parser = { path = "crates/luar-parser" }
 luar-sema = { path = "crates/luar-sema" }

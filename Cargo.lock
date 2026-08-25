@@ -5,13 +5,21 @@ version = 4
 [[package]]
 name = "luar-ast"
 version = "0.0.0"
+dependencies = [
+ "luar-diagnostics",
+]
 
 [[package]]
 name = "luar-codegen"
 version = "0.0.0"
 dependencies = [
+ "luar-diagnostics",
  "luar-lir",
 ]
+
+[[package]]
+name = "luar-diagnostics"
+version = "0.0.0"
 
 [[package]]
 name = "luar-driver"
@@ -19,6 +27,7 @@ version = "0.0.0"
 dependencies = [
  "luar-ast",
  "luar-codegen",
+ "luar-diagnostics",
  "luar-lexer",
  "luar-lir",
  "luar-parser",
@@ -28,11 +37,15 @@ dependencies = [
 [[package]]
 name = "luar-lexer"
 version = "0.0.0"
+dependencies = [
+ "luar-diagnostics",
+]
 
 [[package]]
 name = "luar-lir"
 version = "0.0.0"
 dependencies = [
+ "luar-diagnostics",
  "luar-sema",
 ]
 
@@ -41,6 +54,7 @@ name = "luar-parser"
 version = "0.0.0"
 dependencies = [
  "luar-ast",
+ "luar-diagnostics",
  "luar-lexer",
 ]
 
@@ -49,6 +63,7 @@ name = "luar-sema"
 version = "0.0.0"
 dependencies = [
  "luar-ast",
+ "luar-diagnostics",
 ]
 
 [[package]]
