@@ -116,12 +116,30 @@ impl<'src> Lexer<'src> {
             return self.emit(TokenKind::Eof, 0);
         };
 
+        // Before words, because `b"..."` opens a byte string and `b` alone is
+        // an ordinary name (§4.7).
+        if rest.starts_with("b\"") {
+            return self.quoted(rest, Literal::Bytes);
+        }
+
         if starts_word(next) {
             return self.word(rest);
         }
 
         if next.is_ascii_digit() {
             return self.number(rest);
+        }
+
+        if next == '"' {
+            return self.quoted(rest, Literal::Text);
+        }
+
+        if next == '\'' {
+            return self.quoted(rest, Literal::Char);
+        }
+
+        if long_bracket(rest).is_some() {
+            return self.long_string(rest);
         }
 
         for &(text, kind) in OPERATORS {
@@ -217,6 +235,250 @@ impl<'src> Lexer<'src> {
         token
     }
 
+    /// A `"..."`, `b"..."`, or `'...'` literal (§4.5, §4.7, §6.1).
+    ///
+    /// The literal ends at its closing quote, at the end of the line, or at
+    /// the end of the file. A newline ends it because a string that reaches
+    /// the closing quote of some later literal reports its error hundreds of
+    /// lines from the missing quote; long strings are how a value spans lines.
+    fn quoted(&mut self, rest: &str, literal: Literal) -> Token {
+        let open = literal.opening_len();
+        let close = literal.delimiter();
+        let body = &rest.as_bytes()[open..];
+
+        let mut at = 0;
+        let mut count = 0usize;
+        let mut first = None;
+        let mut terminated = false;
+
+        while at < body.len() {
+            match body[at] {
+                b'\n' => break,
+                b'\\' => {
+                    let escape = self.escape(&rest[open..], at, open, literal);
+                    at += escape.len;
+                    if first.is_none() {
+                        first = escape.value;
+                    }
+                    count += 1;
+                }
+                byte if byte == close => {
+                    at += 1;
+                    terminated = true;
+                    break;
+                }
+                byte if byte.is_ascii() => {
+                    if first.is_none() {
+                        first = Some(u32::from(byte));
+                    }
+                    at += 1;
+                    count += 1;
+                }
+                _ => {
+                    // Outside ASCII, take the whole character: a `char`
+                    // literal holds one scalar (§6.1), not one byte, and the
+                    // scan has to land on a boundary either way.
+                    let c = rest[open + at..]
+                        .chars()
+                        .next()
+                        .expect("the byte is part of a character");
+                    if first.is_none() {
+                        first = Some(u32::from(c));
+                    }
+                    at += c.len_utf8();
+                    count += 1;
+                }
+            }
+        }
+
+        let scalar = first.and_then(char::from_u32).unwrap_or('\0');
+        let token = self.emit(literal.kind(scalar), open + at);
+
+        if terminated {
+            if literal == Literal::Char && count != 1 {
+                self.diagnostics.push(
+                    Diagnostic::error(
+                        codes::MALFORMED_CHAR,
+                        token.span,
+                        "a character literal holds exactly one character",
+                    )
+                    .note("Text goes in double quotes; single quotes are for `char` (§6.1)."),
+                );
+            }
+        } else {
+            self.diagnostics.push(Diagnostic::error(
+                codes::UNTERMINATED_LITERAL,
+                token.span,
+                format!("this literal is missing its closing `{}`", close as char),
+            ));
+        }
+
+        token
+    }
+
+    /// One escape sequence, starting at the backslash at `at` in `body`.
+    ///
+    /// Returns how far it reaches even when it is wrong, so that scanning
+    /// carries on from a sensible place.
+    fn escape(&mut self, body: &str, at: usize, open: usize, literal: Literal) -> Escape {
+        let bytes = body.as_bytes();
+        let file = self.file;
+        let start = self.offset + u32::try_from(open + at).expect("an offset in the file");
+        let span = move |len: usize| {
+            Span::new(
+                file,
+                start,
+                start + u32::try_from(len).expect("an escape length"),
+            )
+        };
+
+        let simple = |c: char, len: usize| Escape {
+            len,
+            value: Some(u32::from(c)),
+        };
+
+        match bytes.get(at + 1) {
+            Some(b'n') => simple('\n', 2),
+            Some(b'r') => simple('\r', 2),
+            Some(b't') => simple('\t', 2),
+            Some(b'0') => simple('\0', 2),
+            Some(b'\\') => simple('\\', 2),
+            Some(b'"') => simple('"', 2),
+            Some(b'\'') => simple('\'', 2),
+            Some(b'x') => {
+                let digits = &body[(at + 2).min(body.len())..];
+                let digits = &digits[..digits.len().min(2)];
+                let Some(value) = u32::from_str_radix(digits, 16)
+                    .ok()
+                    .filter(|_| digits.len() == 2)
+                else {
+                    self.diagnostics.push(
+                        Diagnostic::error(
+                            codes::INVALID_ESCAPE,
+                            span(2 + digits.len()),
+                            "`\\x` needs exactly two hexadecimal digits",
+                        )
+                        .note("A byte is written `\\x0a`."),
+                    );
+                    return Escape {
+                        len: 2 + digits.len(),
+                        value: None,
+                    };
+                };
+
+                if value > 0x7f && literal != Literal::Bytes {
+                    self.diagnostics.push(
+                        Diagnostic::error(
+                            codes::STRING_NOT_UTF8,
+                            span(4),
+                            format!("`\\x{digits}` is not valid UTF-8 on its own"),
+                        )
+                        .note(
+                            "Write the character as `\\u{...}`, or use a byte string `b\"...\"` \
+                             (§4.7).",
+                        ),
+                    );
+                    return Escape {
+                        len: 4,
+                        value: None,
+                    };
+                }
+
+                Escape {
+                    len: 4,
+                    value: Some(value),
+                }
+            }
+            Some(b'u') => self.unicode_escape(body, at, &span),
+            _ => {
+                self.diagnostics.push(
+                    Diagnostic::error(
+                        codes::INVALID_ESCAPE,
+                        span(2.min(body.len() - at)),
+                        "this is not an escape sequence LuaR defines",
+                    )
+                    .note("The escapes are `\\n`, `\\r`, `\\t`, `\\\\`, `\\\"`, `\\'`, `\\0`, `\\xNN`, and `\\u{...}`."),
+                );
+                Escape {
+                    len: 2.min(body.len() - at),
+                    value: None,
+                }
+            }
+        }
+    }
+
+    /// A `\u{...}` escape (§4.5).
+    fn unicode_escape(&mut self, body: &str, at: usize, span: &impl Fn(usize) -> Span) -> Escape {
+        let after = &body[at + 2..];
+        let digits = after
+            .strip_prefix('{')
+            .map(|rest| &rest[..rest.find('}').unwrap_or(0)]);
+
+        let Some(digits) = digits.filter(|d| !d.is_empty() && d.len() <= 6) else {
+            let len = 3 + after.find('}').map_or(0, |i| i);
+            self.diagnostics.push(
+                Diagnostic::error(
+                    codes::INVALID_ESCAPE,
+                    span(len.min(body.len() - at)),
+                    "`\\u` needs one to six hexadecimal digits in braces",
+                )
+                .note("A scalar is written `\\u{1F600}`."),
+            );
+            return Escape {
+                len: len.min(body.len() - at),
+                value: None,
+            };
+        };
+
+        let len = 4 + digits.len();
+        let scalar = u32::from_str_radix(digits, 16)
+            .ok()
+            .and_then(char::from_u32);
+
+        let Some(scalar) = scalar else {
+            self.diagnostics.push(
+                Diagnostic::error(
+                    codes::INVALID_ESCAPE,
+                    span(len),
+                    format!("`{digits}` is not a Unicode scalar value"),
+                )
+                .note("Scalars run to 10FFFF, and exclude D800 through DFFF."),
+            );
+            return Escape { len, value: None };
+        };
+
+        Escape {
+            len,
+            value: Some(u32::from(scalar)),
+        }
+    }
+
+    /// A long string, `[[...]]` or `[==[...]==]` (§4.5).
+    ///
+    /// Escapes are not processed inside one, so the only thing to find is the
+    /// closing bracket at the same level.
+    fn long_string(&mut self, rest: &str) -> Token {
+        let (open, level) = long_bracket(rest).expect("the caller found an opening bracket");
+        let closing = format!("]{}]", "=".repeat(level));
+
+        let (len, terminated) = match rest[open..].find(&closing) {
+            Some(at) => (open + at + closing.len(), true),
+            None => (rest.len(), false),
+        };
+
+        let token = self.emit(TokenKind::String, len);
+
+        if !terminated {
+            self.diagnostics.push(Diagnostic::error(
+                codes::UNTERMINATED_LITERAL,
+                token.span,
+                format!("this long string is missing its closing `{closing}`"),
+            ));
+        }
+
+        token
+    }
+
     fn skip_whitespace(&mut self) {
         let rest = &self.source[self.offset as usize..];
         let skipped = rest.len() - rest.trim_start_matches([' ', '\t', '\r', '\n']).len();
@@ -229,6 +491,64 @@ impl<'src> Lexer<'src> {
         self.offset += len;
         Token::new(kind, span)
     }
+}
+
+/// Which quoted literal is being read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Literal {
+    /// `"..."` (§4.5).
+    Text,
+    /// `b"..."` (§4.7).
+    Bytes,
+    /// `'...'` (§6.1).
+    Char,
+}
+
+impl Literal {
+    /// How much of the opening comes before the body.
+    fn opening_len(self) -> usize {
+        match self {
+            Self::Text | Self::Char => 1,
+            Self::Bytes => 2,
+        }
+    }
+
+    fn delimiter(self) -> u8 {
+        match self {
+            Self::Text | Self::Bytes => b'"',
+            Self::Char => b'\'',
+        }
+    }
+
+    fn kind(self, scalar: char) -> TokenKind {
+        match self {
+            Self::Text => TokenKind::String,
+            Self::Bytes => TokenKind::ByteString,
+            Self::Char => TokenKind::Char(scalar),
+        }
+    }
+}
+
+/// What an escape sequence covers, and the scalar it denotes.
+///
+/// `value` is `None` when the escape was rejected; the diagnostic has already
+/// been reported and the value is not used.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Escape {
+    len: usize,
+    value: Option<u32>,
+}
+
+/// The opening of a long bracket, as `(length, level)`.
+///
+/// `[[` is level 0, `[=[` is level 1, and so on, so that a string can contain
+/// any bracket sequence shorter than its own (§4.5).
+fn long_bracket(rest: &str) -> Option<(usize, usize)> {
+    let after = rest.strip_prefix('[')?;
+    let level = after.len() - after.trim_start_matches('=').len();
+    after[level..]
+        .starts_with('[')
+        .then_some((level + 2, level))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -492,6 +812,79 @@ mod tests {
         assert_eq!(lexed.diagnostics.len(), 1);
         assert_eq!(lexed.diagnostics[0].code, codes::MALFORMED_NUMBER);
         assert_eq!(lexed.diagnostics[0].primary, Span::new(FILE, 0, 4));
+    }
+
+    /// §4.5, §4.7, §6.1: the three quoted forms, and what closes each.
+    #[test]
+    fn quoted_literals_end_at_their_own_delimiter() {
+        use TokenKind::{ByteString, Char, Eof, String};
+
+        assert_eq!(
+            kinds(r#""Jon Doe" b"hello" 'A'"#),
+            [String, ByteString, Char('A'), Eof]
+        );
+        assert_eq!(kinds(r#""a" "b""#), [String, String, Eof]);
+        assert_eq!(lex(r#""with \"quotes\" in it""#, FILE).tokens.len(), 2);
+    }
+
+    /// §4.5: escapes are checked where they are written, and a `\x` past 0x7F
+    /// needs a byte string, since a string is UTF-8.
+    #[test]
+    fn escapes_are_checked() {
+        let good = lex(r#""\n\r\t\\\"\0\x41\u{1F600}""#, FILE);
+        assert_eq!(good.diagnostics, []);
+
+        let bad = lex(r#""\q""#, FILE);
+        assert_eq!(bad.diagnostics.len(), 1);
+        assert_eq!(bad.diagnostics[0].code, codes::INVALID_ESCAPE);
+        assert_eq!(bad.diagnostics[0].primary, Span::new(FILE, 1, 3));
+
+        let raw = lex(r#""\xff""#, FILE);
+        assert_eq!(raw.diagnostics.len(), 1);
+        assert_eq!(raw.diagnostics[0].code, codes::STRING_NOT_UTF8);
+
+        assert_eq!(lex(r#"b"\xff""#, FILE).diagnostics, []);
+    }
+
+    /// §4.5: a long string spans lines and takes no escapes, and closes only
+    /// at its own level.
+    #[test]
+    fn long_strings_close_at_their_own_level() {
+        use TokenKind::{Eof, String};
+
+        assert_eq!(kinds("[[\nhello\nworld\n]]"), [String, Eof]);
+        assert_eq!(kinds("[==[ ]] still going ]==]"), [String, Eof]);
+        assert_eq!(lex(r"[[\n]]", FILE).diagnostics, []);
+    }
+
+    /// §4.5: a literal that never closes is reported where it starts, not
+    /// wherever the next quote happens to be.
+    #[test]
+    fn an_unclosed_literal_stops_at_the_line() {
+        let lexed = lex("\"open\nlocal x = 1", FILE);
+
+        assert_eq!(lexed.diagnostics.len(), 1);
+        assert_eq!(lexed.diagnostics[0].code, codes::UNTERMINATED_LITERAL);
+        assert_eq!(lexed.diagnostics[0].primary, Span::new(FILE, 0, 5));
+        assert_eq!(
+            lexed.tokens[1].kind,
+            TokenKind::Keyword(crate::keyword::Keyword::Local)
+        );
+    }
+
+    /// §6.1: single quotes hold one scalar, not a string.
+    #[test]
+    fn a_character_literal_holds_one_scalar() {
+        assert_eq!(kinds("'é'"), [TokenKind::Char('é'), TokenKind::Eof]);
+        assert_eq!(kinds(r"'\n'"), [TokenKind::Char('\n'), TokenKind::Eof]);
+
+        let many = lex("'ab'", FILE);
+        assert_eq!(many.diagnostics.len(), 1);
+        assert_eq!(many.diagnostics[0].code, codes::MALFORMED_CHAR);
+
+        let empty = lex("''", FILE);
+        assert_eq!(empty.diagnostics.len(), 1);
+        assert_eq!(empty.diagnostics[0].code, codes::MALFORMED_CHAR);
     }
 
     /// A stray character costs one character, not one byte, so the text after

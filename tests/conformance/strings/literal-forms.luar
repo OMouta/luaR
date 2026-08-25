@@ -1,0 +1,15 @@
+--- expect: compile-ok
+--- spec: §4.5
+--- spec: §4.7
+--- spec: §6.1
+export function main()
+    local plain = "Jon Doe"
+    local escaped = "tab:\there\nline\u{1F600}"
+    local long = [[
+hello
+world
+]]
+    local raw = b"\xff\x00"
+    local letter: char = 'A'
+    print(plain .. escaped .. long)
+end

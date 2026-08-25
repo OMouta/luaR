@@ -44,6 +44,17 @@ pub enum TokenKind {
     Integer(u64),
     /// A floating-point literal, and its value (§4.4).
     Float(f64),
+    /// A string literal (§4.5), written `"..."` or as a long string.
+    ///
+    /// The text between the delimiters is not decoded here. The lexer checks
+    /// that the literal is closed and that its escapes are ones §4.5 defines;
+    /// turning `\u{1F600}` into a character is the job of whoever builds the
+    /// syntax tree, which is also who has somewhere to put the result.
+    String,
+    /// A byte string literal (§4.7), written `b"..."`.
+    ByteString,
+    /// A character literal, and the scalar it denotes (§6.1).
+    Char(char),
 
     // Delimiters.
     LeftParen,

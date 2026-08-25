@@ -111,6 +111,14 @@ registry! {
         "A numeric literal must be written in one of the forms the spec states.";
     active 117 => INTEGER_LITERAL_TOO_LARGE, "§4.3",
         "An integer literal must fit in the widest integer type, which is 64 bits.";
+    active 118 => UNTERMINATED_LITERAL, "§4.5",
+        "A string, byte string, or character literal must be closed.";
+    active 119 => INVALID_ESCAPE, "§4.5",
+        "An escape sequence must be one the spec defines, and well formed.";
+    active 120 => STRING_NOT_UTF8, "§4.5",
+        "A string holds valid UTF-8, so a byte escape past 0x7F needs a byte string.";
+    active 121 => MALFORMED_CHAR, "§6.1",
+        "A character literal holds exactly one Unicode scalar value.";
 }
 
 #[cfg(test)]
