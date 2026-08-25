@@ -79,6 +79,20 @@ const _: () = {
     }
 };
 
+/// Where the lexer is inside an interpolated string (§4.6).
+///
+/// Interpolation nests: an expression in a hole may be another interpolated
+/// string, so this is a stack rather than a flag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    /// Reading literal text. `start` is the opening backtick, so that an
+    /// unterminated literal is reported from where it opened.
+    Text { start: u32 },
+    /// Reading an expression in a hole, `braces` levels deep in braces that
+    /// belong to the expression rather than to the hole.
+    Hole { braces: usize },
+}
+
 /// Turns source text into tokens, one call at a time.
 #[derive(Debug)]
 pub struct Lexer<'src> {
@@ -86,6 +100,7 @@ pub struct Lexer<'src> {
     file: FileId,
     offset: u32,
     diagnostics: Vec<Diagnostic>,
+    modes: Vec<Mode>,
 }
 
 impl<'src> Lexer<'src> {
@@ -103,18 +118,44 @@ impl<'src> Lexer<'src> {
             file,
             offset: 0,
             diagnostics: Vec::new(),
+            modes: Vec::new(),
         }
     }
 
     /// The next token, or [`TokenKind::Eof`] once the text runs out. Calling
     /// again after that keeps returning `Eof`.
     pub fn next_token(&mut self) -> Token {
+        // Inside an interpolated string, whitespace is text and is not skipped.
+        if let Some(Mode::Text { start }) = self.modes.last().copied() {
+            return self.interpolation(start);
+        }
+
         self.skip_whitespace();
 
         let rest = &self.source[self.offset as usize..];
         let Some(next) = rest.chars().next() else {
+            self.report_unclosed_interpolation();
             return self.emit(TokenKind::Eof, 0);
         };
+
+        if next == '`' {
+            self.modes.push(Mode::Text { start: self.offset });
+            return self.emit(TokenKind::InterpolationStart, 1);
+        }
+
+        // A brace closes the hole it opened, and only that one, so an
+        // expression may contain braces of its own (§4.6).
+        if let Some(Mode::Hole { braces }) = self.modes.last_mut() {
+            match next {
+                '{' => *braces += 1,
+                '}' if *braces == 0 => {
+                    self.modes.pop();
+                    return self.emit(TokenKind::InterpolationHoleEnd, 1);
+                }
+                '}' => *braces -= 1,
+                _ => {}
+            }
+        }
 
         // Before words, because `b"..."` opens a byte string and `b` alone is
         // an ordinary name (§4.7).
@@ -450,6 +491,69 @@ impl<'src> Lexer<'src> {
         Escape {
             len,
             value: Some(u32::from(scalar)),
+        }
+    }
+
+    /// One part of an interpolated string (§4.6): the closing backtick, the
+    /// start of a hole, or a run of literal text.
+    ///
+    /// Like a quoted string, the literal ends at the end of the line, so a
+    /// missing backtick is reported near the backtick that is missing.
+    fn interpolation(&mut self, start: u32) -> Token {
+        let rest = &self.source[self.offset as usize..];
+
+        match rest.as_bytes().first() {
+            Some(b'`') => {
+                self.modes.pop();
+                return self.emit(TokenKind::InterpolationEnd, 1);
+            }
+            Some(b'{') => {
+                self.modes.push(Mode::Hole { braces: 0 });
+                return self.emit(TokenKind::InterpolationHoleStart, 1);
+            }
+            _ => {}
+        }
+
+        let body = rest.as_bytes();
+        let mut at = 0;
+        while at < body.len() {
+            match body[at] {
+                b'`' | b'{' => break,
+                b'\n' => break,
+                b'\\' => at += self.escape(rest, at, 0, Literal::Text).len,
+                _ => at += 1,
+            }
+        }
+
+        let unterminated = at == body.len() || body[at] == b'\n';
+        let token = self.emit(TokenKind::InterpolationText, at);
+
+        if unterminated {
+            self.modes.pop();
+            self.diagnostics.push(Diagnostic::error(
+                codes::UNTERMINATED_LITERAL,
+                Span::new(self.file, start, token.span.end),
+                "this interpolated string is missing its closing backtick",
+            ));
+        }
+
+        token
+    }
+
+    /// Reports an interpolated string still open at the end of the file.
+    fn report_unclosed_interpolation(&mut self) {
+        let start = self.modes.iter().find_map(|mode| match mode {
+            Mode::Text { start } => Some(*start),
+            Mode::Hole { .. } => None,
+        });
+
+        if let Some(start) = start {
+            self.modes.clear();
+            self.diagnostics.push(Diagnostic::error(
+                codes::UNTERMINATED_LITERAL,
+                Span::new(self.file, start, self.offset),
+                "this interpolated string is missing its closing backtick",
+            ));
         }
     }
 
@@ -885,6 +989,103 @@ mod tests {
         let empty = lex("''", FILE);
         assert_eq!(empty.diagnostics.len(), 1);
         assert_eq!(empty.diagnostics[0].code, codes::MALFORMED_CHAR);
+    }
+
+    /// §4.6: an interpolated string becomes its parts, and the expression in
+    /// a hole is lexed as an ordinary expression.
+    #[test]
+    fn an_interpolated_string_lexes_into_parts() {
+        use TokenKind::{
+            Eof, Ident, Integer, InterpolationEnd, InterpolationHoleEnd, InterpolationHoleStart,
+            InterpolationStart, InterpolationText, Plus,
+        };
+
+        assert_eq!(
+            kinds("`Hello, {name}!`"),
+            [
+                InterpolationStart,
+                InterpolationText,
+                InterpolationHoleStart,
+                Ident,
+                InterpolationHoleEnd,
+                InterpolationText,
+                InterpolationEnd,
+                Eof
+            ]
+        );
+
+        assert_eq!(
+            kinds("`{2 + 2}`"),
+            [
+                InterpolationStart,
+                InterpolationHoleStart,
+                Integer(2),
+                Plus,
+                Integer(2),
+                InterpolationHoleEnd,
+                InterpolationEnd,
+                Eof
+            ]
+        );
+    }
+
+    /// §4.6: a hole holds an expression, so braces inside it are the
+    /// expression's own, and one interpolated string may contain another.
+    #[test]
+    fn holes_nest() {
+        use TokenKind::{
+            Eof, Ident, InterpolationEnd, InterpolationHoleEnd, InterpolationHoleStart,
+            InterpolationStart, InterpolationText, LeftBrace, RightBrace,
+        };
+
+        assert_eq!(
+            kinds("`{ {x} }`"),
+            [
+                InterpolationStart,
+                InterpolationHoleStart,
+                LeftBrace,
+                Ident,
+                RightBrace,
+                InterpolationHoleEnd,
+                InterpolationEnd,
+                Eof
+            ]
+        );
+
+        assert_eq!(
+            kinds("`a{`b`}`"),
+            [
+                InterpolationStart,
+                InterpolationText,
+                InterpolationHoleStart,
+                InterpolationStart,
+                InterpolationText,
+                InterpolationEnd,
+                InterpolationHoleEnd,
+                InterpolationEnd,
+                Eof
+            ]
+        );
+    }
+
+    /// §4.6: the text takes the escapes §4.5 defines, and an unclosed literal
+    /// is reported from its opening backtick.
+    #[test]
+    fn interpolated_text_is_checked_like_a_string() {
+        assert_eq!(lex(r"`a\tb\u{41}`", FILE).diagnostics, []);
+
+        let bad = lex(r"`\q`", FILE);
+        assert_eq!(bad.diagnostics.len(), 1);
+        assert_eq!(bad.diagnostics[0].code, codes::INVALID_ESCAPE);
+
+        let open = lex("`unclosed\nlocal x = 1", FILE);
+        assert_eq!(open.diagnostics.len(), 1);
+        assert_eq!(open.diagnostics[0].code, codes::UNTERMINATED_LITERAL);
+        assert_eq!(open.diagnostics[0].primary, Span::new(FILE, 0, 9));
+        assert_eq!(
+            open.tokens[2].kind,
+            TokenKind::Keyword(crate::keyword::Keyword::Local)
+        );
     }
 
     /// A stray character costs one character, not one byte, so the text after

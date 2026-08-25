@@ -1,0 +1,7 @@
+--- expect: compile-ok
+--- spec: §4.6
+export function main()
+    local name = "Jon Doe"
+    print(`Hello, {name}!`)
+    print(`2 + 2 = {2 + 2}`)
+end

@@ -56,6 +56,21 @@ pub enum TokenKind {
     /// A character literal, and the scalar it denotes (§6.1).
     Char(char),
 
+    // An interpolated string (§4.6) is lexed into its parts rather than into
+    // one token, because the expressions in it are ordinary expressions and
+    // are lexed as such. `Hello, {name}!` is Start, Text, HoleStart, Ident,
+    // HoleEnd, Text, End.
+    /// The opening backtick.
+    InterpolationStart,
+    /// A run of literal text between the holes. Never empty.
+    InterpolationText,
+    /// The `{` opening an expression.
+    InterpolationHoleStart,
+    /// The `}` closing an expression.
+    InterpolationHoleEnd,
+    /// The closing backtick.
+    InterpolationEnd,
+
     // Delimiters.
     LeftParen,
     RightParen,
