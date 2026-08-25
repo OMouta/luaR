@@ -51,12 +51,7 @@ impl Diagnostic {
     }
 
     #[must_use]
-    pub fn new(
-        severity: Severity,
-        code: Code,
-        primary: Span,
-        message: impl Into<String>,
-    ) -> Self {
+    pub fn new(severity: Severity, code: Code, primary: Span, message: impl Into<String>) -> Self {
         Self {
             severity,
             code,
@@ -71,7 +66,10 @@ impl Diagnostic {
     /// they were added.
     #[must_use]
     pub fn label(mut self, span: Span, message: impl Into<String>) -> Self {
-        self.labels.push(Label { span, message: message.into() });
+        self.labels.push(Label {
+            span,
+            message: message.into(),
+        });
         self
     }
 

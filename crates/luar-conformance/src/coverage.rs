@@ -169,15 +169,17 @@ pub fn coverage(spec: &[Section], citations: &BTreeMap<Section, Vec<String>>) ->
         }
     }
 
-    let has_children: BTreeSet<Section> =
-        spec.iter().flat_map(Section::ancestors).collect();
+    let has_children: BTreeSet<Section> = spec.iter().flat_map(Section::ancestors).collect();
 
-    let (tested, untested) = spec
-        .iter()
-        .cloned()
-        .partition(|section| cited.contains(section) || covered_by_children(section, spec, &cited, &has_children));
+    let (tested, untested) = spec.iter().cloned().partition(|section| {
+        cited.contains(section) || covered_by_children(section, spec, &cited, &has_children)
+    });
 
-    Coverage { tested, untested, unknown }
+    Coverage {
+        tested,
+        untested,
+        unknown,
+    }
 }
 
 /// A heading whose content is its subsections is covered once they all are.

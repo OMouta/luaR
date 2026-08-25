@@ -186,7 +186,10 @@ mod tests {
 
     #[test]
     fn first_byte_is_one_one() {
-        assert_eq!(file("local x = 1").position(0), Position { line: 1, column: 1 });
+        assert_eq!(
+            file("local x = 1").position(0),
+            Position { line: 1, column: 1 }
+        );
     }
 
     #[test]
@@ -241,7 +244,13 @@ mod tests {
 
         let span = Span::new(second, 17, 18);
         assert_eq!(map.start(span).to_string(), "1:18");
-        assert_eq!(map.end(span), Position { line: 1, column: 19 });
+        assert_eq!(
+            map.end(span),
+            Position {
+                line: 1,
+                column: 19
+            }
+        );
         assert_eq!(map.file(second).path(), Path::new("second.luar"));
     }
 }

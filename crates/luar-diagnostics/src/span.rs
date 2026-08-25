@@ -29,7 +29,11 @@ impl Span {
     /// An empty span at `offset`, for pointing at a position rather than a range.
     #[must_use]
     pub fn at(file: FileId, offset: u32) -> Self {
-        Self { file, start: offset, end: offset }
+        Self {
+            file,
+            start: offset,
+            end: offset,
+        }
     }
 
     #[must_use]
@@ -49,7 +53,10 @@ impl Span {
     /// Panics if the two spans are in different files.
     #[must_use]
     pub fn to(self, other: Self) -> Self {
-        assert_eq!(self.file, other.file, "cannot join spans from different files");
+        assert_eq!(
+            self.file, other.file,
+            "cannot join spans from different files"
+        );
         Self {
             file: self.file,
             start: self.start.min(other.start),

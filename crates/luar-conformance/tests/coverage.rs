@@ -68,7 +68,10 @@ fn citing_a_section_the_spec_does_not_have_is_reported() {
 
     let unknown: Vec<String> = report.unknown.keys().map(Section::to_string).collect();
     assert_eq!(unknown, ["§93.4"]);
-    assert_eq!(report.unknown[&Section::parse("§93.4").unwrap()], ["a-test.luar"]);
+    assert_eq!(
+        report.unknown[&Section::parse("§93.4").unwrap()],
+        ["a-test.luar"]
+    );
 }
 
 #[test]

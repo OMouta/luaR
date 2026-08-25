@@ -21,7 +21,10 @@ fn discovery_finds_luar_files_in_subdirectories() {
 
 #[test]
 fn a_missing_suite_is_empty_rather_than_an_error() {
-    assert_eq!(discover(&fixtures().join("nothing-here")).unwrap(), Vec::<PathBuf>::new());
+    assert_eq!(
+        discover(&fixtures().join("nothing-here")).unwrap(),
+        Vec::<PathBuf>::new()
+    );
 }
 
 #[test]

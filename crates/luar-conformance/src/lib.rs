@@ -142,7 +142,9 @@ fn check(path: &Path, source: String, directives: &Directives) -> Outcome {
             {
                 Outcome::Passed
             } else if errors.is_empty() {
-                Outcome::Failed(format!("expected {code} at {want}, but the program compiled"))
+                Outcome::Failed(format!(
+                    "expected {code} at {want}, but the program compiled"
+                ))
             } else {
                 Outcome::Failed(format!(
                     "expected {code} at {want}, got {}",
@@ -164,4 +166,3 @@ fn describe(sources: &SourceMap, errors: &[&Diagnostic]) -> String {
         .collect();
     listed.join(", ")
 }
-

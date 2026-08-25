@@ -81,7 +81,11 @@ mod tests {
     #[test]
     fn rejects_other_spellings() {
         for s in ["LR114", "lr0114", "0114", "LR01140", "LRxxxx", ""] {
-            assert_eq!(s.parse::<Code>(), Err(ParseCodeError::Malformed), "accepted {s:?}");
+            assert_eq!(
+                s.parse::<Code>(),
+                Err(ParseCodeError::Malformed),
+                "accepted {s:?}"
+            );
         }
     }
 

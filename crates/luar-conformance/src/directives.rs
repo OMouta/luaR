@@ -101,7 +101,10 @@ pub fn parse(source: &str) -> Result<Directives, DirectiveError> {
             break;
         };
 
-        let at = |message: String| DirectiveError { line: number, message };
+        let at = |message: String| DirectiveError {
+            line: number,
+            message,
+        };
         let twice = || at(format!("`{key}` is given twice"));
 
         match key {
@@ -176,7 +179,9 @@ pub fn parse(source: &str) -> Result<Directives, DirectiveError> {
             if split(line).is_some() {
                 return Err(DirectiveError {
                     line: index as u32 + 1,
-                    message: format!("directive below the header, which ended at line {header_end}"),
+                    message: format!(
+                        "directive below the header, which ended at line {header_end}"
+                    ),
                 });
             }
         }
@@ -189,13 +194,24 @@ pub fn parse(source: &str) -> Result<Directives, DirectiveError> {
         ));
     }
 
-    let directives = Directives { expect, spec, code, span, exit, stdout, trap };
+    let directives = Directives {
+        expect,
+        spec,
+        code,
+        span,
+        exit,
+        stdout,
+        trap,
+    };
     directives.validate()?;
     Ok(directives)
 }
 
 fn whole_file(message: &str) -> DirectiveError {
-    DirectiveError { line: 0, message: message.to_owned() }
+    DirectiveError {
+        line: 0,
+        message: message.to_owned(),
+    }
 }
 
 impl Directives {

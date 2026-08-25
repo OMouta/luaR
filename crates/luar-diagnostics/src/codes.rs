@@ -111,7 +111,10 @@ registry! {
 mod tests {
     use super::*;
 
-    #[allow(dead_code, reason = "a fixture table, exercised through lookup and active")]
+    #[allow(
+        dead_code,
+        reason = "a fixture table, exercised through lookup and active"
+    )]
     mod sample {
         use super::*;
 
