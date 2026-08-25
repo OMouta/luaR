@@ -67,7 +67,7 @@ fn decode(body: &str, raw_bytes: bool) -> Option<Vec<u8>> {
 
         // `\xNN` names a byte; everything else names a scalar, which goes in
         // as the UTF-8 it is written as.
-        if raw_bytes && body[at..].as_bytes().get(1) == Some(&b'x') {
+        if raw_bytes && bytes.get(at + 1) == Some(&b'x') {
             out.push(u8::try_from(value).ok()?);
         } else {
             let scalar = char::from_u32(value)?;
