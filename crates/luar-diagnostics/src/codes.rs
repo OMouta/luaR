@@ -121,6 +121,12 @@ registry! {
         "A character literal holds exactly one Unicode scalar value.";
     active 122 => UNTERMINATED_COMMENT, "§3.3",
         "A block comment must be closed, at the level it was opened.";
+    active 123 => EXPECTED_EXPRESSION, "§89",
+        "A value is required here, and what is written is not one.";
+    active 124 => UNCLOSED_DELIMITER, "§89",
+        "An opening bracket must be closed by its matching one.";
+    active 125 => CHAINED_OPERATOR, "§11.7",
+        "Comparison and range operators do not chain.";
 }
 
 #[cfg(test)]
