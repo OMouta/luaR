@@ -120,6 +120,10 @@ impl<'src> Lexer<'src> {
             return self.word(rest);
         }
 
+        if next.is_ascii_digit() {
+            return self.number(rest);
+        }
+
         for &(text, kind) in OPERATORS {
             if rest.starts_with(text) {
                 return self.emit(kind, text.len());
@@ -160,6 +164,51 @@ impl<'src> Lexer<'src> {
         token
     }
 
+    /// An integer literal (§4.3).
+    ///
+    /// The literal runs to the end of the word-like text, not to the first
+    /// character that cannot appear in it, so `0b12` is one bad literal
+    /// rather than `0b1` beside `2`.
+    fn number(&mut self, rest: &str) -> Token {
+        let len = rest
+            .find(|c: char| !continues_word(c))
+            .unwrap_or(rest.len());
+        let text = &rest[..len];
+
+        let (radix, digits) = match text.as_bytes() {
+            [b'0', b'x', ..] => (16, &text[2..]),
+            [b'0', b'o', ..] => (8, &text[2..]),
+            [b'0', b'b', ..] => (2, &text[2..]),
+            _ => (10, text),
+        };
+
+        let value = read_digits(digits, radix);
+        let token = self.emit(TokenKind::Integer(value.unwrap_or(0)), len);
+
+        // The value of a rejected literal is not used: the diagnostic already
+        // rejects the program, and lexing continues only to report the rest.
+        match value {
+            Ok(_) => {}
+            Err(DigitError::Malformed) => self.diagnostics.push(
+                Diagnostic::error(
+                    codes::MALFORMED_NUMBER,
+                    token.span,
+                    format!("`{text}` is not a valid integer literal"),
+                )
+                .note(
+                    "Integers are written 42, 0xff, 0o755, or 0b1010, and `_` may separate digits.",
+                ),
+            ),
+            Err(DigitError::TooLarge) => self.diagnostics.push(Diagnostic::error(
+                codes::INTEGER_LITERAL_TOO_LARGE,
+                token.span,
+                format!("`{text}` does not fit in a 64-bit integer"),
+            )),
+        }
+
+        token
+    }
+
     fn skip_whitespace(&mut self) {
         let rest = &self.source[self.offset as usize..];
         let skipped = rest.len() - rest.trim_start_matches([' ', '\t', '\r', '\n']).len();
@@ -171,6 +220,36 @@ impl<'src> Lexer<'src> {
         let span = Span::new(self.file, self.offset, self.offset + len);
         self.offset += len;
         Token::new(kind, span)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DigitError {
+    Malformed,
+    TooLarge,
+}
+
+/// The value of `digits` in `radix`, ignoring `_` separators (§4.3).
+fn read_digits(digits: &str, radix: u32) -> Result<u64, DigitError> {
+    let mut value: u64 = 0;
+    let mut seen = false;
+
+    for c in digits.chars() {
+        if c == '_' {
+            continue;
+        }
+        let digit = c.to_digit(radix).ok_or(DigitError::Malformed)?;
+        value = value
+            .checked_mul(u64::from(radix))
+            .and_then(|v| v.checked_add(u64::from(digit)))
+            .ok_or(DigitError::TooLarge)?;
+        seen = true;
+    }
+
+    if seen {
+        Ok(value)
+    } else {
+        Err(DigitError::Malformed)
     }
 }
 
@@ -302,6 +381,46 @@ mod tests {
             kinds("endif ending _end énd"),
             [Ident, Ident, Ident, Ident, Eof]
         );
+    }
+
+    /// §4.3: every integer form, and `_` separators are ignored.
+    #[test]
+    fn integer_literals_carry_their_value() {
+        use TokenKind::{Eof, Integer};
+
+        assert_eq!(
+            kinds("0 42 1_000_000"),
+            [Integer(0), Integer(42), Integer(1_000_000), Eof]
+        );
+        assert_eq!(
+            kinds("0xff 0o755 0b1010"),
+            [Integer(255), Integer(493), Integer(10), Eof]
+        );
+        assert_eq!(kinds("0xDEAD_beef"), [Integer(0xDEAD_BEEF), Eof]);
+    }
+
+    /// §10.4: a range is not a float, so the bound ends at the dots.
+    #[test]
+    fn a_range_bound_is_not_part_of_the_number() {
+        use TokenKind::{DotDotEquals, DotDotLt, Eof, Integer};
+
+        assert_eq!(kinds("0..<10"), [Integer(0), DotDotLt, Integer(10), Eof]);
+        assert_eq!(
+            kinds("1..=10"),
+            [Integer(1), DotDotEquals, Integer(10), Eof]
+        );
+    }
+
+    /// §4.3: a literal that is not one of the stated forms is rejected as one
+    /// literal, rather than split into a number and a name.
+    #[test]
+    fn a_malformed_number_is_one_rejected_literal() {
+        let lexed = lex("0b12", FILE);
+
+        assert_eq!(lexed.tokens.len(), 2);
+        assert_eq!(lexed.diagnostics.len(), 1);
+        assert_eq!(lexed.diagnostics[0].code, codes::MALFORMED_NUMBER);
+        assert_eq!(lexed.diagnostics[0].primary, Span::new(FILE, 0, 4));
     }
 
     /// A stray character costs one character, not one byte, so the text after

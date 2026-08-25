@@ -30,6 +30,13 @@ pub enum TokenKind {
     Ident,
     /// A reserved word (§3.2).
     Keyword(Keyword),
+    /// An integer literal, and its value (§4.3).
+    ///
+    /// The value is carried because reading it is the lexer's job: it is
+    /// what knows about radix prefixes and `_` separators. Which integer
+    /// type it takes is decided later, from context (§39). A literal is
+    /// never negative; `-10` is negation applied to `10` (§11.1).
+    Integer(u64),
 
     // Delimiters.
     LeftParen,

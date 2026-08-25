@@ -1,0 +1,10 @@
+--- expect: compile-ok
+--- spec: §4.3
+export function main()
+    local decimal = 42
+    local separated = 1_000_000
+    local hex = 0xff
+    local octal = 0o755
+    local binary = 0b1010
+    print(decimal + separated + hex + octal + binary)
+end

@@ -107,6 +107,10 @@ registry! {
         "`/` is not defined for two integers; `//` is integer division.";
     active 115 => RESERVED_WORD, "§81",
         "A word reserved without a meaning cannot be used as an identifier.";
+    active 116 => MALFORMED_NUMBER, "§4.3",
+        "A numeric literal must be written in one of the forms the spec states.";
+    active 117 => INTEGER_LITERAL_TOO_LARGE, "§4.3",
+        "An integer literal must fit in the widest integer type, which is 64 bits.";
 }
 
 #[cfg(test)]
