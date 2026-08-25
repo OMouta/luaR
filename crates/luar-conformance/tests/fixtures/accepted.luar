@@ -1,0 +1,3 @@
+--- expect: compile-ok
+--- spec: §11.1
+local whole = 10 // 3
