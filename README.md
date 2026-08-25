@@ -12,6 +12,8 @@ LuaR is in development. There are no releases yet.
 
 Everything below is what LuaR is meant to be, not what you can run today.
 
+The language specification is in [SPEC.md](.internal/SPEC.md).
+
 ## A first look
 
 ```lua
