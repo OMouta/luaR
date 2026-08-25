@@ -73,7 +73,7 @@ fn citing_a_section_the_spec_does_not_have_is_reported() {
 
 #[test]
 fn sections_sort_by_number_not_by_text() {
-    let mut found = vec![
+    let mut found = [
         Section::parse("§11.10").unwrap(),
         Section::parse("§11.2").unwrap(),
         Section::parse("§9").unwrap(),
