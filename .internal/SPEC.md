@@ -858,6 +858,41 @@ Where `~` is unary bitwise NOT when used with one operand and inequality remains
 
 LuaR does not define a pipeline operator. Method chaining and ordinary calls cover its uses, and a second call syntax would not earn its weight.
 
+### 11.7 Precedence and Associativity
+
+Tightest first. Operators on the same row bind equally.
+
+```text
+f(x)  x[i]  x.name  x:name()  x?  x?.name        postfix, left
+**                                               right
+not x   -x   ~x   &x   &mut x                     prefix
+as   is                                          left
+*   /   //   %                                   left
++   -                                            left
+..                                               right
+<<   >>                                          left
+&                                                left
+^                                                left
+|                                                left
+??                                               right
+==   ~=   <   <=   >   >=                        none
+and                                              left
+or                                               left
+..<   ..=                                        none
+```
+
+This is Lua's table with LuaR's additions placed in it, so familiar expressions keep their familiar shape. `a & b == c` compares `a & b`, as in Lua, rather than masking with the result of a comparison.
+
+`**` binds tighter than prefix `-`, so `-x ** 2` is `-(x ** 2)`, and it associates to the right, so `2 ** 3 ** 2` is `2 ** (3 ** 2)`.
+
+`as` and `is` bind tighter than arithmetic, so `a as f64 / b as f64` divides the two converted values (§11.1).
+
+`??` binds tighter than comparison, so `x ?? 0 == y` compares the coalesced value. It associates to the right, so `a ?? b ?? c` tries each in turn.
+
+Comparison and range operators are non-associative. `a < b < c` and `a..<b..<c` are syntax errors rather than expressions that parse one way and mean nothing: the first would compare a `bool` against `c`, and the second has no reading at all.
+
+Ranges bind loosest, so `0..<n + 1` is a range up to `n + 1`.
+
 ---
 
 ## 12. Records and Structs
@@ -3726,7 +3761,9 @@ array_type      = "[" type ";" const_expression "]" ;
 
 pointer_type    = ( "*const" | "*mut" ) type ;
 
-expression      = assignment_expr ;
+expression      = literal | identifier | unary_expr | binary_expr
+                | postfix_expr | range_expr | primary_expr ;
+                  (* §11.7 states precedence and associativity *)
 
 range_expr      = [ expression ] ( "..<" | "..=" ) [ expression ] ;
 
