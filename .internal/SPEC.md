@@ -80,11 +80,12 @@ defer       do          else        elseif      end
 enum        export      extend      false       finally
 for         from        function    if          implements
 import      in          interface   internal    is
-local       match       nil         not         or
-private     property    public      ref         repeat
-return      scope       static      structural  struct
-then        throw       true        try         type
-typeof      unsafe      until       where       while
+local       match       mut         nil         not
+or          private     property    public      ref
+repeat      return      scope       static      structural
+struct      then        throw       true        try
+type        typeof      unsafe      until       where
+while
 ```
 
 Reserved but currently unused, rejected rather than treated as identifiers:
