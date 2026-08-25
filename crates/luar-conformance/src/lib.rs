@@ -10,6 +10,7 @@
 //! until the backend exists, so that the day it lands the suite says how much
 //! of the language actually works.
 
+pub mod coverage;
 pub mod directives;
 
 use std::fmt;
