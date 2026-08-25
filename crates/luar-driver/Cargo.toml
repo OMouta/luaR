@@ -8,6 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+luar-diagnostics = { workspace = true }
 luar-ast = { workspace = true }
 luar-lexer = { workspace = true }
 luar-parser = { workspace = true }
