@@ -5,8 +5,11 @@
 //! internals. Wording is explicitly not normative, so a diagnostic identifies
 //! its rule by [`Code`] and its place by [`Span`], and those are what tests
 //! match on.
+//!
+//! The codes themselves live in [`codes`], one per rule.
 
 mod code;
+pub mod codes;
 mod diagnostic;
 mod span;
 
