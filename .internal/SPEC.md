@@ -241,12 +241,19 @@ Escape sequences include:
 \t
 \\
 \"
+\'
+\`
+\{
 \0
 \xNN
 \u{...}
 ```
 
-Multiline strings use Lua-style long strings:
+Every delimiter is escapable, so any character can appear in a literal that could otherwise end it: `\"` in a string, `\'` in a character literal (§6.1), and `` \` `` and `\{` in an interpolated string (§4.6), where a backtick would close the literal and `{` would open an expression.
+
+`\xNN` writes one byte. A string holds valid UTF-8, so a byte above `\x7f` is written `\u{...}` or belongs in a byte string (§4.7).
+
+A quoted string ends at the end of its line. An unterminated one is an error at the line it opened on, rather than a literal that runs on to the next quote somewhere later in the file. Values that span lines use long strings:
 
 ```lua
 local text = [[
@@ -254,6 +261,8 @@ hello
 world
 ]]
 ```
+
+Long strings take no escapes, and may be written at a level, `[==[` closed by `]==]`, so that a string can contain any shorter bracket sequence.
 
 ### 4.6 String Interpolation
 
@@ -271,6 +280,8 @@ print(`2 + 2 = {2 + 2}`)
 ```
 
 Interpolation is syntax, not runtime source evaluation.
+
+An interpolated string takes the escapes of §4.5 and, like a quoted string, ends at the end of its line. A literal backtick or `{` is written `` \` `` or `\{`.
 
 ### 4.7 Byte Strings
 
