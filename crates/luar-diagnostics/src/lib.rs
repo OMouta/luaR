@@ -11,8 +11,10 @@
 mod code;
 pub mod codes;
 mod diagnostic;
+mod source_map;
 mod span;
 
 pub use code::{Code, ParseCodeError};
 pub use diagnostic::{Diagnostic, Label, Severity};
+pub use source_map::{Position, SourceFile, SourceMap};
 pub use span::{FileId, Span};
