@@ -105,6 +105,8 @@ macro_rules! is_retired {
 registry! {
     active 114 => FLOAT_DIVISION_ON_INTEGERS, "§11.1",
         "`/` is not defined for two integers; `//` is integer division.";
+    active 115 => RESERVED_WORD, "§81",
+        "A word reserved without a meaning cannot be used as an identifier.";
 }
 
 #[cfg(test)]

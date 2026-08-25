@@ -15,7 +15,7 @@
 mod common;
 
 use luar_diagnostics::FileId;
-use luar_lexer::{TokenKind, tokenize};
+use luar_lexer::{TokenKind, lex};
 
 const FILE: FileId = FileId(0);
 
@@ -36,7 +36,7 @@ fn every_operator_the_spec_lists_is_one_token() {
         );
 
         for operator in operators {
-            let tokens = tokenize(&operator, FILE);
+            let tokens = lex(&operator, FILE).tokens;
             assert_ne!(
                 tokens[0].kind,
                 TokenKind::Unknown,

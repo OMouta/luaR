@@ -1,8 +1,8 @@
 //! Scanning source text into tokens.
 
-use luar_diagnostics::{FileId, Span};
+use luar_diagnostics::{Diagnostic, FileId, Span, codes};
 
-use crate::keyword::Keyword;
+use crate::keyword::{Keyword, is_reserved_word};
 use crate::token::{Token, TokenKind};
 
 /// Every operator and punctuator, longest first.
@@ -85,6 +85,7 @@ pub struct Lexer<'src> {
     source: &'src str,
     file: FileId,
     offset: u32,
+    diagnostics: Vec<Diagnostic>,
 }
 
 impl<'src> Lexer<'src> {
@@ -101,6 +102,7 @@ impl<'src> Lexer<'src> {
             source,
             file,
             offset: 0,
+            diagnostics: Vec::new(),
         }
     }
 
@@ -134,8 +136,28 @@ impl<'src> Lexer<'src> {
         let len = rest
             .find(|c: char| !continues_word(c))
             .unwrap_or(rest.len());
-        let kind = Keyword::lookup(&rest[..len]).map_or(TokenKind::Ident, TokenKind::Keyword);
-        self.emit(kind, len)
+        let text = &rest[..len];
+
+        if let Some(keyword) = Keyword::lookup(text) {
+            return self.emit(TokenKind::Keyword(keyword), len);
+        }
+
+        let token = self.emit(TokenKind::Ident, len);
+
+        // A reserved word is rejected, but it still lexes as a name, so that
+        // the rest of the file is read and can report its own problems.
+        if is_reserved_word(text) {
+            self.diagnostics.push(
+                Diagnostic::error(
+                    codes::RESERVED_WORD,
+                    token.span,
+                    format!("`{text}` is reserved and has no meaning yet"),
+                )
+                .note("Reserved words cannot be used as names. Choose another."),
+            );
+        }
+
+        token
     }
 
     fn skip_whitespace(&mut self) {
@@ -162,9 +184,19 @@ fn continues_word(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
 }
 
-/// Every token in `source`, ending with [`TokenKind::Eof`].
+/// What lexing one file produced.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Lexed {
+    /// Every token, ending with [`TokenKind::Eof`].
+    pub tokens: Vec<Token>,
+    /// The rules the text broke. Errors here reject the program even though
+    /// the tokens are still usable.
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+/// Lexes `source` in full.
 #[must_use]
-pub fn tokenize(source: &str, file: FileId) -> Vec<Token> {
+pub fn lex(source: &str, file: FileId) -> Lexed {
     let mut lexer = Lexer::new(source, file);
     let mut tokens = Vec::new();
     loop {
@@ -172,7 +204,10 @@ pub fn tokenize(source: &str, file: FileId) -> Vec<Token> {
         let done = token.kind == TokenKind::Eof;
         tokens.push(token);
         if done {
-            return tokens;
+            return Lexed {
+                tokens,
+                diagnostics: lexer.diagnostics,
+            };
         }
     }
 }
@@ -183,8 +218,12 @@ mod tests {
 
     const FILE: FileId = FileId(0);
 
+    fn tokenize(source: &str) -> Vec<Token> {
+        lex(source, FILE).tokens
+    }
+
     fn kinds(source: &str) -> Vec<TokenKind> {
-        tokenize(source, FILE)
+        tokenize(source)
             .into_iter()
             .map(|token| token.kind)
             .collect()
@@ -196,7 +235,7 @@ mod tests {
     #[test]
     fn every_operator_lexes_as_one_token() {
         for &(text, kind) in OPERATORS {
-            let tokens = tokenize(text, FILE);
+            let tokens = tokenize(text);
             assert_eq!(
                 tokens.iter().map(|t| t.kind).collect::<Vec<_>>(),
                 [kind, TokenKind::Eof],
@@ -247,7 +286,7 @@ mod tests {
 
     #[test]
     fn spans_cover_each_token_exactly() {
-        let tokens = tokenize("a ??\tb", FILE);
+        let tokens = tokenize("a ??\tb");
         let spans: Vec<(u32, u32)> = tokens.iter().map(|t| (t.span.start, t.span.end)).collect();
         assert_eq!(spans, [(0, 1), (2, 4), (5, 6), (6, 6)]);
     }

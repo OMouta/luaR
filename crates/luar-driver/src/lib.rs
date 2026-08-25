@@ -16,7 +16,19 @@ pub enum Check {
 }
 
 /// Checks `root` and the modules it imports, without producing an artifact.
+///
+/// Only the lexer exists, so this can answer one of the two questions. A
+/// program the lexer rejects is rejected, and the diagnostics say why. A
+/// program it accepts has only been lexed, and calling that acceptance would
+/// report every unparsed and unchecked program as valid, so it reports no
+/// answer instead.
 #[must_use]
-pub fn check(_sources: &SourceMap, _root: FileId) -> Check {
-    Check::Unimplemented
+pub fn check(sources: &SourceMap, root: FileId) -> Check {
+    let lexed = luar_lexer::lex(sources.file(root).text(), root);
+
+    if lexed.diagnostics.iter().any(Diagnostic::is_error) {
+        Check::Ran(lexed.diagnostics)
+    } else {
+        Check::Unimplemented
+    }
 }
