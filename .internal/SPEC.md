@@ -229,7 +229,7 @@ There is no implicit conversion between integers and floating-point values where
 Strings are immutable sequences of UTF-8 bytes and are required to contain valid UTF-8.
 
 ```lua
-local name = "Tiago"
+local name = "Jon Doe"
 ```
 
 Escape sequences include:
@@ -259,7 +259,7 @@ world
 Interpolated strings use backticks.
 
 ```lua
-local name = "Tiago"
+local name = "Jon Doe"
 local message = `Hello, {name}!`
 ```
 
@@ -869,7 +869,7 @@ Record literals use braces.
 ```lua
 local user: User = {
     id = 1,
-    name = "Tiago",
+    name = "Jon Doe",
     email = nil,
 }
 ```
@@ -2830,7 +2830,7 @@ Trailing commas are allowed in multiline constructs.
 ```lua
 local user = User {
     id = 1,
-    name = "Tiago",
+    name = "Jon Doe",
 }
 ```
 
@@ -2865,7 +2865,7 @@ Struct literals are the default construction mechanism.
 ```lua
 local user = User {
     id = 1,
-    name = "Tiago",
+    name = "Jon Doe",
 }
 ```
 
@@ -2888,7 +2888,7 @@ end
 Then:
 
 ```lua
-local user = User.new("Tiago")
+local user = User.new("Jon Doe")
 ```
 
 This keeps construction explicit and avoids special behavior hidden behind one magic method name.
