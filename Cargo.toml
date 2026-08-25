@@ -8,6 +8,7 @@ members = [
     "crates/luar-sema",
     "crates/luar-lir",
     "crates/luar-codegen",
+    "crates/luar-conformance",
     "crates/luar-driver",
     "crates/luarc",
 ]
@@ -27,6 +28,7 @@ luar-parser = { path = "crates/luar-parser" }
 luar-sema = { path = "crates/luar-sema" }
 luar-lir = { path = "crates/luar-lir" }
 luar-codegen = { path = "crates/luar-codegen" }
+luar-conformance = { path = "crates/luar-conformance" }
 luar-driver = { path = "crates/luar-driver" }
 
 [workspace.lints.rust]

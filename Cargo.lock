@@ -18,6 +18,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "luar-conformance"
+version = "0.0.0"
+dependencies = [
+ "luar-diagnostics",
+ "luar-driver",
+]
+
+[[package]]
 name = "luar-diagnostics"
 version = "0.0.0"
 

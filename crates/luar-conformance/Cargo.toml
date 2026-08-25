@@ -1,0 +1,15 @@
+[package]
+name = "luar-conformance"
+description = "Runs the LuaR conformance suite."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+luar-diagnostics = { workspace = true }
+luar-driver = { workspace = true }
+
+[lints]
+workspace = true
