@@ -2,6 +2,9 @@
 //!
 //! A code is the stable name of a normative rule. Wording is free to change
 //! (§80); the code is not. Tests match on the code, never on the message.
+//!
+//! Codes are declared by the registry in [`crate::codes`], not built by hand,
+//! so that every code in use has a row saying which rule it enforces.
 
 use std::fmt;
 use std::str::FromStr;
@@ -11,8 +14,7 @@ use std::str::FromStr;
 pub struct Code(u16);
 
 impl Code {
-    #[must_use]
-    pub const fn new(number: u16) -> Self {
+    pub(crate) const fn new(number: u16) -> Self {
         Self(number)
     }
 
@@ -28,29 +30,41 @@ impl fmt::Display for Code {
     }
 }
 
-/// A string that is not shaped like a diagnostic code.
+/// Why a string is not a diagnostic code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MalformedCode;
+pub enum ParseCodeError {
+    /// Not spelled `LR` followed by four decimal digits.
+    Malformed,
+    /// Spelled correctly, but no rule has ever been given that number.
+    Unassigned,
+}
 
-impl fmt::Display for MalformedCode {
+impl fmt::Display for ParseCodeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("expected a diagnostic code of the form LR0000")
+        match self {
+            Self::Malformed => f.write_str("expected a diagnostic code of the form LR0000"),
+            Self::Unassigned => f.write_str("no diagnostic rule has that code"),
+        }
     }
 }
 
-impl std::error::Error for MalformedCode {}
+impl std::error::Error for ParseCodeError {}
 
 impl FromStr for Code {
-    type Err = MalformedCode;
+    type Err = ParseCodeError;
 
-    /// Parses the spelling only. Whether the code is assigned to a rule is a
-    /// separate question, answered by the registry.
+    /// Accepts assigned codes only, including retired ones, so that a test
+    /// naming a code that no longer exists fails loudly instead of never
+    /// matching anything.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let digits = s.strip_prefix("LR").ok_or(MalformedCode)?;
+        let digits = s.strip_prefix("LR").ok_or(ParseCodeError::Malformed)?;
         if digits.len() != 4 || !digits.bytes().all(|b| b.is_ascii_digit()) {
-            return Err(MalformedCode);
+            return Err(ParseCodeError::Malformed);
         }
-        digits.parse().map(Code).map_err(|_| MalformedCode)
+        let number = digits.parse().map_err(|_| ParseCodeError::Malformed)?;
+        crate::codes::lookup(number)
+            .map(|entry| entry.code)
+            .ok_or(ParseCodeError::Unassigned)
     }
 }
 
@@ -59,16 +73,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn spelling_round_trips() {
-        let code = Code::new(114);
-        assert_eq!(code.to_string(), "LR0114");
-        assert_eq!("LR0114".parse(), Ok(code));
+    fn codes_are_spelled_with_four_digits() {
+        assert_eq!(Code::new(114).to_string(), "LR0114");
+        assert_eq!(Code::new(7).to_string(), "LR0007");
     }
 
     #[test]
     fn rejects_other_spellings() {
         for s in ["LR114", "lr0114", "0114", "LR01140", "LRxxxx", ""] {
-            assert_eq!(s.parse::<Code>(), Err(MalformedCode), "accepted {s:?}");
+            assert_eq!(s.parse::<Code>(), Err(ParseCodeError::Malformed), "accepted {s:?}");
         }
+    }
+
+    #[test]
+    fn rejects_numbers_no_rule_has() {
+        assert_eq!("LR9999".parse::<Code>(), Err(ParseCodeError::Unassigned));
     }
 }

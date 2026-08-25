@@ -13,6 +13,6 @@ pub mod codes;
 mod diagnostic;
 mod span;
 
-pub use code::{Code, MalformedCode};
+pub use code::{Code, ParseCodeError};
 pub use diagnostic::{Diagnostic, Label, Severity};
 pub use span::{FileId, Span};
