@@ -1,2 +1,5 @@
 # Temporary plan files
 .plan
+
+# Rust build output
+/target

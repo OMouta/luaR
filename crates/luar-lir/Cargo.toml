@@ -1,0 +1,14 @@
+[package]
+name = "luar-lir"
+description = "LuaR mid-level IR: typed SSA, and the optimizations over it."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+luar-sema = { workspace = true }
+
+[lints]
+workspace = true

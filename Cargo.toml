@@ -1,0 +1,37 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/luar-ast",
+    "crates/luar-lexer",
+    "crates/luar-parser",
+    "crates/luar-sema",
+    "crates/luar-lir",
+    "crates/luar-codegen",
+    "crates/luar-driver",
+    "crates/luarc",
+]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+repository = "https://github.com/OMouta/luaR"
+
+[workspace.dependencies]
+luar-ast = { path = "crates/luar-ast" }
+luar-lexer = { path = "crates/luar-lexer" }
+luar-parser = { path = "crates/luar-parser" }
+luar-sema = { path = "crates/luar-sema" }
+luar-lir = { path = "crates/luar-lir" }
+luar-codegen = { path = "crates/luar-codegen" }
+luar-driver = { path = "crates/luar-driver" }
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+all = "warn"
+
+[profile.release]
+lto = "thin"

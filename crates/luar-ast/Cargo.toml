@@ -1,0 +1,13 @@
+[package]
+name = "luar-ast"
+description = "Syntax tree for LuaR."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

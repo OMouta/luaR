@@ -1,0 +1,14 @@
+[package]
+name = "luar-codegen"
+description = "Machine code emission for LuaR."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+luar-lir = { workspace = true }
+
+[lints]
+workspace = true

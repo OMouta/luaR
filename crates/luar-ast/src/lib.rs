@@ -1,0 +1,4 @@
+//! The LuaR syntax tree.
+//!
+//! Built by `luar_parser`, consumed by `luar_sema`. Nodes carry source spans so
+//! later stages can point a diagnostic back at the text the user wrote.
