@@ -2,6 +2,7 @@
 
 use luar_diagnostics::{Diagnostic, FileId, Span, codes};
 
+use crate::escape::{self, Escape};
 use crate::keyword::{Keyword, is_reserved_word};
 use crate::token::{Token, TokenKind};
 
@@ -376,7 +377,7 @@ impl<'src> Lexer<'src> {
     /// Returns how far it reaches even when it is wrong, so that scanning
     /// carries on from a sensible place.
     fn escape(&mut self, body: &str, at: usize, open: usize, literal: Literal) -> Escape {
-        let bytes = body.as_bytes();
+        let escape = escape::read(body, at, literal == Literal::Bytes);
         let file = self.file;
         let start = self.offset + u32::try_from(open + at).expect("an offset in the file");
         let span = move |len: usize| {
@@ -387,132 +388,40 @@ impl<'src> Lexer<'src> {
             )
         };
 
-        let simple = |c: char, len: usize| Escape {
-            len,
-            value: Some(u32::from(c)),
+        let message = match escape.error {
+            None => return escape,
+            Some(escape::EscapeError::Unknown) => Diagnostic::error(
+                codes::INVALID_ESCAPE,
+                span(escape.len),
+                "this is not an escape sequence LuaR defines",
+            )
+            .note(
+                r#"The escapes are `\n`, `\r`, `\t`, `\\`, `\"`, `\'`, `` \` ``, `\{`, `\0`, `\xNN`, and `\u{...}`."#,
+            ),
+            Some(escape::EscapeError::BadHex) => Diagnostic::error(
+                codes::INVALID_ESCAPE,
+                span(escape.len),
+                r"`\x` needs exactly two hexadecimal digits",
+            )
+            .note(r"A byte is written `\x0a`."),
+            Some(escape::EscapeError::BadUnicode) => Diagnostic::error(
+                codes::INVALID_ESCAPE,
+                span(escape.len),
+                r"`\u` needs one to six hexadecimal digits in braces, naming a scalar value",
+            )
+            .note(
+                r"A scalar is written `\u{1F600}`. Scalars run to 10FFFF, and exclude D800 through DFFF.",
+            ),
+            Some(escape::EscapeError::NotUtf8) => Diagnostic::error(
+                codes::STRING_NOT_UTF8,
+                span(escape.len),
+                "this byte is not valid UTF-8 on its own",
+            )
+            .note(r#"Write the character as `\u{...}`, or use a byte string `b"..."` (§4.7)."#),
         };
 
-        match bytes.get(at + 1) {
-            Some(b'n') => simple('\n', 2),
-            Some(b'r') => simple('\r', 2),
-            Some(b't') => simple('\t', 2),
-            Some(b'0') => simple('\0', 2),
-            Some(b'\\') => simple('\\', 2),
-            // Every delimiter escapes, so a literal can hold the character
-            // that would otherwise end it (§4.5).
-            Some(b'"') => simple('"', 2),
-            Some(b'\'') => simple('\'', 2),
-            Some(b'`') => simple('`', 2),
-            Some(b'{') => simple('{', 2),
-            Some(b'x') => {
-                let digits = &body[(at + 2).min(body.len())..];
-                let digits = &digits[..digits.len().min(2)];
-                let Some(value) = u32::from_str_radix(digits, 16)
-                    .ok()
-                    .filter(|_| digits.len() == 2)
-                else {
-                    self.diagnostics.push(
-                        Diagnostic::error(
-                            codes::INVALID_ESCAPE,
-                            span(2 + digits.len()),
-                            "`\\x` needs exactly two hexadecimal digits",
-                        )
-                        .note("A byte is written `\\x0a`."),
-                    );
-                    return Escape {
-                        len: 2 + digits.len(),
-                        value: None,
-                    };
-                };
-
-                if value > 0x7f && literal != Literal::Bytes {
-                    self.diagnostics.push(
-                        Diagnostic::error(
-                            codes::STRING_NOT_UTF8,
-                            span(4),
-                            format!("`\\x{digits}` is not valid UTF-8 on its own"),
-                        )
-                        .note(
-                            "Write the character as `\\u{...}`, or use a byte string `b\"...\"` \
-                             (§4.7).",
-                        ),
-                    );
-                    return Escape {
-                        len: 4,
-                        value: None,
-                    };
-                }
-
-                Escape {
-                    len: 4,
-                    value: Some(value),
-                }
-            }
-            Some(b'u') => self.unicode_escape(body, at, &span),
-            _ => {
-                self.diagnostics.push(
-                    Diagnostic::error(
-                        codes::INVALID_ESCAPE,
-                        span(2.min(body.len() - at)),
-                        "this is not an escape sequence LuaR defines",
-                    )
-                    .note(
-                        "The escapes are `\\n`, `\\r`, `\\t`, `\\\\`, `\\\"`, `\\'`, `` \\` ``, \
-                         `\\{`, `\\0`, `\\xNN`, and `\\u{...}`.",
-                    ),
-                );
-                Escape {
-                    len: 2.min(body.len() - at),
-                    value: None,
-                }
-            }
-        }
-    }
-
-    /// A `\u{...}` escape (§4.5).
-    fn unicode_escape(&mut self, body: &str, at: usize, span: &impl Fn(usize) -> Span) -> Escape {
-        let after = &body[at + 2..];
-        let digits = after
-            .strip_prefix('{')
-            .map(|rest| &rest[..rest.find('}').unwrap_or(0)]);
-
-        let Some(digits) = digits.filter(|d| !d.is_empty() && d.len() <= 6) else {
-            let len = 3 + after.find('}').map_or(0, |i| i);
-            self.diagnostics.push(
-                Diagnostic::error(
-                    codes::INVALID_ESCAPE,
-                    span(len.min(body.len() - at)),
-                    "`\\u` needs one to six hexadecimal digits in braces",
-                )
-                .note("A scalar is written `\\u{1F600}`."),
-            );
-            return Escape {
-                len: len.min(body.len() - at),
-                value: None,
-            };
-        };
-
-        let len = 4 + digits.len();
-        let scalar = u32::from_str_radix(digits, 16)
-            .ok()
-            .and_then(char::from_u32);
-
-        let Some(scalar) = scalar else {
-            self.diagnostics.push(
-                Diagnostic::error(
-                    codes::INVALID_ESCAPE,
-                    span(len),
-                    format!("`{digits}` is not a Unicode scalar value"),
-                )
-                .note("Scalars run to 10FFFF, and exclude D800 through DFFF."),
-            );
-            return Escape { len, value: None };
-        };
-
-        Escape {
-            len,
-            value: Some(u32::from(scalar)),
-        }
+        self.diagnostics.push(message);
+        escape
     }
 
     /// One part of an interpolated string (§4.6): the closing backtick, the
@@ -724,21 +633,11 @@ impl Literal {
     }
 }
 
-/// What an escape sequence covers, and the scalar it denotes.
-///
-/// `value` is `None` when the escape was rejected; the diagnostic has already
-/// been reported and the value is not used.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Escape {
-    len: usize,
-    value: Option<u32>,
-}
-
 /// The opening of a long bracket, as `(length, level)`.
 ///
 /// `[[` is level 0, `[=[` is level 1, and so on, so that a string can contain
 /// any bracket sequence shorter than its own (§4.5).
-fn long_bracket(rest: &str) -> Option<(usize, usize)> {
+pub(crate) fn long_bracket(rest: &str) -> Option<(usize, usize)> {
     let after = rest.strip_prefix('[')?;
     let level = after.len() - after.trim_start_matches('=').len();
     after[level..]
