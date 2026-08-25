@@ -100,7 +100,7 @@ Patterns destructure records, structs, tuples, and lists, and they take guards.
 
 ```lua
 match request
-    case Request.Get(path) if path.startsWith("/api")
+    case Request.Get(path) if path:startsWith("/api")
         return handleApi(path)
 
     case Request.Get(path)
@@ -161,8 +161,8 @@ end
 
 async function loadBoth(): Result<(User, User), Error>
     async scope tasks
-        local first = tasks.spawn(loadUser(1))
-        local second = tasks.spawn(loadUser(2))
+        local first = tasks:spawn(loadUser(1))
+        local second = tasks:spawn(loadUser(2))
 
         return Result.Ok(((await first)?, (await second)?))
     end
