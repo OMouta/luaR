@@ -398,8 +398,12 @@ impl<'src> Lexer<'src> {
             Some(b't') => simple('\t', 2),
             Some(b'0') => simple('\0', 2),
             Some(b'\\') => simple('\\', 2),
+            // Every delimiter escapes, so a literal can hold the character
+            // that would otherwise end it (§4.5).
             Some(b'"') => simple('"', 2),
             Some(b'\'') => simple('\'', 2),
+            Some(b'`') => simple('`', 2),
+            Some(b'{') => simple('{', 2),
             Some(b'x') => {
                 let digits = &body[(at + 2).min(body.len())..];
                 let digits = &digits[..digits.len().min(2)];
@@ -452,7 +456,10 @@ impl<'src> Lexer<'src> {
                         span(2.min(body.len() - at)),
                         "this is not an escape sequence LuaR defines",
                     )
-                    .note("The escapes are `\\n`, `\\r`, `\\t`, `\\\\`, `\\\"`, `\\'`, `\\0`, `\\xNN`, and `\\u{...}`."),
+                    .note(
+                        "The escapes are `\\n`, `\\r`, `\\t`, `\\\\`, `\\\"`, `\\'`, `` \\` ``, \
+                         `\\{`, `\\0`, `\\xNN`, and `\\u{...}`.",
+                    ),
                 );
                 Escape {
                     len: 2.min(body.len() - at),
@@ -1164,6 +1171,20 @@ mod tests {
         let bad = lex(r"`\q`", FILE);
         assert_eq!(bad.diagnostics.len(), 1);
         assert_eq!(bad.diagnostics[0].code, codes::INVALID_ESCAPE);
+
+        // §4.5: the delimiters escape, so text can hold a backtick or a brace
+        // without ending the literal or opening a hole.
+        let delimiters = lex(r"`a \` b \{ c`", FILE);
+        assert_eq!(delimiters.diagnostics, []);
+        assert_eq!(
+            delimiters.tokens.iter().map(|t| t.kind).collect::<Vec<_>>(),
+            [
+                TokenKind::InterpolationStart,
+                TokenKind::InterpolationText,
+                TokenKind::InterpolationEnd,
+                TokenKind::Eof
+            ]
+        );
 
         let open = lex("`unclosed\nlocal x = 1", FILE);
         assert_eq!(open.diagnostics.len(), 1);
