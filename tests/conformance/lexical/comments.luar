@@ -1,0 +1,13 @@
+--- expect: compile-ok
+--- spec: §3.3
+--- spec: §62
+--- Returns the answer.
+---
+--- The comment above documents this function.
+export function main()
+    -- a line comment
+    --[[ a block comment
+         --[[ with another inside it ]]
+         still inside the outer one ]]
+    print(42)
+end

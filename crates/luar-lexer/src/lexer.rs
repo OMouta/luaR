@@ -93,6 +93,18 @@ enum Mode {
     Hole { braces: usize },
 }
 
+/// A comment, and where it was (§3.3, §62).
+///
+/// Comments are kept beside the tokens rather than in them. A parser does not
+/// want to skip them at every step, and a formatter (§64) and the
+/// documentation generator (§62) can find the ones they care about by span.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Comment {
+    pub span: Span,
+    /// Written `---`, so it documents whatever follows it (§62).
+    pub doc: bool,
+}
+
 /// Turns source text into tokens, one call at a time.
 #[derive(Debug)]
 pub struct Lexer<'src> {
@@ -101,6 +113,7 @@ pub struct Lexer<'src> {
     offset: u32,
     diagnostics: Vec<Diagnostic>,
     modes: Vec<Mode>,
+    comments: Vec<Comment>,
 }
 
 impl<'src> Lexer<'src> {
@@ -119,6 +132,7 @@ impl<'src> Lexer<'src> {
             offset: 0,
             diagnostics: Vec::new(),
             modes: Vec::new(),
+            comments: Vec::new(),
         }
     }
 
@@ -130,7 +144,7 @@ impl<'src> Lexer<'src> {
             return self.interpolation(start);
         }
 
-        self.skip_whitespace();
+        self.skip_trivia();
 
         let rest = &self.source[self.offset as usize..];
         let Some(next) = rest.chars().next() else {
@@ -583,6 +597,76 @@ impl<'src> Lexer<'src> {
         token
     }
 
+    /// Consumes whitespace and comments, recording each comment (§3.3, §62).
+    fn skip_trivia(&mut self) {
+        loop {
+            self.skip_whitespace();
+
+            let rest = &self.source[self.offset as usize..];
+            if !rest.starts_with("--") {
+                return;
+            }
+
+            let start = self.offset;
+            let (len, doc) = match long_bracket(&rest[2..]) {
+                Some((open, level)) => (self.block_comment(rest, 2 + open, level), false),
+                // §62: `---` documents what follows, but a row of dashes is a
+                // divider and documents nothing.
+                None => (
+                    rest.find('\n').unwrap_or(rest.len()),
+                    rest.starts_with("---") && !rest.starts_with("----"),
+                ),
+            };
+
+            self.offset += u32::try_from(len).expect("a comment inside the file");
+            self.comments.push(Comment {
+                span: Span::new(self.file, start, self.offset),
+                doc,
+            });
+        }
+    }
+
+    /// How far a block comment reaches, from its opening `--[[` (§3.3).
+    ///
+    /// Block comments nest, so this counts openings of the same level rather
+    /// than stopping at the first `]]`.
+    fn block_comment(&mut self, rest: &str, open: usize, level: usize) -> usize {
+        let opener = format!("--[{}[", "=".repeat(level));
+        let closer = format!("]{}]", "=".repeat(level));
+        let bytes = rest.as_bytes();
+
+        let mut at = open;
+        let mut depth = 1usize;
+
+        while at < bytes.len() {
+            if bytes[at..].starts_with(closer.as_bytes()) {
+                at += closer.len();
+                depth -= 1;
+                if depth == 0 {
+                    return at;
+                }
+            } else if bytes[at..].starts_with(opener.as_bytes()) {
+                at += opener.len();
+                depth += 1;
+            } else {
+                at += 1;
+            }
+        }
+
+        let start = self.offset;
+        self.diagnostics.push(Diagnostic::error(
+            codes::UNTERMINATED_COMMENT,
+            Span::new(
+                self.file,
+                start,
+                start + u32::try_from(bytes.len()).expect("a comment inside the file"),
+            ),
+            format!("this block comment is missing its closing `{closer}`"),
+        ));
+
+        bytes.len()
+    }
+
     fn skip_whitespace(&mut self) {
         let rest = &self.source[self.offset as usize..];
         let skipped = rest.len() - rest.trim_start_matches([' ', '\t', '\r', '\n']).len();
@@ -738,6 +822,8 @@ fn continues_word(c: char) -> bool {
 pub struct Lexed {
     /// Every token, ending with [`TokenKind::Eof`].
     pub tokens: Vec<Token>,
+    /// Every comment, in the order they appear (§3.3, §62).
+    pub comments: Vec<Comment>,
     /// The rules the text broke. Errors here reject the program even though
     /// the tokens are still usable.
     pub diagnostics: Vec<Diagnostic>,
@@ -755,6 +841,7 @@ pub fn lex(source: &str, file: FileId) -> Lexed {
         if done {
             return Lexed {
                 tokens,
+                comments: lexer.comments,
                 diagnostics: lexer.diagnostics,
             };
         }
@@ -1086,6 +1173,55 @@ mod tests {
             open.tokens[2].kind,
             TokenKind::Keyword(crate::keyword::Keyword::Local)
         );
+    }
+
+    /// §3.3: comments are trivia, so they do not reach the token stream, and
+    /// §62: `---` documents what follows while a divider does not.
+    #[test]
+    fn comments_are_kept_beside_the_tokens() {
+        use TokenKind::{Eof, Ident};
+
+        let lexed = lex(
+            "-- ordinary\n--- documented\n----------\nname --[[ block ]] name",
+            FILE,
+        );
+
+        assert_eq!(
+            lexed.tokens.iter().map(|t| t.kind).collect::<Vec<_>>(),
+            [Ident, Ident, Eof]
+        );
+        assert_eq!(
+            lexed.comments.iter().map(|c| c.doc).collect::<Vec<_>>(),
+            [false, true, false, false]
+        );
+    }
+
+    /// §3.3: block comments nest, so an inner one does not end the outer.
+    #[test]
+    fn block_comments_nest() {
+        use TokenKind::{Eof, Ident};
+
+        let lexed = lex("--[[ outer --[[ inner ]] still outer ]] name", FILE);
+
+        assert_eq!(
+            lexed.tokens.iter().map(|t| t.kind).collect::<Vec<_>>(),
+            [Ident, Eof]
+        );
+        assert_eq!(lexed.comments.len(), 1);
+
+        // A different level is text, not a nested comment.
+        let levelled = lex("--[==[ ]] still going ]==] name", FILE);
+        assert_eq!(levelled.comments.len(), 1);
+        assert_eq!(levelled.tokens.len(), 2);
+    }
+
+    #[test]
+    fn an_unclosed_block_comment_is_reported() {
+        let lexed = lex("--[[ never closed\nname", FILE);
+
+        assert_eq!(lexed.diagnostics.len(), 1);
+        assert_eq!(lexed.diagnostics[0].code, codes::UNTERMINATED_COMMENT);
+        assert_eq!(lexed.tokens[0].kind, TokenKind::Eof);
     }
 
     /// A stray character costs one character, not one byte, so the text after

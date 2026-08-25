@@ -119,6 +119,8 @@ registry! {
         "A string holds valid UTF-8, so a byte escape past 0x7F needs a byte string.";
     active 121 => MALFORMED_CHAR, "§6.1",
         "A character literal holds exactly one Unicode scalar value.";
+    active 122 => UNTERMINATED_COMMENT, "§3.3",
+        "A block comment must be closed, at the level it was opened.";
 }
 
 #[cfg(test)]
