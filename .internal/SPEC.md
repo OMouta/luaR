@@ -1904,9 +1904,9 @@ References preserve object identity where identity is semantically relevant.
 Low-level operations require an explicit `unsafe` context.
 
 ```lua
-unsafe {
+unsafe
     ...
-}
+end
 ```
 
 Unsafe capabilities may include:
@@ -2398,7 +2398,7 @@ A foreign declaration is its own declaration form. It carries a signature and no
 Calling one requires an `unsafe` context:
 
 ```lua
-unsafe {
+unsafe
     puts(pointer)
 end
 ```
@@ -3022,7 +3022,7 @@ A raw pointer to an existing value is taken with the address-of operators, which
 ```
 
 ```lua
-unsafe {
+unsafe
     native_clock(&mut result)
 end
 ```
@@ -3387,7 +3387,7 @@ function currentNativeTime(): Result<CTime, Error>
         nanos = 0,
     }
 
-    unsafe {
+    unsafe
         -- `value` is an addressable local, so &mut is valid for the
         -- duration of this block (§72).
         if native_clock(&mut value) ~= 0 then
@@ -3656,7 +3656,7 @@ match_case      = "case" pattern
                   ( "=>" expression | block ) ;
                   (* one arm form throughout a given match *)
 
-unsafe_block    = "unsafe" "{" block "}" ;
+unsafe_block    = "unsafe" block "end" ;
 
 try_stmt        = "try" block
                   { catch_clause }
@@ -3766,6 +3766,8 @@ The interactions that previously blocked a normative grammar are decided.
 **Method calls versus member access.** `:` calls a method, `.` reaches fields, properties, tuple elements, static functions, enum variants, and module members (§12.2). Neither spelling is a fallback for the other.
 
 **Foreign declarations.** `extern_decl` is its own production with no body, so a bodiless signature is not a malformed `function_decl`.
+
+**Unsafe blocks versus the `unsafe` modifier.** A function declaration is not a statement, so it cannot open a block. `unsafe` followed by `function` or `static` is therefore always the modifier on a declaration (§46), and `unsafe` followed by anything else opens a block that runs to its `end` (§29.2).
 
 ---
 
