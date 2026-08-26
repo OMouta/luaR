@@ -2642,6 +2642,29 @@ Loop variables are scoped to the loop.
 
 Captured values follow closure semantics.
 
+### 54.1 Predeclared Names
+
+A closed set of names is in scope in every module without an import:
+
+```text
+print
+assert
+debugAssert
+panic
+unreachable
+Result
+```
+
+Predeclared names occupy a scope outside the module. A declaration or an import of the same name shadows one, and shadowing one is not an error:
+
+```lua
+local print = collect
+```
+
+Predeclared names are not a module. They cannot be imported from, renamed, or re-exported. Everything else the standard library provides is imported like any other module (§21.1, §60).
+
+The set is closed. A name belongs in it only because it cannot be written as an ordinary declaration, or because every program needs it to state a signature. `assert` and `debugAssert` depend on compilation mode (§49), `unreachable` has type `never` (§50), and `panic` does not return (§25.4). `Result` names the type of every fallible signature (§25.1). `print` is neither, and is predeclared so that writing a line of output does not require an import.
+
 ---
 
 ## 55. Evaluation Order
