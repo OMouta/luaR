@@ -1,0 +1,21 @@
+--- expect: compile-ok
+--- spec: LR15.3
+--- spec: LR15.2
+enum Message
+    Quit
+    Write(string)
+    Move { x: int, y: int }
+end
+
+enum Either<T, E>
+    Ok(T)
+    Err(E)
+end
+
+export function main()
+    local quit: Message = Message.Quit
+    local write: Message = Message.Write("hi")
+    local move: Message = Message.Move { x = 1, y = 2 }
+    local ok: Either<int, string> = Either.Ok(3)
+    print(quit, write, move, ok)
+end

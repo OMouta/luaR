@@ -1,0 +1,13 @@
+--- expect: compile-error
+--- code: LR0148
+--- span: 12:26
+--- spec: LR15.2
+--- spec: LR15.3
+enum Message
+    Quit
+    Write(string)
+end
+
+function build(): Message
+    return Message.Write(1)
+end

@@ -20,10 +20,11 @@ use luar_ast::{
 };
 use luar_diagnostics::{Diagnostic, Span, codes};
 
+use crate::aliases::substitute;
 use crate::annotations::Resolver;
 use crate::modules::{Graph, ModuleId};
 use crate::names::{Names, Origin, bound};
-use crate::table::{Decl, Field, Overloads, Signature, Table};
+use crate::table::{Decl, Field, Overloads, Signature, Table, Variant};
 use crate::types::{Builtin, Primitive, Type};
 
 /// Checks the types of every module in `graph`.
@@ -124,14 +125,13 @@ fn covers(pattern: &Pattern) -> Option<Covers> {
             let bound = match payload {
                 None => true,
                 Some(Payload::Tuple(patterns)) => patterns.iter().all(irrefutable),
-                // `...` is what lets the unlisted fields be anything, and
-                // every listed one still has to match nothing in particular.
-                Some(Payload::Record { fields, rest }) => {
-                    *rest
-                        && fields.iter().all(|field| match &field.pattern {
-                            Some(pattern) => irrefutable(pattern),
-                            None => true,
-                        })
+                // A field left out is a field not tested, so what decides it
+                // is whether the listed ones rule anything out.
+                Some(Payload::Record { fields, .. }) => {
+                    fields.iter().all(|field| match &field.pattern {
+                        Some(pattern) => irrefutable(pattern),
+                        None => true,
+                    })
                 }
             };
 
@@ -897,6 +897,14 @@ impl Checker<'_> {
                 name,
                 optional,
             } => {
+                // LR15.3: a variant is reached through its enum, which is a
+                // type and not a value, so this builds rather than reads.
+                if let ExprKind::Name(owner) = &receiver.kind
+                    && let Some((built, Variant::Unit)) = self.variant(owner, name)
+                {
+                    return built;
+                }
+
                 let held = self.expr(receiver);
 
                 // LR8: `?.` is what reaches through an optional, so it reads
@@ -967,12 +975,7 @@ impl Checker<'_> {
                             .collect(),
                     )
                 } else {
-                    let built = self
-                        .types
-                        .named(path, Vec::new())
-                        .unwrap_or(Type::Unresolved);
-                    self.initializers(&built, fields, &values, expr.span);
-                    built
+                    self.built(path, fields, &values, expr.span)
                 }
             }
             ExprKind::Map(entries) => {
@@ -1393,19 +1396,124 @@ impl Checker<'_> {
 
     /// LR12.2: a struct literal gives a value for every field the struct
     /// declares without a default, and names no field it does not declare.
-    fn initializers(&mut self, built: &Type, written: &[FieldInit], values: &[Type], span: Span) {
-        let Type::Named { module, name, .. } = built else {
-            return;
+    /// The type a `Path { ... }` literal builds: a struct, or the enum a
+    /// record variant belongs to (LR12.2, LR15.3).
+    fn built(
+        &mut self,
+        path: &[String],
+        written: &[FieldInit],
+        values: &[Type],
+        span: Span,
+    ) -> Type {
+        if let [owner, variant] = path
+            && let Some((built, Variant::Record(fields))) = self.variant(owner, variant)
+        {
+            let Type::Named { module, .. } = &built else {
+                return built;
+            };
+            let module = *module;
+            self.initializers(
+                &format!("{owner}.{variant}"),
+                module,
+                &fields,
+                written,
+                values,
+                span,
+            );
+            return built;
+        }
+
+        let built = self
+            .types
+            .named(path, Vec::new())
+            .unwrap_or(Type::Unresolved);
+
+        if let Type::Named { module, name, .. } = &built
+            && let Some(structure) = self.table.structure(*module, name)
+        {
+            let (module, name) = (*module, name.clone());
+            let fields = structure.fields.clone();
+            self.initializers(&name, module, &fields, written, values, span);
+        }
+
+        built
+    }
+
+    /// The enum variant `owner.name` names, and the enum it builds (LR15.3).
+    ///
+    /// A generic enum's parameters are left unresolved, because working out
+    /// what they hold from the arguments is inference that does not exist yet
+    /// (LR19), and a wrong guess would reject a program that is fine.
+    fn variant(&self, owner: &str, name: &str) -> Option<(Type, Variant)> {
+        // A local of that name holds a value, and a value is not a type.
+        if self.shadowed(owner) {
+            return None;
+        }
+
+        let named = self
+            .types
+            .named(std::slice::from_ref(&owner.to_owned()), Vec::new())?;
+        let Type::Named {
+            module,
+            name: enumeration,
+            ..
+        } = named
+        else {
+            return None;
         };
-        let Some(structure) = self.table.structure(*module, name) else {
-            return;
+        let Some(Decl::Enum(declared)) = self.table.get(module, &enumeration) else {
+            return None;
         };
 
+        let payload = declared.variants.get(name)?;
+        let unknown: Vec<Type> = declared
+            .type_params
+            .iter()
+            .map(|_| Type::Unresolved)
+            .collect();
+
+        let payload = match payload {
+            Variant::Unit => Variant::Unit,
+            Variant::Tuple(types) => Variant::Tuple(
+                types
+                    .iter()
+                    .map(|ty| substitute(ty, &declared.type_params, &unknown))
+                    .collect(),
+            ),
+            Variant::Record(fields) => Variant::Record(
+                fields
+                    .iter()
+                    .map(|field| Field {
+                        ty: substitute(&field.ty, &declared.type_params, &unknown),
+                        ..field.clone()
+                    })
+                    .collect(),
+            ),
+        };
+
+        Some((
+            Type::Named {
+                module,
+                name: enumeration,
+                args: unknown,
+            },
+            payload,
+        ))
+    }
+
+    fn initializers(
+        &mut self,
+        owner: &str,
+        module: ModuleId,
+        declared: &[Field],
+        written: &[FieldInit],
+        values: &[Type],
+        span: Span,
+    ) {
+        let name = owner;
+
         for (field, value) in written.iter().zip(values) {
-            let Some(declared) = structure
-                .fields
-                .iter()
-                .find(|declared| declared.name == field.name)
+            let Some(declared) = declared.iter().find(|declared| declared.name == field.name)
             else {
                 self.diagnostics.push(
                     Diagnostic::error(
@@ -1413,17 +1521,17 @@ impl Checker<'_> {
                         field.span,
                         format!("`{name}` has no field `{}`", field.name),
                     )
-                    .note("A struct literal names the fields the struct declares (LR12.2)."),
+                    .note("A literal names the fields the type declares (LR12.2, LR15.3)."),
                 );
                 continue;
             };
 
-            self.private(declared.visibility, *module, name, &field.name, field.span);
-            self.expect(&declared.ty, value, field.value.span);
+            let (visibility, wanted) = (declared.visibility, declared.ty.clone());
+            self.private(visibility, module, name, &field.name, field.span);
+            self.expect(&wanted, value, field.value.span);
         }
 
-        let missing: Vec<String> = structure
-            .fields
+        let missing: Vec<String> = declared
             .iter()
             .filter(|declared| !declared.optional)
             .filter(|declared| !written.iter().any(|field| field.name == declared.name))
@@ -1826,6 +1934,32 @@ impl Checker<'_> {
         // block.
         if self.shadowed(owner) {
             return None;
+        }
+
+        // LR15.3: `Enum.Variant(...)` builds a value of the enum, and its
+        // payload is checked the way a call checks its arguments.
+        if let Some((built, Variant::Tuple(payload))) = self.variant(owner, name) {
+            return Some(Callee {
+                name: format!("{owner}.{name}"),
+                overloads: vec![Signature {
+                    asynchronous: false,
+                    params: payload
+                        .into_iter()
+                        .enumerate()
+                        .map(|(index, ty)| crate::table::Param {
+                            name: index.to_string(),
+                            ty,
+                            optional: false,
+                            variadic: false,
+                        })
+                        .collect(),
+                    result: built,
+                    takes_self: false,
+                    visibility: None,
+                    span,
+                }],
+                receiver: None,
+            });
         }
 
         // A block is known by the name this module binds it to, and only
