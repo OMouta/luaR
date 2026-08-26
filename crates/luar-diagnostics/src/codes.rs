@@ -155,6 +155,8 @@ registry! {
         "A name in value position must be declared, imported, or predeclared.";
     active 139 => IMPLICIT_GLOBAL, "§52",
         "Assignment declares nothing; the name must already be in scope.";
+    active 140 => PARAMETER_REDECLARED, "§53",
+        "A parameter list names each parameter once.";
 }
 
 #[cfg(test)]

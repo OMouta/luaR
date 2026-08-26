@@ -1,0 +1,6 @@
+--- expect: compile-ok
+--- spec: §53
+export function trim(value: string): string
+    local value = value
+    return value
+end

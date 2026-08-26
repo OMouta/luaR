@@ -146,12 +146,31 @@ impl Resolver<'_> {
 
     /// Parameters, in order. A default may use the parameters before it and
     /// nothing after, which is the order they are written in (§9.4).
+    ///
+    /// One name may not be a parameter twice (§53). A `local` in the body
+    /// shadowing a parameter is a different thing, and allowed, because the
+    /// body opens a scope of its own.
     fn params(&mut self, params: &[Param]) {
+        let mut taken: HashSet<String> = HashSet::new();
+
         for param in params {
             if let Some(default) = &param.default {
                 self.expr(default);
             }
-            self.binding(&param.binding);
+
+            for name in bound(&param.binding) {
+                if !taken.insert(name.clone()) {
+                    self.diagnostics.push(
+                        Diagnostic::error(
+                            codes::PARAMETER_REDECLARED,
+                            param.span,
+                            format!("`{name}` is already a parameter of this function"),
+                        )
+                        .note("A binding in an inner scope may shadow one, but a parameter list names each parameter once (§53)."),
+                    );
+                }
+                self.bind(&name);
+            }
         }
     }
 
@@ -444,19 +463,8 @@ impl Resolver<'_> {
 
     /// Binds what a binding binds (§5.3).
     fn binding(&mut self, binding: &Binding) {
-        match binding {
-            Binding::Name(name) => self.bind(name),
-            Binding::Record(fields) => {
-                for field in fields {
-                    self.bind(field.bound_as.as_ref().unwrap_or(&field.field));
-                }
-            }
-            Binding::Tuple(bindings) => {
-                for binding in bindings {
-                    self.binding(binding);
-                }
-            }
-            Binding::Error => {}
+        for name in bound(binding) {
+            self.bind(&name);
         }
     }
 
@@ -487,5 +495,23 @@ impl Resolver<'_> {
             span,
             format!("`{name}` is not in scope"),
         ));
+    }
+}
+
+/// The names a binding binds, in the order written (§5.3).
+fn bound(binding: &Binding) -> Vec<String> {
+    match binding {
+        Binding::Name(name) => vec![name.clone()],
+        Binding::Record(fields) => fields
+            .iter()
+            .map(|field| {
+                field
+                    .bound_as
+                    .clone()
+                    .unwrap_or_else(|| field.field.clone())
+            })
+            .collect(),
+        Binding::Tuple(bindings) => bindings.iter().flat_map(bound).collect(),
+        Binding::Error => Vec::new(),
     }
 }
