@@ -177,6 +177,8 @@ registry! {
         "A `private` member is reachable only inside the module that declares it.";
     active 150 => AMBIGUOUS_EXTENSION, "LR20",
         "Two extension blocks in scope offering one method for one type is decided by naming one.";
+    active 151 => EXTENSION_OVERRIDES_MEMBER, "LR20",
+        "An extension adds members to a type and never replaces one it already has.";
 }
 
 #[cfg(test)]

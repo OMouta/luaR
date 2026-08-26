@@ -120,13 +120,17 @@ impl Checker<'_> {
             }
             Item::Struct(structure) => self.structure(structure),
             Item::Extend(extend) => {
-                let methods = match self.table.get(self.scope, &extend.name) {
-                    Some(Decl::Extension { methods, .. }) => methods.clone(),
-                    _ => Default::default(),
+                let (target, methods) = match self.table.get(self.scope, &extend.name) {
+                    Some(Decl::Extension { target, methods }) => (target.clone(), methods.clone()),
+                    _ => (Type::Unresolved, BTreeMap::new()),
                 };
+
                 for function in &extend.functions {
-                    let signature = function.name.last().and_then(|name| methods.get(name));
-                    self.body(function, signature, None);
+                    let name = function.name.last();
+                    if let Some(name) = name {
+                        self.overrides(&target, name, function.span);
+                    }
+                    self.body(function, name.and_then(|name| methods.get(name)), None);
                 }
             }
             // Nothing of these is written outside their own types, which the
@@ -717,6 +721,39 @@ impl Checker<'_> {
         self.diagnostics.push(reported);
 
         Type::Unresolved
+    }
+
+    /// LR20: an extension adds members to a type, and never replaces one the
+    /// type already has. Letting it would make what a call means depend on
+    /// which blocks the calling module happens to import.
+    fn overrides(&mut self, target: &Type, name: &str, span: Span) {
+        let Type::Named {
+            module,
+            name: declared,
+            ..
+        } = target
+        else {
+            return;
+        };
+        let Some(structure) = self.table.structure(*module, declared) else {
+            return;
+        };
+
+        let held = structure.methods.contains_key(name)
+            || structure.fields.iter().any(|field| field.name == name)
+            || structure.properties.iter().any(|field| field.name == name);
+        if !held {
+            return;
+        }
+
+        self.diagnostics.push(
+            Diagnostic::error(
+                codes::EXTENSION_OVERRIDES_MEMBER,
+                span,
+                format!("`{declared}` already has a member `{name}`"),
+            )
+            .note("An extension adds members to a type and never replaces one (LR20)."),
+        );
     }
 
     /// The extension method `name` on `receiver`, from the blocks this

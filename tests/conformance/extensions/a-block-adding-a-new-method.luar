@@ -1,0 +1,21 @@
+--- expect: compile-ok
+--- spec: LR20
+struct Vec2
+    x: float
+    y: float
+
+    function length(self): float
+        return self.x
+    end
+end
+
+extend Vec2Math for Vec2
+    function doubled(self): float
+        return self.y
+    end
+end
+
+export function main()
+    local point = Vec2 { x = 1.0, y = 2.0 }
+    print(point:doubled())
+end
