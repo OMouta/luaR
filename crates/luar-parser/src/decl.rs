@@ -472,7 +472,10 @@ fn member(cursor: &mut Cursor) -> Member {
 
     // A method is an ordinary function declaration, modifiers and all (LR42).
     if let Some(function) = declaration(cursor, decorators) {
-        return Member::Function(function);
+        return Member::Function {
+            visibility,
+            function,
+        };
     }
 
     Member::Field(field(cursor, start, visibility))

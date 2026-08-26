@@ -135,7 +135,7 @@ impl Checker<'_> {
                         self.expect(&wanted, &value, default.span);
                     }
                 }
-                Member::Function(function) => {
+                Member::Function { function, .. } => {
                     let signature = function
                         .name
                         .last()

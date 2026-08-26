@@ -125,7 +125,13 @@ pub enum Semantics {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Member {
     Field(Field),
-    Function(Function),
+    /// A method (LR42). Visibility sits beside the function rather than in it,
+    /// because a free function and an interface member are written with the
+    /// same syntax and neither takes one (LR44).
+    Function {
+        visibility: Option<Visibility>,
+        function: Function,
+    },
     Property(Property),
 }
 

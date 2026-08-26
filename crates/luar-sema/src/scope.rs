@@ -142,7 +142,7 @@ impl Resolver<'_> {
                     self.expr(default);
                 }
             }
-            Member::Function(function) => self.function(function),
+            Member::Function { function, .. } => self.function(function),
             Member::Property(property) => self.property(property),
         }
     }

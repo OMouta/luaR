@@ -70,6 +70,9 @@ pub struct Signature {
     pub result: Type,
     /// Whether it takes `self`, which is what makes it a method (LR65).
     pub takes_self: bool,
+    /// `private` narrows a method to its module (LR44). Only a member has
+    /// one; a free function is reached through its module surface instead.
+    pub visibility: Option<Visibility>,
 }
 
 #[derive(Debug, Clone)]
@@ -246,7 +249,7 @@ fn declare(
         let (name, decl) = match item {
             Item::Function(function) if function.name.len() == 1 => (
                 function.name[0].clone(),
-                Decl::Function(signature(function, resolver, diagnostics)),
+                Decl::Function(signature(function, None, resolver, diagnostics)),
             ),
             Item::Struct(structure) => {
                 resolver.enter(&structure.type_params);
@@ -267,11 +270,14 @@ fn declare(
                             ty: resolver.resolve(&property.ty, diagnostics),
                             visibility: property.visibility,
                         }),
-                        Member::Function(function) => {
+                        Member::Function {
+                            visibility,
+                            function,
+                        } => {
                             if let Some(name) = function.name.last() {
                                 methods.insert(
                                     name.clone(),
-                                    signature(function, resolver, diagnostics),
+                                    signature(function, *visibility, resolver, diagnostics),
                                 );
                             }
                         }
@@ -347,7 +353,7 @@ fn declare(
                             if let Some(name) = function.name.last() {
                                 methods.insert(
                                     name.clone(),
-                                    signature(function, resolver, diagnostics),
+                                    signature(function, None, resolver, diagnostics),
                                 );
                             }
                         }
@@ -391,7 +397,10 @@ fn declare(
                 let mut methods = BTreeMap::new();
                 for function in &extend.functions {
                     if let Some(name) = function.name.last() {
-                        methods.insert(name.clone(), signature(function, resolver, diagnostics));
+                        methods.insert(
+                            name.clone(),
+                            signature(function, None, resolver, diagnostics),
+                        );
                     }
                 }
 
@@ -416,6 +425,7 @@ fn declare(
 /// The signature of a function, without the body.
 fn signature(
     function: &Function,
+    visibility: Option<Visibility>,
     resolver: &mut Resolver,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Signature {
@@ -460,5 +470,6 @@ fn signature(
         params,
         result,
         takes_self,
+        visibility,
     }
 }
