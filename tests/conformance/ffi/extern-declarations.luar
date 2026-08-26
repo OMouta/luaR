@@ -1,0 +1,21 @@
+--- expect: compile-ok
+--- spec: §46
+@extern("c")
+unsafe function puts(text: *const u8): i32
+
+@extern("c")
+unsafe function native_clock(out: *mut CTime): i32
+
+@repr("C")
+struct CTime
+    seconds: i64
+    nanos: i64
+end
+
+export function main()
+    print(other())
+end
+
+function other(): int
+    return 1
+end

@@ -149,6 +149,38 @@ fn declaration(cursor: &mut Cursor, decorators: Vec<Decorator>) -> Option<Functi
     }
 
     cursor.advance();
+
+    // §46, §89.1: a foreign declaration is its own form. It carries a
+    // signature and no body, so a bodiless one is not a malformed function.
+    let foreign = decorators
+        .iter()
+        .find(|decorator| decorator.name == "extern");
+
+    if let Some(foreign) = foreign {
+        if !unsafe_ {
+            let span = foreign.span;
+            cursor
+                .error(
+                    codes::EXTERN_WITHOUT_UNSAFE,
+                    span,
+                    "a foreign declaration must be `unsafe`",
+                )
+                .note(
+                    "The compiler can verify nothing about the callee, so the declaration says \n                     so: `@extern(\"c\") unsafe function` (§46).",
+                );
+        }
+        if foreign.args.is_empty() {
+            let span = foreign.span;
+            cursor.error(
+                codes::EXTERN_WITHOUT_UNSAFE,
+                span,
+                "a foreign declaration states which ABI it uses",
+            );
+        }
+    }
+
+    let bodied = foreign.is_none();
+
     Some(function(
         cursor,
         start,
@@ -159,7 +191,7 @@ fn declaration(cursor: &mut Cursor, decorators: Vec<Decorator>) -> Option<Functi
             unsafe_,
             static_,
         },
-        true,
+        bodied,
     ))
 }
 

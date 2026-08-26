@@ -143,6 +143,8 @@ registry! {
         "A module holds declarations and statements, and this is neither.";
     active 133 => EXPECTED_ACCESSOR, "§43",
         "A property says what reading it does, and a setter names what is assigned.";
+    active 134 => EXTERN_WITHOUT_UNSAFE, "§46",
+        "A foreign declaration states an ABI and is `unsafe`, since neither is verifiable.";
 }
 
 #[cfg(test)]
