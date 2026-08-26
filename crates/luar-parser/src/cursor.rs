@@ -8,7 +8,18 @@ pub(crate) struct Cursor<'src> {
     source: &'src str,
     tokens: Vec<Token>,
     at: usize,
+    /// What is left of the current token after part of it was consumed, which
+    /// happens only when a `>>` closes a type-argument list.
+    split: Option<Token>,
     diagnostics: Vec<Diagnostic>,
+}
+
+/// A place to come back to, for a reading the parser may abandon.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Mark {
+    at: usize,
+    split: Option<Token>,
+    diagnostics: usize,
 }
 
 impl<'src> Cursor<'src> {
@@ -18,6 +29,7 @@ impl<'src> Cursor<'src> {
             source,
             tokens: lexed.tokens,
             at: 0,
+            split: None,
             diagnostics: lexed.diagnostics,
         }
     }
@@ -27,7 +39,8 @@ impl<'src> Cursor<'src> {
     }
 
     pub(crate) fn peek(&self) -> Token {
-        self.tokens[self.at.min(self.tokens.len() - 1)]
+        self.split
+            .unwrap_or_else(|| self.tokens[self.at.min(self.tokens.len() - 1)])
     }
 
     pub(crate) fn kind(&self) -> TokenKind {
@@ -68,6 +81,7 @@ impl<'src> Cursor<'src> {
 
     pub(crate) fn advance(&mut self) -> Token {
         let token = self.peek();
+        self.split = None;
         if !self.at_end() {
             self.at += 1;
         }
@@ -86,6 +100,85 @@ impl<'src> Cursor<'src> {
 
     pub(crate) fn eat_keyword(&mut self, keyword: Keyword) -> bool {
         self.eat(TokenKind::Keyword(keyword))
+    }
+
+    /// Where the cursor is, to come back to if a reading does not work out.
+    pub(crate) fn mark(&self) -> Mark {
+        Mark {
+            at: self.at,
+            split: self.split,
+            diagnostics: self.diagnostics.len(),
+        }
+    }
+
+    /// Whether anything was reported since `mark`, which is how a
+    /// speculative reading knows it did not work out.
+    pub(crate) fn reported_since(&self, mark: Mark) -> bool {
+        self.diagnostics.len() > mark.diagnostics
+    }
+
+    /// Goes back to `mark`, dropping whatever was reported since.
+    ///
+    /// Only for a reading the grammar allows the parser to try and abandon,
+    /// where the diagnostics belong to the attempt rather than to the program.
+    pub(crate) fn rewind(&mut self, mark: Mark) {
+        self.at = mark.at;
+        self.split = mark.split;
+        self.diagnostics.truncate(mark.diagnostics);
+    }
+
+    /// A name, and the span it was written at.
+    pub(crate) fn name(&mut self) -> (String, Span) {
+        let span = self.span();
+
+        if self.kind() != TokenKind::Ident {
+            self.error(codes::EXPECTED_EXPRESSION, span, "expected a name here");
+            return (String::new(), span);
+        }
+
+        let text = self.text(span).to_owned();
+        self.advance();
+        (text, span)
+    }
+
+    /// Whether the current token closes a type-argument list, whether or not
+    /// it is only a `>`.
+    pub(crate) fn at_type_args_close(&self) -> bool {
+        matches!(
+            self.kind(),
+            TokenKind::Gt | TokenKind::GtEquals | TokenKind::Shr | TokenKind::ShrEquals
+        )
+    }
+
+    /// Consumes the `>` closing a type-argument list.
+    ///
+    /// `Map<string, List<int>>` ends in one `>>` token, because the lexer
+    /// takes the longest operator it can (§11.5). Splitting it here, where the
+    /// grammar knows a type argument list is being closed, keeps the lexer
+    /// from having to know what it is inside of.
+    pub(crate) fn eat_type_args_close(&mut self) -> bool {
+        let span = self.span();
+        let rest = |kind| Token::new(kind, Span::new(span.file, span.start + 1, span.end));
+
+        match self.kind() {
+            TokenKind::Gt => {
+                self.advance();
+                true
+            }
+            TokenKind::Shr => {
+                self.split = Some(rest(TokenKind::Gt));
+                true
+            }
+            TokenKind::GtEquals => {
+                self.split = Some(rest(TokenKind::Equals));
+                true
+            }
+            TokenKind::ShrEquals => {
+                self.split = Some(rest(TokenKind::GtEquals));
+                true
+            }
+            _ => false,
+        }
     }
 
     /// Consumes a closing delimiter, or reports the opening one as unclosed.

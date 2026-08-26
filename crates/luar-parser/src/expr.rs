@@ -1,10 +1,11 @@
 //! Expressions, by precedence climbing over the table in §11.7.
 
-use luar_ast::{Argument, BinaryOp, Expr, ExprKind, InterpolationPart, Type, TypeKind, UnaryOp};
-use luar_diagnostics::{Span, codes};
+use luar_ast::{Argument, BinaryOp, Expr, ExprKind, InterpolationPart, Type, UnaryOp};
+use luar_diagnostics::codes;
 use luar_lexer::{Keyword, TokenKind};
 
 use crate::cursor::Cursor;
+use crate::ty::ty;
 
 /// A binding power, as §11.7 orders them. Larger binds tighter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -302,6 +303,21 @@ fn postfix(cursor: &mut Cursor) -> Expr {
     let mut value = primary(cursor);
 
     loop {
+        // §89.1: `name <` opens type arguments only when what follows parses
+        // as a type list and a `(` comes straight after the `>`. Type
+        // arguments in expression position only ever precede a call, so
+        // `json.decode<User>(text)` is a generic call and `a < b > (c)` is a
+        // comparison.
+        if cursor.kind() == TokenKind::Lt {
+            if let Some(args) = type_arguments(cursor) {
+                value = call(cursor, value, None);
+                if let ExprKind::Call { type_args, .. } = &mut value.kind {
+                    *type_args = args;
+                }
+                continue;
+            }
+        }
+
         value = match cursor.kind() {
             TokenKind::LeftParen => call(cursor, value, None),
             TokenKind::Dot | TokenKind::QuestionDot => {
@@ -312,7 +328,7 @@ fn postfix(cursor: &mut Cursor) -> Expr {
                 if optional && cursor.kind() == TokenKind::LeftBracket {
                     index(cursor, value, true)
                 } else {
-                    let name = name(cursor);
+                    let name = cursor.name();
                     let span = value.span.to(name.1);
                     Expr::new(
                         ExprKind::Field {
@@ -327,7 +343,7 @@ fn postfix(cursor: &mut Cursor) -> Expr {
             TokenKind::LeftBracket => index(cursor, value, false),
             TokenKind::Colon => {
                 cursor.advance();
-                let (method, _) = name(cursor);
+                let (method, _) = cursor.name();
                 call(cursor, value, Some(method))
             }
             // `map?[key]` indexes an optional receiver (§8), while `x?`
@@ -347,6 +363,40 @@ fn postfix(cursor: &mut Cursor) -> Expr {
             _ => return value,
         };
     }
+}
+
+/// Reads `<A, B>` when it is a type-argument list, and nothing otherwise.
+///
+/// The whole reading is speculative: what is written may equally be a
+/// comparison, so the parse is rewound and anything it reported is dropped
+/// unless a `(` confirms it (§89.1).
+fn type_arguments(cursor: &mut Cursor) -> Option<Vec<Type>> {
+    let mark = cursor.mark();
+    cursor.advance();
+
+    let mut args = Vec::new();
+    loop {
+        if cursor.at_end() {
+            cursor.rewind(mark);
+            return None;
+        }
+
+        args.push(ty(cursor));
+        if !cursor.eat(TokenKind::Comma) {
+            break;
+        }
+    }
+
+    let closed = cursor.eat_type_args_close();
+
+    // The `(` has to follow immediately: `a < b > (c)` is a comparison, and
+    // only the absence of anything between `>` and `(` tells them apart.
+    if !closed || cursor.kind() != TokenKind::LeftParen || cursor.reported_since(mark) {
+        cursor.rewind(mark);
+        return None;
+    }
+
+    Some(args)
 }
 
 fn call(cursor: &mut Cursor, callee: Expr, method: Option<String>) -> Expr {
@@ -374,6 +424,7 @@ fn call(cursor: &mut Cursor, callee: Expr, method: Option<String>) -> Expr {
         ExprKind::Call {
             callee: Box::new(callee),
             method,
+            type_args: Vec::new(),
             args,
         },
         span,
@@ -385,7 +436,7 @@ fn argument(cursor: &mut Cursor) -> Argument {
     let start = cursor.span();
 
     if cursor.kind() == TokenKind::Ident && cursor.peek_kind(1) == TokenKind::Equals {
-        let (name, _) = name(cursor);
+        let (name, _) = cursor.name();
         cursor.advance();
         let value = expression(cursor);
         let span = start.to(value.span);
@@ -567,49 +618,6 @@ fn interpolation(cursor: &mut Cursor) -> Expr {
     let end = cursor.span();
     cursor.eat(TokenKind::InterpolationEnd);
     Expr::new(ExprKind::Interpolation(parts), opened.to(end))
-}
-
-/// A name, and the span it was written at.
-fn name(cursor: &mut Cursor) -> (String, Span) {
-    let span = cursor.span();
-
-    if cursor.kind() != TokenKind::Ident {
-        cursor.error(codes::EXPECTED_EXPRESSION, span, "expected a name here");
-        return (String::new(), span);
-    }
-
-    let text = cursor.text(span).to_owned();
-    cursor.advance();
-    (text, span)
-}
-
-/// A type, as far as expressions need one today: a path, optionally `?`.
-///
-/// §14, §17, §71, and §72 have forms this does not read yet; they arrive with
-/// the task that parses types.
-fn ty(cursor: &mut Cursor) -> Type {
-    let start = cursor.span();
-
-    if cursor.kind() != TokenKind::Ident {
-        cursor.error(codes::EXPECTED_EXPRESSION, start, "expected a type here");
-        return Type::new(TypeKind::Error, start);
-    }
-
-    let mut path = vec![name(cursor).0];
-    while cursor.kind() == TokenKind::Dot {
-        cursor.advance();
-        path.push(name(cursor).0);
-    }
-
-    let mut ty = Type::new(TypeKind::Path(path), start.to(cursor.previous_span()));
-
-    while cursor.kind() == TokenKind::Question {
-        let span = ty.span.to(cursor.span());
-        cursor.advance();
-        ty = Type::new(TypeKind::Optional(Box::new(ty)), span);
-    }
-
-    ty
 }
 
 /// Whether a token can begin an expression, which is what decides if a range

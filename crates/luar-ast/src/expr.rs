@@ -57,9 +57,12 @@ pub enum ExprKind {
     },
 
     /// `f(x)`, or `receiver:method(x)` when `method` is set (§12.2).
+    ///
+    /// `type_args` are the ones written at the call site, `f<T>(x)` (§19).
     Call {
         callee: Box<Expr>,
         method: Option<String>,
+        type_args: Vec<Type>,
         args: Vec<Argument>,
     },
     /// `x.name`, or `x?.name` when `optional` (§8).

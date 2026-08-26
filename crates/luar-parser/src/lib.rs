@@ -10,6 +10,7 @@
 
 mod cursor;
 mod expr;
+mod ty;
 
 use luar_ast::Expr;
 use luar_diagnostics::{Diagnostic, FileId};

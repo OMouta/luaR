@@ -69,6 +69,7 @@ fn render(expr: &Expr) -> String {
         ExprKind::Call {
             callee,
             method,
+            type_args,
             args,
         } => {
             let args: Vec<String> = args
@@ -82,7 +83,12 @@ fn render(expr: &Expr) -> String {
                 Some(method) => format!("{}:{method}", render(callee)),
                 None => render(callee),
             };
-            format!("(call {callee} {})", args.join(" "))
+            let types = if type_args.is_empty() {
+                String::new()
+            } else {
+                format!("<{}> ", type_args.len())
+            };
+            format!("(call {callee} {types}{})", args.join(" "))
         }
         ExprKind::Field {
             receiver,
@@ -104,8 +110,8 @@ fn render(expr: &Expr) -> String {
             render(index)
         ),
         ExprKind::Try(value) => format!("({}?)", render(value)),
-        ExprKind::Cast { value, ty } => format!("({} as {ty:?})", render(value)),
-        ExprKind::TypeTest { value, ty } => format!("({} is {ty:?})", render(value)),
+        ExprKind::Cast { value, ty } => format!("({} as {})", render(value), name_of(ty)),
+        ExprKind::TypeTest { value, ty } => format!("({} is {})", render(value), name_of(ty)),
         ExprKind::AddressOf { mutable, operand } => format!(
             "(&{}{})",
             if *mutable { "mut " } else { "" },
@@ -115,6 +121,14 @@ fn render(expr: &Expr) -> String {
         ExprKind::List(items) => format!("(list {})", rendered(items)),
         ExprKind::Interpolation(_) => "(interpolation)".to_owned(),
         ExprKind::Error => "(error)".to_owned(),
+    }
+}
+
+/// Types have their own tests; here one only has to be told apart.
+fn name_of(ty: &luar_ast::Type) -> String {
+    match &ty.kind {
+        luar_ast::TypeKind::Path { segments, .. } => segments.join("."),
+        other => format!("{other:?}"),
     }
 }
 
@@ -200,10 +214,7 @@ fn power_binds_tighter_than_prefix_operators() {
 /// divides the two converted values.
 #[test]
 fn conversion_binds_tighter_than_arithmetic() {
-    assert_eq!(
-        shape("a as f64 / b as f64"),
-        r#"((a as Type { kind: Path(["f64"]), span: Span { file: FileId(0), start: 5, end: 8 } }) / (b as Type { kind: Path(["f64"]), span: Span { file: FileId(0), start: 16, end: 19 } }))"#
-    );
+    assert_eq!(shape("a as f64 / b as f64"), "((a as f64) / (b as f64))");
 }
 
 /// §11.7: ranges bind loosest, so a bound may be an expression without
@@ -233,6 +244,29 @@ fn postfix_operators_bind_tightest() {
     assert_eq!(shape("a:b(c)"), "(call a:b c)");
     assert_eq!(shape("read()? .. rest"), "(((call read )?) .. rest)");
     assert_eq!(shape("config.port ?? 8080"), "((config .port) ?? 8080)");
+}
+
+/// §89.1: `name <` opens type arguments only when the tokens through the
+/// matching `>` are a type list and a `(` follows immediately. Everything else
+/// is a comparison.
+#[test]
+fn type_arguments_are_told_from_comparison_by_the_paren_that_follows() {
+    assert_eq!(
+        shape("json.decode<User>(text)"),
+        "(call (json .decode) <1> text)"
+    );
+    assert_eq!(shape("a < b"), "(a < b)");
+    // Without a `(` after the `>`, it is read as comparison. That it is then
+    // rejected for chaining, rather than for anything about types, is what
+    // says which reading was taken.
+    assert_eq!(codes("a < b > c"), ["LR0125"]);
+    // With one, it is a call. The comparison reading was never valid, because
+    // comparison does not chain (§11.7, §89.1).
+    assert_eq!(shape("a < b > (c)"), "(call a <1> c)");
+    assert_eq!(
+        shape("into<Map<string, List<int>>>(value)"),
+        "(call into <1> value)"
+    );
 }
 
 /// §9.5: an argument may be passed by name, which is `=` and not `:`.

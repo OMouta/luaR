@@ -127,6 +127,8 @@ registry! {
         "An opening bracket must be closed by its matching one.";
     active 125 => CHAINED_OPERATOR, "§11.7",
         "Comparison and range operators do not chain.";
+    active 126 => EXPECTED_TYPE, "§89",
+        "A type is required here, and what is written is not one.";
 }
 
 #[cfg(test)]

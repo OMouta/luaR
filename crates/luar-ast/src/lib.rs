@@ -7,4 +7,4 @@ pub mod expr;
 pub mod ty;
 
 pub use expr::{Argument, BinaryOp, Expr, ExprKind, InterpolationPart, UnaryOp};
-pub use ty::{Type, TypeKind};
+pub use ty::{RecordField, Type, TypeKind};
