@@ -1,0 +1,39 @@
+--- expect: compile-ok
+--- spec: §15
+--- spec: §15.1
+--- spec: §15.2
+--- spec: §15.3
+export enum Direction
+    North
+    South
+    East
+    West
+end
+
+export enum Message
+    Quit
+    Move { x: int, y: int }
+    Write(string)
+end
+
+export enum Either<T, E>
+    Ok(T)
+    Err(E)
+end
+
+export function main()
+    local result = Either.Ok(user)
+    local message = Message.Move { x = 10, y = 20 }
+    local quit = Message.Quit
+
+    match message
+        case Message.Move { x, y }
+            moveTo(x, y)
+        case Message.Write(text)
+            print(text)
+        case Message.Quit
+            exit()
+    end
+
+    print(result, quit)
+end

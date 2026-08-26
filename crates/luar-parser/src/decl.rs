@@ -1,8 +1,8 @@
 //! Declarations, and the module that holds them (§9, §21.3, §44).
 
 use luar_ast::{
-    Block, Field, Function, Item, Member, Module, Param, Property, Semantics, Setter, Struct,
-    Visibility,
+    Block, Enum, Field, Function, Item, Member, Module, Param, Property, Semantics, Setter, Struct,
+    Type, Variant, VariantPayload, Visibility,
 };
 use luar_diagnostics::{Span, codes};
 use luar_lexer::{Keyword, TokenKind};
@@ -69,6 +69,10 @@ fn item(cursor: &mut Cursor) -> Option<Item> {
 
     if cursor.kind() == TokenKind::Keyword(Keyword::Struct) {
         return Some(Item::Struct(structure(cursor, start, exported, semantics)));
+    }
+
+    if cursor.kind() == TokenKind::Keyword(Keyword::Enum) {
+        return Some(Item::Enum(enumeration(cursor, start, exported)));
     }
 
     cursor.rewind(mark);
@@ -407,4 +411,70 @@ fn close(cursor: &mut Cursor, opened: Span, construct: &str) {
     cursor
         .error(codes::UNCLOSED_DELIMITER, here, "expected `end`")
         .label(opened, format!("this `{construct}` is still open"));
+}
+
+/// `enum Name ... end`, whose variants may carry data (§15).
+fn enumeration(cursor: &mut Cursor, start: Span, exported: bool) -> Enum {
+    cursor.advance();
+
+    let name = cursor.name().0;
+    let type_params = type_parameters(cursor);
+
+    let mut variants = Vec::new();
+    while !matches!(
+        cursor.kind(),
+        TokenKind::Keyword(Keyword::End) | TokenKind::Eof
+    ) {
+        let before = cursor.mark();
+        variants.push(variant(cursor));
+
+        if cursor.stalled(before) {
+            cursor.advance();
+        }
+    }
+
+    close(cursor, start, "enum");
+
+    Enum {
+        exported,
+        name,
+        type_params,
+        variants,
+        span: start.to(cursor.previous_span()),
+    }
+}
+
+/// `Quit`, `Write(string)`, or `Move { x: int, y: int }` (§15.1, §15.2).
+fn variant(cursor: &mut Cursor) -> Variant {
+    let start = cursor.span();
+    let name = cursor.name().0;
+
+    let payload = match cursor.kind() {
+        TokenKind::LeftParen => Some(VariantPayload::Tuple(variant_types(cursor))),
+        TokenKind::LeftBrace => Some(VariantPayload::Record(ty::record_fields(cursor))),
+        _ => None,
+    };
+
+    Variant {
+        name,
+        payload,
+        span: start.to(cursor.previous_span()),
+    }
+}
+
+/// `(A, B)`, the types a variant carries by position.
+fn variant_types(cursor: &mut Cursor) -> Vec<Type> {
+    let opened = cursor.span();
+    cursor.advance();
+
+    let mut types = Vec::new();
+    while !matches!(cursor.kind(), TokenKind::RightParen | TokenKind::Eof) {
+        types.push(ty::ty(cursor));
+        if !cursor.eat(TokenKind::Comma) {
+            break;
+        }
+    }
+
+    cursor.close(TokenKind::RightParen, opened, ")");
+    types
 }

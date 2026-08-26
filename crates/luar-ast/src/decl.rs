@@ -18,6 +18,7 @@ pub struct Module {
 pub enum Item {
     Function(Function),
     Struct(Struct),
+    Enum(Enum),
     /// A statement at module level (§21.3).
     Stmt(crate::stmt::Stmt),
 }
@@ -125,4 +126,31 @@ pub struct Setter {
     pub param: String,
     pub body: Block,
     pub span: Span,
+}
+
+/// An `enum` declaration: a nominal tagged value (§15).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Enum {
+    pub exported: bool,
+    pub name: String,
+    pub type_params: Vec<String>,
+    pub variants: Vec<Variant>,
+    pub span: Span,
+}
+
+/// One variant, namespaced by the enum that declares it (§15.3).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Variant {
+    pub name: String,
+    pub payload: Option<VariantPayload>,
+    pub span: Span,
+}
+
+/// What a variant carries (§15.2).
+#[derive(Debug, Clone, PartialEq)]
+pub enum VariantPayload {
+    /// `Write(string)`, carried by position.
+    Tuple(Vec<Type>),
+    /// `Move { x: int, y: int }`, carried by name.
+    Record(Vec<crate::ty::RecordField>),
 }

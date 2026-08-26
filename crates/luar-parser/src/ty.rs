@@ -194,8 +194,16 @@ fn array(cursor: &mut Cursor) -> Type {
     )
 }
 
-/// `{ name: T, ... }` (§12.1).
+/// `{ name: T, ... }` as a type (§12.1).
 fn record(cursor: &mut Cursor) -> Type {
+    let start = cursor.span();
+    let fields = record_fields(cursor);
+    Type::new(TypeKind::Record(fields), start.to(cursor.previous_span()))
+}
+
+/// The fields of a braced type list, shared by record types (§12.1) and the
+/// record payload of an enum variant (§15.2).
+pub(crate) fn record_fields(cursor: &mut Cursor) -> Vec<RecordField> {
     let opened = cursor.span();
     cursor.advance();
 
@@ -224,9 +232,8 @@ fn record(cursor: &mut Cursor) -> Type {
         }
     }
 
-    let end = cursor.span();
     cursor.close(TokenKind::RightBrace, opened, "}");
-    Type::new(TypeKind::Record(fields), opened.to(end))
+    fields
 }
 
 /// `*const T` and `*mut T` (§72).
