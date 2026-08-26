@@ -3637,6 +3637,12 @@ interface_decl  = [ "export" ]
                   { interface_member }
                   "end" ;
 
+interface_member
+                = [ "async" ] "function" identifier [ type_params ]
+                  "(" [ parameter_list ] ")" [ ":" type ]
+                                                (* required, and has no body *)
+                | identifier ":" type ;         (* a required property (§18) *)
+
 extend_decl     = [ "export" ]
                   "extend" identifier "for" type
                   { function_decl }
