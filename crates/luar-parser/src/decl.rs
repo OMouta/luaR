@@ -1,8 +1,8 @@
 //! Declarations, and the module that holds them (§9, §21.3, §44).
 
 use luar_ast::{
-    Block, Enum, Field, Function, Interface, InterfaceMember, Item, Member, Module, Param,
-    Property, Semantics, Setter, Struct, Type, Variant, VariantPayload, Visibility,
+    Block, Enum, Extend, Field, Function, Interface, InterfaceMember, Item, Member, Module, Param,
+    Property, Semantics, Setter, Struct, Type, TypeAlias, Variant, VariantPayload, Visibility,
 };
 use luar_diagnostics::{Span, codes};
 use luar_lexer::{Keyword, TokenKind};
@@ -73,6 +73,14 @@ fn item(cursor: &mut Cursor) -> Option<Item> {
 
     if cursor.kind() == TokenKind::Keyword(Keyword::Enum) {
         return Some(Item::Enum(enumeration(cursor, start, exported)));
+    }
+
+    if cursor.kind() == TokenKind::Keyword(Keyword::Extend) {
+        return Some(Item::Extend(extension(cursor, start, exported)));
+    }
+
+    if cursor.kind() == TokenKind::Keyword(Keyword::Type) {
+        return Some(Item::TypeAlias(type_alias(cursor, start, exported)));
     }
 
     let structural = cursor.eat_keyword(Keyword::Structural);
@@ -552,6 +560,89 @@ fn interface_member(cursor: &mut Cursor) -> InterfaceMember {
     InterfaceMember::Property {
         name,
         ty,
+        span: start.to(cursor.previous_span()),
+    }
+}
+
+/// `extend Name for Type ... end` (§20).
+fn extension(cursor: &mut Cursor, start: Span, exported: bool) -> Extend {
+    cursor.advance();
+
+    let name = cursor.name().0;
+
+    if !cursor.eat_keyword(Keyword::For) {
+        let here = cursor.span();
+        cursor
+            .error(
+                codes::EXPECTED_DECLARATION,
+                here,
+                "expected `for` and a type",
+            )
+            .note(
+                "An extension block names itself and what it extends: `extend Name for T` (§20).",
+            );
+    }
+
+    let target = ty::ty(cursor);
+
+    let mut functions = Vec::new();
+    while !matches!(
+        cursor.kind(),
+        TokenKind::Keyword(Keyword::End) | TokenKind::Eof
+    ) {
+        let before = cursor.mark();
+
+        match declaration(cursor) {
+            Some(function) => functions.push(function),
+            None => {
+                let here = cursor.span();
+                if !cursor.reported_since(before) {
+                    cursor
+                        .error(
+                            codes::EXPECTED_DECLARATION,
+                            here,
+                            "an extension block holds functions",
+                        )
+                        .note("Extension methods add no stored fields (§20).");
+                }
+            }
+        }
+
+        if cursor.stalled(before) {
+            cursor.advance();
+        }
+    }
+
+    close(cursor, start, "extend");
+
+    Extend {
+        exported,
+        name,
+        target,
+        functions,
+        span: start.to(cursor.previous_span()),
+    }
+}
+
+/// `type Name = T` (§17.1).
+fn type_alias(cursor: &mut Cursor, start: Span, exported: bool) -> TypeAlias {
+    cursor.advance();
+
+    let name = cursor.name().0;
+    let type_params = type_parameters(cursor);
+
+    if !cursor.eat(TokenKind::Equals) {
+        let here = cursor.span();
+        cursor.error(codes::EXPECTED_TYPE, here, "expected `=` and a type");
+    }
+
+    let target = ty::ty(cursor);
+
+    TypeAlias {
+        exported,
+        name,
+        type_params,
+        target,
         span: start.to(cursor.previous_span()),
     }
 }

@@ -20,6 +20,8 @@ pub enum Item {
     Struct(Struct),
     Enum(Enum),
     Interface(Interface),
+    Extend(Extend),
+    TypeAlias(TypeAlias),
     /// A statement at module level (§21.3).
     Stmt(crate::stmt::Stmt),
 }
@@ -178,4 +180,28 @@ pub enum InterfaceMember {
     Function(Function),
     /// A required property (§18).
     Property { name: String, ty: Type, span: Span },
+}
+
+/// An `extend Name for Type` block (§20).
+///
+/// The block is named, exported, and imported like any other declaration, so
+/// importing a module for one function never changes what a method call means
+/// somewhere else.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Extend {
+    pub exported: bool,
+    pub name: String,
+    pub target: Type,
+    pub functions: Vec<Function>,
+    pub span: Span,
+}
+
+/// A type alias (§17.1).
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypeAlias {
+    pub exported: bool,
+    pub name: String,
+    pub type_params: Vec<String>,
+    pub target: Type,
+    pub span: Span,
 }

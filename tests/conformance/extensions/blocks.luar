@@ -1,0 +1,28 @@
+--- expect: compile-ok
+--- spec: §20
+--- spec: §17.1
+export type Handler = (Request) -> Response
+export type Id = string | u64
+export type Pair<T> = (T, T)
+
+export extend StringSlug for string
+    function slug(self): string
+        return self:lower()
+    end
+end
+
+extend Vec2Math for Vec2
+    function normalized(self): Vec2
+        local length = self:length()
+        return Vec2 { x = self.x / length, y = self.y / length }
+    end
+end
+
+function Vec2.scaled(self, factor: float): Vec2
+    return Vec2 { x = self.x * factor, y = self.y * factor }
+end
+
+export function main()
+    local path = title:slug()
+    print(path, StringSlug.slug(title))
+end
