@@ -1,0 +1,8 @@
+--- expect: compile-ok
+--- spec: LR20
+import { Slug } from "./support/slug"
+
+export function main()
+    local title = "Hello World"
+    print(title:slug())
+end

@@ -1,0 +1,5 @@
+export extend Slug for string
+    function slug(self): string
+        return "slug"
+    end
+end

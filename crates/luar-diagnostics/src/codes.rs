@@ -175,6 +175,8 @@ registry! {
         "An argument has the type its parameter declares.";
     active 149 => PRIVATE_MEMBER, "LR44",
         "A `private` member is reachable only inside the module that declares it.";
+    active 150 => AMBIGUOUS_EXTENSION, "LR20",
+        "Two extension blocks in scope offering one method for one type is decided by naming one.";
 }
 
 #[cfg(test)]

@@ -11,7 +11,7 @@
 //! stages that answer them exist, and an unresolved type never causes a
 //! diagnostic. What is reported is what the compiler can be sure of today.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use luar_ast::{
     Argument, ArmBody, BinaryOp, Binding, Block, Expr, ExprKind, FieldInit, Function, FunctionBody,
@@ -38,6 +38,7 @@ pub fn check(graph: &Graph, names: &Names, table: &Table) -> Vec<Diagnostic> {
             types: Resolver::new(names, table.kinds(), id),
             scope: id,
             values: vec![HashMap::new()],
+            extensions: extensions(names, table, id),
             diagnostics: &mut diagnostics,
         };
         checker.module(&node.ast);
@@ -58,7 +59,45 @@ struct Checker<'a> {
     scope: ModuleId,
     /// What each name in scope holds, innermost last.
     values: Vec<HashMap<String, Type>>,
+    /// The extension blocks this module may reach (LR20).
+    extensions: Vec<Extension<'a>>,
     diagnostics: &'a mut Vec<Diagnostic>,
+}
+
+/// An extension block a module can use, under the name that module knows it
+/// by, which `as` may have changed (LR20, LR21.1).
+struct Extension<'a> {
+    name: &'a str,
+    target: &'a Type,
+    methods: &'a BTreeMap<String, Signature>,
+}
+
+/// The extension blocks in scope in `module`: the ones it declares and the
+/// ones it imports by name (LR20).
+///
+/// A namespace import binds the other module, not the blocks inside it, so it
+/// brings no extension into scope. Importing a module for one function never
+/// changes what an unrelated method call means.
+fn extensions<'a>(names: &'a Names, table: &'a Table, module: ModuleId) -> Vec<Extension<'a>> {
+    let mut found = Vec::new();
+
+    for (local, binding) in names.scope(module).names() {
+        let decl = match &binding.origin {
+            Origin::Declared { .. } => table.get(module, local),
+            Origin::Imported { module, name } => table.get(*module, name),
+            Origin::Binding { .. } | Origin::Namespace(_) => continue,
+        };
+
+        if let Some(Decl::Extension { target, methods }) = decl {
+            found.push(Extension {
+                name: local,
+                target,
+                methods,
+            });
+        }
+    }
+
+    found
 }
 
 impl Checker<'_> {
@@ -680,6 +719,46 @@ impl Checker<'_> {
         Type::Unresolved
     }
 
+    /// The extension method `name` on `receiver`, from the blocks this
+    /// module has in scope (LR20).
+    ///
+    /// Two of them offering it is reported here rather than at either block,
+    /// because each block is fine on its own and only this call has to pick.
+    fn extension(&mut self, receiver: &Type, name: &str, span: Span) -> Option<Signature> {
+        let mut found: Vec<(&str, Signature)> = self
+            .extensions
+            .iter()
+            .filter(|extension| extension.target == receiver)
+            .filter_map(|extension| {
+                let signature = extension.methods.get(name)?;
+                Some((extension.name, signature.clone()))
+            })
+            .collect();
+
+        if found.len() < 2 {
+            return found.pop().map(|(_, signature)| signature);
+        }
+
+        let blocks: Vec<String> = found
+            .iter()
+            .map(|(block, _)| format!("`{block}`"))
+            .collect();
+
+        self.diagnostics.push(
+            Diagnostic::error(
+                codes::AMBIGUOUS_EXTENSION,
+                span,
+                format!("{} both add `{name}` to this type", blocks.join(" and ")),
+            )
+            .note(format!(
+                "Name the block the call means, as in `{}.{name}(value)` (LR20).",
+                found[0].0
+            )),
+        );
+
+        None
+    }
+
     /// The fields a struct literal names (LR12.2).
     ///
     /// Only their visibility is checked here. Whether the literal names every
@@ -741,7 +820,7 @@ impl Checker<'_> {
         args: &[Argument],
         span: Span,
     ) -> Type {
-        let Some(signature) = self.signature_of(callee, method, receiver) else {
+        let Some(signature) = self.signature_of(callee, method, receiver, span) else {
             // The arguments are still expressions, and whatever is wrong
             // inside them is wrong whoever is being called.
             for argument in args {
@@ -760,21 +839,23 @@ impl Checker<'_> {
 
     /// The signature of what is being called, where the table holds one.
     fn signature_of(
-        &self,
+        &mut self,
         callee: &Expr,
         method: Option<&str>,
         receiver: &Type,
+        span: Span,
     ) -> Option<Signature> {
         if let Some(method) = method {
-            let Type::Named { module, name, .. } = receiver else {
-                return None;
-            };
-            return self
-                .table
-                .structure(*module, name)?
-                .methods
-                .get(method)
-                .cloned();
+            // LR76: a method the type itself declares wins over any
+            // extension offering the same name.
+            if let Type::Named { module, name, .. } = receiver
+                && let Some(structure) = self.table.structure(*module, name)
+                && let Some(signature) = structure.methods.get(method)
+            {
+                return Some(signature.clone());
+            }
+
+            return self.extension(receiver, method, span);
         }
 
         // A call through anything but a plain name reaches a value whose type

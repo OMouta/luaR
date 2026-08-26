@@ -1,0 +1,10 @@
+--- expect: compile-ok
+--- spec: LR20
+--- spec: LR21.1
+import { Slug } from "./support/slug"
+import dashes from "./support/dashes"
+
+export function main()
+    local title = "Hello World"
+    print(title:slug())
+end

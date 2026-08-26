@@ -1,0 +1,5 @@
+export extend Dashes for string
+    function slug(self): string
+        return "dashes"
+    end
+end
