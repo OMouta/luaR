@@ -1,0 +1,18 @@
+--- expect: compile-ok
+--- spec: LR43
+--- spec: LR12.2
+struct Rect
+    w: float
+    h: float
+
+    property area: float
+        get
+            return self.w * self.h
+        end
+    end
+end
+
+export function main()
+    local rect = Rect { w = 2.0, h = 3.0 }
+    print(rect.area)
+end

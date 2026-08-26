@@ -405,6 +405,28 @@ impl Checker<'_> {
     /// A property reads and writes one type, and its accessors take no
     /// parameters of their own (LR43, LR65).
     fn property(&mut self, property: &Property, held: Type, receiver: Type) {
+        // LR43: a property reads like a field, and a field never hands back a
+        // failure the caller has to unwrap.
+        if matches!(
+            held,
+            Type::Builtin {
+                kind: Builtin::Result,
+                ..
+            }
+        ) {
+            self.diagnostics.push(
+                Diagnostic::error(
+                    codes::FALLIBLE_PROPERTY,
+                    property.span,
+                    format!(
+                        "`{}` is a property, and gives back a `Result`",
+                        property.name
+                    ),
+                )
+                .note("Anything that can fail is a method, and reads like one (LR43)."),
+            );
+        }
+
         self.push();
         self.bind("self", receiver.clone());
         self.block(&property.get);

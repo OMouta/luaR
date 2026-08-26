@@ -211,6 +211,8 @@ registry! {
         "An alias names what another type is, and cannot name itself.";
     active 167 => INTEGER_DIVISION_OPERANDS, "LR11.1",
         "`//` is integer division, and is defined on integers alone.";
+    active 168 => FALLIBLE_PROPERTY, "LR43",
+        "A property reads like a field, so it cannot hand back a failure to handle.";
 }
 
 #[cfg(test)]
