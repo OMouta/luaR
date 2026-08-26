@@ -1,0 +1,19 @@
+--- expect: compile-ok
+--- spec: LR18
+structural interface Readable
+    function read(self): bytes
+end
+
+struct File
+    function read(self): bytes
+        return b"contents"
+    end
+end
+
+function consume(source: Readable): bytes
+    return source:read()
+end
+
+export function main()
+    print(consume(File {}))
+end

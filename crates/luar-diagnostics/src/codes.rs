@@ -199,6 +199,10 @@ registry! {
         "An optional is narrowed, or reached through `?.`, before a member of it is read.";
     active 161 => MEMBER_THROUGH_UNION, "LR17.2",
         "A union is narrowed to one member type before anything only that type has is used.";
+    active 162 => INTERFACE_NOT_SATISFIED, "LR18",
+        "A type saying it implements an interface has every member that interface requires.";
+    active 163 => STRUCTURAL_PROPERTY, "LR18",
+        "A structural interface states behavior, and claims nothing about stored layout.";
 }
 
 #[cfg(test)]

@@ -1,0 +1,23 @@
+--- expect: compile-ok
+--- spec: LR18
+--- spec: LR18.1
+interface Display
+    function display(self): string
+    id: u64
+end
+
+struct User implements Display
+    id: u64
+
+    function display(self): string
+        return "user"
+    end
+end
+
+function show(value: Display): string
+    return value:display()
+end
+
+export function main()
+    print(show(User { id = 1 }))
+end

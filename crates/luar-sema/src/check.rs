@@ -105,16 +105,18 @@ struct Fit {
     counted: bool,
 }
 
-impl Fit {
-    /// Whether every argument may be what the parameter it fills declares,
-    /// which is what makes a signature a candidate (LR40).
-    fn accepts(&self, signature: &Signature, held: &[Type]) -> bool {
-        self.counted
-            && self.slots.iter().zip(held).all(|(slot, held)| match slot {
-                Some(index) => signature.params[*index].ty.accepts(held),
-                None => false,
-            })
-    }
+/// Whether two signatures are the same to a caller: same parameters, same
+/// result, and the same about `self` and `async` (LR18, LR40).
+fn same_signature(left: &Signature, right: &Signature) -> bool {
+    left.takes_self == right.takes_self
+        && left.asynchronous == right.asynchronous
+        && left.result == right.result
+        && left.params.len() == right.params.len()
+        && left
+            .params
+            .iter()
+            .zip(&right.params)
+            .all(|(left, right)| left.ty == right.ty)
 }
 
 /// Lines a call up with one signature, without reporting anything.
@@ -304,6 +306,17 @@ impl Checker<'_> {
         let Some(declared) = self.table.structure(self.scope, &structure.name).cloned() else {
             return;
         };
+
+        // LR18: conformance is nominal, so saying `implements` is a promise
+        // the declaration has to keep.
+        let claimed = Type::Named {
+            module: self.scope,
+            name: structure.name.clone(),
+            args: Vec::new(),
+        };
+        for (written, resolved) in structure.implements.iter().zip(&declared.implements) {
+            self.conforms(&claimed, resolved, written.span);
+        }
 
         // LR65: `self` in a member is the type the member is declared in.
         let receiver = self.receiver(&structure.name);
@@ -900,6 +913,160 @@ impl Checker<'_> {
         Type::Unresolved
     }
 
+    /// LR18: reports every member `claimed` is missing from what `wanted`
+    /// requires, or has with a signature that does not match.
+    fn conforms(&mut self, claimed: &Type, wanted: &Type, span: Span) {
+        let Type::Named { module, name, .. } = wanted else {
+            return;
+        };
+        let Some(Decl::Interface(interface)) = self.table.get(*module, name) else {
+            return;
+        };
+
+        let owner = match claimed {
+            Type::Named { name, .. } => name.clone(),
+            other => other.to_string(),
+        };
+
+        for (member, required) in &interface.methods {
+            for required in required {
+                let held = self
+                    .methods_of(claimed, member)
+                    .is_some_and(|had| had.iter().any(|had| same_signature(had, required)));
+                if held {
+                    continue;
+                }
+
+                let has_name = self.methods_of(claimed, member).is_some();
+                let complaint = if has_name {
+                    format!(
+                        "`{owner}` has `{member}`, and not with the signature `{name}` requires"
+                    )
+                } else {
+                    format!("`{owner}` does not have `{member}`, which `{name}` requires")
+                };
+
+                self.diagnostics.push(
+                    Diagnostic::error(codes::INTERFACE_NOT_SATISFIED, span, complaint)
+                        .label(required.span, "required here")
+                        .note("Saying `implements` is a promise to have every member (LR18)."),
+                );
+            }
+        }
+
+        for property in &interface.properties {
+            let held = self
+                .stored(claimed, &property.name)
+                .is_some_and(|found| found.ty == property.ty);
+            if held {
+                continue;
+            }
+
+            self.diagnostics.push(
+                Diagnostic::error(
+                    codes::INTERFACE_NOT_SATISFIED,
+                    span,
+                    format!(
+                        "`{owner}` does not have `{}: {}`, which `{name}` requires",
+                        property.name, property.ty
+                    ),
+                )
+                .note("Saying `implements` is a promise to have every member (LR18)."),
+            );
+        }
+    }
+
+    /// The overloads of the method `name` on `held`, from the type itself
+    /// (LR76). Extensions are left out, because they are in scope where the
+    /// call is written and not where the type is declared (LR20).
+    fn methods_of(&self, held: &Type, name: &str) -> Option<&Overloads> {
+        if let Type::Intersection(parts) = held {
+            return parts.iter().find_map(|part| self.methods_of(part, name));
+        }
+
+        let Type::Named {
+            module,
+            name: declared,
+            ..
+        } = held
+        else {
+            return None;
+        };
+
+        match self.table.get(*module, declared)? {
+            Decl::Struct(structure) => structure.methods.get(name),
+            Decl::Interface(interface) => interface.methods.get(name),
+            _ => None,
+        }
+    }
+
+    /// Whether a value of type `held` may go where `wanted` is asked for.
+    ///
+    /// The type rules answer most of it (LR6). What they cannot answer is
+    /// interface conformance, which is a claim a declaration makes rather
+    /// than a shape a type happens to have (LR18).
+    fn accepts(&self, wanted: &Type, held: &Type) -> bool {
+        wanted.accepts(held) || self.satisfies(wanted, held)
+    }
+
+    /// Whether `held` satisfies the interface `wanted` (LR18).
+    fn satisfies(&self, wanted: &Type, held: &Type) -> bool {
+        let Type::Named { module, name, .. } = wanted else {
+            return false;
+        };
+        let Some(Decl::Interface(interface)) = self.table.get(*module, name) else {
+            return false;
+        };
+
+        // A structural interface is satisfied by any type with the members,
+        // declared or not. A nominal one has to be claimed.
+        if interface.structural {
+            return interface.methods.iter().all(|(member, required)| {
+                required.iter().all(|required| {
+                    self.methods_of(held, member)
+                        .is_some_and(|had| had.iter().any(|had| same_signature(had, required)))
+                })
+            });
+        }
+
+        self.implements(held, wanted)
+    }
+
+    /// Whether `held` says it implements `wanted` (LR18).
+    fn implements(&self, held: &Type, wanted: &Type) -> bool {
+        match held {
+            Type::Intersection(parts) => parts.iter().any(|part| self.implements(part, wanted)),
+            Type::Named { module, name, .. } => match self.table.get(*module, name) {
+                Some(Decl::Struct(structure)) => structure
+                    .implements
+                    .iter()
+                    .any(|claim| self.same_interface(claim, wanted)),
+                // An interface value is already one of what it requires.
+                _ => held == wanted,
+            },
+            _ => false,
+        }
+    }
+
+    /// Whether two written interface types name the same declaration.
+    fn same_interface(&self, left: &Type, right: &Type) -> bool {
+        match (left, right) {
+            (
+                Type::Named {
+                    module: left,
+                    name: left_name,
+                    ..
+                },
+                Type::Named {
+                    module: right,
+                    name: right_name,
+                    ..
+                },
+            ) => left == right && left_name == right_name,
+            _ => false,
+        }
+    }
+
     /// How a diagnostic names `held`, where the compiler knows every member
     /// it has.
     ///
@@ -1226,6 +1393,22 @@ impl Checker<'_> {
         signature.result
     }
 
+    /// Whether a call could be calling this signature, which is what makes it
+    /// a candidate (LR40).
+    fn fits(&self, signature: &Signature, args: &[Argument], held: &[Type]) -> bool {
+        let lined_up = fit(signature, args);
+
+        lined_up.counted
+            && lined_up
+                .slots
+                .iter()
+                .zip(held)
+                .all(|(slot, held)| match slot {
+                    Some(index) => self.accepts(&signature.params[*index].ty, held),
+                    None => false,
+                })
+    }
+
     /// LR40: a call resolves to exactly one overload.
     ///
     /// An argument whose type this stage does not know would fit every
@@ -1241,7 +1424,7 @@ impl Checker<'_> {
     ) -> Option<Signature> {
         let matching: Vec<&Signature> = overloads
             .iter()
-            .filter(|signature| fit(signature, args).accepts(signature, held))
+            .filter(|signature| self.fits(signature, args, held))
             .collect();
 
         if let [only] = matching.as_slice() {
@@ -1569,7 +1752,7 @@ impl Checker<'_> {
     }
 
     fn expect_argument(&mut self, wanted: &Type, held: &Type, span: Span) {
-        if wanted.accepts(held) {
+        if self.accepts(wanted, held) {
             return;
         }
 
@@ -1710,7 +1893,7 @@ impl Checker<'_> {
 
     /// Reports a value that cannot be what it is declared to be (LR5.1).
     fn expect(&mut self, wanted: &Type, held: &Type, span: Span) {
-        if wanted.accepts(held) {
+        if self.accepts(wanted, held) {
             return;
         }
 

@@ -463,7 +463,23 @@ fn declare(
                                 );
                             }
                         }
-                        luar_ast::InterfaceMember::Property { name, ty, .. } => {
+                        luar_ast::InterfaceMember::Property { name, ty, span } => {
+                            // LR18: a structural claim is about behavior, and
+                            // layout is not checkable at an API boundary.
+                            if interface.structural {
+                                diagnostics.push(
+                                    Diagnostic::error(
+                                        codes::STRUCTURAL_PROPERTY,
+                                        *span,
+                                        format!(
+                                            "`{}` is structural, and states `{name}` as stored",
+                                            interface.name
+                                        ),
+                                    )
+                                    .note("A structural interface requires methods only (LR18)."),
+                                );
+                            }
+
                             properties.push(Field {
                                 name: name.clone(),
                                 ty: resolver.resolve(ty, diagnostics),
