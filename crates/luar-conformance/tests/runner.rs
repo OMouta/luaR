@@ -16,7 +16,7 @@ fn discovery_finds_luar_files_in_subdirectories() {
         .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())
         .collect();
 
-    assert_eq!(found, ["accepted.luar", "runs.luar", "rejected.luar"]);
+    assert_eq!(found, ["accepted.luar", "rejected.luar", "runs.luar"]);
 }
 
 #[test]
