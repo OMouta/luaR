@@ -2146,6 +2146,30 @@ impl Checker<'_> {
                 }
                 Type::Primitive(Primitive::F64)
             }
+            // LR11.1: `//` truncates toward zero, which is an answer only
+            // integers have.
+            BinaryOp::IntegerDivide => {
+                let known = [&held_left, &held_right]
+                    .iter()
+                    .all(|held| !matches!(held, Type::Unresolved));
+
+                if known && !(is_integer(&held_left) && is_integer(&held_right)) {
+                    self.diagnostics.push(
+                        Diagnostic::error(
+                            codes::INTEGER_DIVISION_OPERANDS,
+                            op_span,
+                            format!("`//` is not defined for ({held_left}, {held_right})"),
+                        )
+                        .note("Write `/` for floating-point division (LR11.1)."),
+                    );
+                }
+
+                if held_left == held_right {
+                    held_left
+                } else {
+                    Type::Unresolved
+                }
+            }
             // LR11.4: `and` and `or` take `bool` operands and produce one.
             BinaryOp::And | BinaryOp::Or => {
                 for (held, expr) in [(&held_left, left), (&held_right, right)] {

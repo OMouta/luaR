@@ -209,6 +209,8 @@ registry! {
         "A case an earlier one already covers never runs.";
     active 166 => CIRCULAR_ALIAS, "LR17.1",
         "An alias names what another type is, and cannot name itself.";
+    active 167 => INTEGER_DIVISION_OPERANDS, "LR11.1",
+        "`//` is integer division, and is defined on integers alone.";
 }
 
 #[cfg(test)]

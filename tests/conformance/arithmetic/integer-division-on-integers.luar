@@ -1,0 +1,7 @@
+--- expect: compile-ok
+--- spec: LR11.1
+export function main()
+    local whole: int = 10 // 3
+    local narrow: u8 = 10 // 3
+    print(whole, narrow)
+end
