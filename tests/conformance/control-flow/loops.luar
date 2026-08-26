@@ -1,0 +1,42 @@
+--- expect: compile-ok
+--- spec: §10
+--- spec: §10.1
+--- spec: §10.2
+--- spec: §10.3
+--- spec: §10.5
+--- spec: §10.6
+--- spec: §10.7
+--- spec: §5.3
+export function main()
+    local total = 0
+
+    for i in 0..<10 do
+        if i % 2 == 0 then
+            continue
+        elseif i > 7 then
+            break
+        else
+            total += i
+        end
+    end
+
+    while total > 0 do
+        total -= 1
+    end
+
+    repeat
+        total += 1
+    until total >= 3
+
+    outer: for row in rows do
+        for value in row do
+            if value == target then
+                break outer
+            end
+        end
+    end
+
+    local { name, age as years } = user
+    local (x, y) = point
+    print(total, name, years, x, y)
+end

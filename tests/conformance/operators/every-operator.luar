@@ -1,0 +1,29 @@
+--- expect: compile-ok
+--- spec: §11
+--- spec: §11.1
+--- spec: §11.2
+--- spec: §11.3
+--- spec: §11.5
+--- spec: §11.7
+--- spec: §5.4
+export function main()
+    local a = 7
+    local b = 3
+    print(a + b - a * b // b % b ** b)
+    print(a == b, a ~= b, a < b, a <= b, a > b, a >= b)
+    print(a & b | a ^ b, ~a, a << 1, a >> 1)
+    print("one" .. "two")
+    print(a > b and b < a or not (a == b))
+    a += 1
+    a -= 1
+    a *= 2
+    a //= 2
+    a %= 5
+    a **= 2
+    a &= 3
+    a |= 4
+    a ^= 5
+    a <<= 1
+    a >>= 1
+    print(a)
+end

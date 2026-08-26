@@ -54,7 +54,7 @@ fn at_block_end(cursor: &Cursor) -> bool {
     )
 }
 
-fn statement(cursor: &mut Cursor) -> Stmt {
+pub(crate) fn statement(cursor: &mut Cursor) -> Stmt {
     let start = cursor.span();
 
     let kind = match cursor.kind() {
@@ -178,7 +178,7 @@ fn annotation(cursor: &mut Cursor) -> Option<Type> {
 }
 
 /// A name, a record, or a tuple of them (§5.3).
-fn binding(cursor: &mut Cursor) -> Binding {
+pub(crate) fn binding(cursor: &mut Cursor) -> Binding {
     match cursor.kind() {
         TokenKind::Ident => Binding::Name(cursor.name().0),
         TokenKind::LeftBrace => record_binding(cursor),

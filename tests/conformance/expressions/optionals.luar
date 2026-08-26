@@ -1,0 +1,10 @@
+--- expect: compile-ok
+--- spec: §8
+--- spec: §56
+--- spec: §25.2
+export function loadCity(user: User?): string
+    local city = user?.address?.city
+    local name = user?.name ?? "Anonymous"
+    print(name)
+    return city ?? "unknown"
+end

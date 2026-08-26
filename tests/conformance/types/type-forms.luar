@@ -1,0 +1,17 @@
+--- expect: compile-ok
+--- spec: §14
+--- spec: §17
+--- spec: §17.2
+--- spec: §17.3
+--- spec: §71
+export function main()
+    local id: string | u64 = "abc"
+    local entity: Named & Identified = make()
+    local pair: (int, string) = (1, "one")
+    local handler: (Request) -> Response = respond
+    local waiting: async (Request) -> Response = respondLater
+    local bytes: [u8; 4] = [0, 1, 2, 3]
+    local user: { id: u64, email: string? } = record()
+    local maybe: Result<User, Error>? = nil
+    print(id, entity, pair, handler, waiting, bytes, user, maybe)
+end

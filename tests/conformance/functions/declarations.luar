@@ -1,0 +1,33 @@
+--- expect: compile-ok
+--- spec: §9
+--- spec: §9.1
+--- spec: §9.4
+--- spec: §9.5
+--- spec: §9.6
+--- spec: §9.7
+--- spec: §44
+function add(a: int, b: int): int
+    return a + b
+end
+
+function greet(name: string = "world")
+    print(`Hello, {name}`)
+end
+
+function printAll(...values: string)
+    for value in values do
+        print(value)
+    end
+end
+
+function divide(a: int, b: int): (int, int)
+    return (a // b, a % b)
+end
+
+export function main()
+    connect(host = "localhost", port = 5432, secure = true)
+    local (quotient, remainder) = divide(10, 3)
+    print(add(1, 2), quotient, remainder)
+    greet()
+    printAll("a", "b")
+end

@@ -17,18 +17,13 @@ pub enum Check {
 
 /// Checks `root` and the modules it imports, without producing an artifact.
 ///
-/// Only the lexer exists, so this can answer one of the two questions. A
-/// program the lexer rejects is rejected, and the diagnostics say why. A
-/// program it accepts has only been lexed, and calling that acceptance would
-/// report every unparsed and unchecked program as valid, so it reports no
-/// answer instead.
+/// The frontend reaches as far as the syntax tree. An accepted program is one
+/// that lexes and parses, and every stage added after this one narrows what
+/// that means: name resolution, then type checking. A program accepted here
+/// and rejected later was never accepted by the finished compiler, and the
+/// test that says so starts failing the day the stage that rejects it lands.
 #[must_use]
 pub fn check(sources: &SourceMap, root: FileId) -> Check {
-    let lexed = luar_lexer::lex(sources.file(root).text(), root);
-
-    if lexed.diagnostics.iter().any(Diagnostic::is_error) {
-        Check::Ran(lexed.diagnostics)
-    } else {
-        Check::Unimplemented
-    }
+    let parsed = luar_parser::module(sources.file(root).text(), root);
+    Check::Ran(parsed.diagnostics)
 }

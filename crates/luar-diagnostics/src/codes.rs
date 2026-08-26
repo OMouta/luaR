@@ -139,6 +139,8 @@ registry! {
         "One `match` uses block cases or `=>` cases, never both.";
     active 131 => REPEATED_REST_PATTERN, "§16.2",
         "A sequence pattern has at most one rest pattern.";
+    active 132 => EXPECTED_DECLARATION, "§89",
+        "A module holds declarations and statements, and this is neither.";
 }
 
 #[cfg(test)]

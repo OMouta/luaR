@@ -1,0 +1,7 @@
+--- expect: compile-ok
+--- spec: §89.1
+export function main()
+    local user = json.decode<User>(text)
+    local nested = into<Map<string, List<int>>>(value)
+    print(user, nested, a < b, c > d)
+end

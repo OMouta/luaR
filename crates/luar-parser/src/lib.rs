@@ -9,12 +9,13 @@
 //! one problem per run.
 
 mod cursor;
+mod decl;
 mod expr;
 mod pattern;
 mod stmt;
 mod ty;
 
-use luar_ast::{Block, Expr};
+use luar_ast::{Block, Expr, Module};
 use luar_diagnostics::{Diagnostic, FileId};
 
 use crate::cursor::Cursor;
@@ -33,6 +34,17 @@ pub fn expression(source: &str, file: FileId) -> Parsed<Expr> {
     let mut cursor = Cursor::new(source, file);
     let tree = expr::expression(&mut cursor);
     cursor.expect_end();
+    Parsed {
+        tree,
+        diagnostics: cursor.finish(),
+    }
+}
+
+/// Parses one module: a whole source file (§2).
+#[must_use]
+pub fn module(source: &str, file: FileId) -> Parsed<Module> {
+    let mut cursor = Cursor::new(source, file);
+    let tree = decl::module(&mut cursor);
     Parsed {
         tree,
         diagnostics: cursor.finish(),
