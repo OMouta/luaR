@@ -1,0 +1,8 @@
+--- expect: compile-ok
+--- spec: LR44
+import { Client } from "./support/client"
+
+export function main()
+    local client = Client { pool = 1, host = "localhost" }
+    print(client.host, client.pool, client:send())
+end

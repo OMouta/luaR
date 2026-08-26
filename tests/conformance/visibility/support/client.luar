@@ -1,0 +1,13 @@
+export struct Client
+    private socket: int
+    internal pool: int
+    public host: string
+
+    private function handle(self): int
+        return self.socket
+    end
+
+    function send(self): int
+        return self:handle()
+    end
+end

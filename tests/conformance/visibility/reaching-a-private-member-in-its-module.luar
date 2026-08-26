@@ -1,0 +1,19 @@
+--- expect: compile-ok
+--- spec: LR44
+--- spec: LR12.3
+struct Parser
+    private depth: int
+
+    private function deeper(self): int
+        return self.depth + 1
+    end
+
+    function step(self): int
+        return self:deeper()
+    end
+end
+
+export function main()
+    local parser = Parser { depth = 0 }
+    print(parser.depth, parser:deeper())
+end

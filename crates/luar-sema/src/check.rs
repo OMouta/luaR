@@ -14,9 +14,9 @@
 use std::collections::HashMap;
 
 use luar_ast::{
-    Argument, ArmBody, BinaryOp, Binding, Block, Expr, ExprKind, Function, FunctionBody,
+    Argument, ArmBody, BinaryOp, Binding, Block, Expr, ExprKind, FieldInit, Function, FunctionBody,
     InterpolationPart, Item, MapKey, MatchArm, Member, Module, Param, Pattern, PatternKind,
-    Payload, Property, Stmt, StmtKind, Struct, UnaryOp,
+    Payload, Property, Stmt, StmtKind, Struct, UnaryOp, Visibility,
 };
 use luar_diagnostics::{Diagnostic, Span, codes};
 
@@ -557,9 +557,12 @@ impl Checker<'_> {
                 if path.is_empty() {
                     Type::Record(members)
                 } else {
-                    self.types
+                    let built = self
+                        .types
                         .named(path, Vec::new())
-                        .unwrap_or(Type::Unresolved)
+                        .unwrap_or(Type::Unresolved);
+                    self.initializers(&built, fields);
+                    built
                 }
             }
             ExprKind::Map(entries) => {
@@ -652,9 +655,11 @@ impl Checker<'_> {
         };
 
         if let Some(field) = structure.fields.iter().find(|field| field.name == name) {
+            self.private(field.visibility, *module, declared, name, span);
             return field.ty.clone();
         }
         if let Some(property) = structure.properties.iter().find(|field| field.name == name) {
+            self.private(property.visibility, *module, declared, name, span);
             return property.ty.clone();
         }
 
@@ -673,6 +678,54 @@ impl Checker<'_> {
         self.diagnostics.push(reported);
 
         Type::Unresolved
+    }
+
+    /// The fields a struct literal names (LR12.2).
+    ///
+    /// Only their visibility is checked here. Whether the literal names every
+    /// field, and only fields the struct has, waits for the stage that reads
+    /// a struct declaration back.
+    fn initializers(&mut self, built: &Type, fields: &[FieldInit]) {
+        let Type::Named { module, name, .. } = built else {
+            return;
+        };
+        let Some(structure) = self.table.structure(*module, name) else {
+            return;
+        };
+
+        for written in fields {
+            if let Some(field) = structure
+                .fields
+                .iter()
+                .find(|field| field.name == written.name)
+            {
+                self.private(field.visibility, *module, name, &written.name, written.span);
+            }
+        }
+    }
+
+    /// LR44: a `private` member is reachable only inside the module that
+    /// declares it, whichever module holds the value.
+    fn private(
+        &mut self,
+        visibility: Option<Visibility>,
+        owner: ModuleId,
+        declared: &str,
+        name: &str,
+        span: Span,
+    ) {
+        if visibility != Some(Visibility::Private) || owner == self.scope {
+            return;
+        }
+
+        self.diagnostics.push(
+            Diagnostic::error(
+                codes::PRIVATE_MEMBER,
+                span,
+                format!("`{name}` is private to the module that declares `{declared}`"),
+            )
+            .note("A member written `private` is reachable only in that module (LR44)."),
+        );
     }
 
     /// Checks a call against what it calls, and gives back what it returns.
@@ -696,6 +749,10 @@ impl Checker<'_> {
             }
             return Type::Unresolved;
         };
+
+        if let (Some(method), Type::Named { module, name, .. }) = (method, receiver) {
+            self.private(signature.visibility, *module, name, method, span);
+        }
 
         self.arguments(&signature, args, span);
         signature.result

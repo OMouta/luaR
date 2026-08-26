@@ -1,0 +1,10 @@
+--- expect: compile-error
+--- code: LR0149
+--- span: 9:21
+--- spec: LR44
+--- spec: LR12.3
+import { Client } from "./support/client"
+
+function build(): Client
+    return Client { socket = 0, pool = 0, host = "localhost" }
+end

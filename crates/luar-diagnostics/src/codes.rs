@@ -173,6 +173,8 @@ registry! {
         "A call passes an argument for every parameter without a default.";
     active 148 => ARGUMENT_TYPE, "LR9.1",
         "An argument has the type its parameter declares.";
+    active 149 => PRIVATE_MEMBER, "LR44",
+        "A `private` member is reachable only inside the module that declares it.";
 }
 
 #[cfg(test)]
