@@ -64,6 +64,15 @@ struct Checker<'a> {
     diagnostics: &'a mut Vec<Diagnostic>,
 }
 
+/// What a call resolved to.
+struct Callee {
+    signature: Signature,
+    /// Where the call names the type or the block, the type the receiver
+    /// takes as the first argument (LR12.2). `point:length()` is
+    /// `Vec2.length(point)` written out, and both are checked the same way.
+    receiver: Option<Type>,
+}
+
 /// An extension block a module can use, under the name that module knows it
 /// by, which `as` may have changed (LR20, LR21.1).
 struct Extension<'a> {
@@ -917,7 +926,7 @@ impl Checker<'_> {
         args: &[Argument],
         span: Span,
     ) -> Type {
-        let Some(signature) = self.signature_of(callee, method, receiver, span) else {
+        let Some(resolved) = self.signature_of(callee, method, receiver, span) else {
             // The arguments are still expressions, and whatever is wrong
             // inside them is wrong whoever is being called.
             for argument in args {
@@ -926,8 +935,19 @@ impl Checker<'_> {
             return Type::Unresolved;
         };
 
-        if let (Some(method), Type::Named { module, name, .. }) = (method, receiver) {
-            self.private(signature.visibility, *module, name, method, span);
+        // LR12.2: naming the type writes the call out in full, so `self` is
+        // an ordinary first argument and is counted and checked as one.
+        let mut signature = resolved.signature;
+        if let Some(receiver) = resolved.receiver {
+            signature.params.insert(
+                0,
+                crate::table::Param {
+                    name: "self".to_owned(),
+                    ty: receiver,
+                    optional: false,
+                    variadic: false,
+                },
+            );
         }
 
         self.arguments(&signature, args, span);
@@ -941,43 +961,131 @@ impl Checker<'_> {
         method: Option<&str>,
         receiver: &Type,
         span: Span,
-    ) -> Option<Signature> {
+    ) -> Option<Callee> {
         if let Some(method) = method {
-            // LR76: a method the type itself declares wins over any
-            // extension offering the same name.
-            if let Type::Named { module, name, .. } = receiver
-                && let Some(structure) = self.table.structure(*module, name)
-                && let Some(signature) = structure.methods.get(method)
-            {
-                return Some(signature.clone());
-            }
-
-            return self.extension(receiver, method, span);
+            let signature = self.method(receiver, method, span)?;
+            return Some(Callee {
+                signature,
+                receiver: None,
+            });
         }
 
-        // A call through anything but a plain name reaches a value whose type
-        // this stage does not follow yet.
-        let ExprKind::Name(name) = &callee.kind else {
-            return None;
-        };
+        match &callee.kind {
+            ExprKind::Name(name) => Some(Callee {
+                signature: self.declared(name)?,
+                receiver: None,
+            }),
+            // LR12.2, LR42, LR76: `Owner.name(...)` is a method call written
+            // out, a static, or a call naming the extension block it means. A
+            // receiver that is not a plain name is a value, whose members are
+            // read rather than named.
+            ExprKind::Field {
+                receiver: owner,
+                name,
+                optional: false,
+            } => match &owner.kind {
+                ExprKind::Name(owner) => self.qualified(owner, name, span),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
 
-        // A local holding a function shadows a declaration of the same name.
-        if self
-            .values
-            .iter()
-            .rev()
-            .any(|scope| scope.contains_key(name))
+    /// The method `name` on a value of type `receiver` (LR76).
+    fn method(&mut self, receiver: &Type, name: &str, span: Span) -> Option<Signature> {
+        // LR76: a method the type itself declares wins over any extension
+        // offering the same name.
+        if let Type::Named {
+            module,
+            name: declared,
+            ..
+        } = receiver
+            && let Some(structure) = self.table.structure(*module, declared)
+            && let Some(signature) = structure.methods.get(name).cloned()
         {
+            self.private(signature.visibility, *module, declared, name, span);
+            return Some(signature);
+        }
+
+        self.extension(receiver, name, span)
+    }
+
+    /// The signature a plain name calls, where the table holds one.
+    ///
+    /// A callee this stage cannot name a signature for is left alone: a
+    /// closure held in a local, or a predeclared name.
+    fn declared(&self, name: &str) -> Option<Signature> {
+        // A local holding a function shadows a declaration of the same name.
+        if self.shadowed(name) {
             return None;
         }
 
         let (module, name) = match self.names.scope(self.scope).get(name).map(|b| &b.origin) {
-            Some(Origin::Declared { .. }) => (self.scope, name.clone()),
+            Some(Origin::Declared { .. }) => (self.scope, name.to_owned()),
             Some(Origin::Imported { module, name }) => (*module, name.clone()),
             _ => return None,
         };
 
         self.table.signature(module, &name).cloned()
+    }
+
+    /// What `Owner.name(...)` calls: a member of the type `Owner` names, or a
+    /// method of the extension block it names (LR12.2, LR42, LR76).
+    fn qualified(&mut self, owner: &str, name: &str, span: Span) -> Option<Callee> {
+        // A local of that name holds a value, and a value is not a type or a
+        // block.
+        if self.shadowed(owner) {
+            return None;
+        }
+
+        // A block is known by the name this module binds it to, and only
+        // where it is in scope (LR20).
+        if let Some(extension) = self
+            .extensions
+            .iter()
+            .find(|extension| extension.name == owner)
+        {
+            let signature = extension.methods.get(name)?.clone();
+            let receiver = signature.takes_self.then(|| extension.target.clone());
+            return Some(Callee {
+                signature,
+                receiver,
+            });
+        }
+
+        let (module, owner) = match self.names.scope(self.scope).get(owner).map(|b| &b.origin) {
+            Some(Origin::Declared { .. }) => (self.scope, owner.to_owned()),
+            Some(Origin::Imported { module, name }) => (*module, name.clone()),
+            _ => return None,
+        };
+
+        let signature = self
+            .table
+            .structure(module, &owner)?
+            .methods
+            .get(name)?
+            .clone();
+        self.private(signature.visibility, module, &owner, name, span);
+
+        let receiver = signature.takes_self.then(|| Type::Named {
+            module,
+            name: owner,
+            args: Vec::new(),
+        });
+
+        Some(Callee {
+            signature,
+            receiver,
+        })
+    }
+
+    /// Whether a binding in scope holds `name`, which a declaration of the
+    /// same name does not reach past (LR53).
+    fn shadowed(&self, name: &str) -> bool {
+        self.values
+            .iter()
+            .rev()
+            .any(|scope| scope.contains_key(name))
     }
 
     /// LR9.1: every parameter without a default takes an argument, and every
