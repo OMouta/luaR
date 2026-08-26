@@ -217,6 +217,8 @@ registry! {
         "A string is UTF-8, so it is read through its own APIs rather than by index.";
     active 170 => INDEX_TYPE, "LR37",
         "An index has the type the container is keyed by.";
+    active 171 => RETURN_TYPE, "LR9.1",
+        "A return gives a value of the type its function declares.";
 }
 
 #[cfg(test)]

@@ -40,6 +40,7 @@ pub fn check(graph: &Graph, names: &Names, table: &Table) -> Vec<Diagnostic> {
             scope: id,
             values: vec![HashMap::new()],
             extensions: extensions(names, table, id),
+            returns: Vec::new(),
             narrowed: Vec::new(),
             diagnostics: &mut diagnostics,
         };
@@ -63,6 +64,9 @@ struct Checker<'a> {
     values: Vec<HashMap<String, Type>>,
     /// The extension blocks this module may reach (LR20).
     extensions: Vec<Extension<'a>>,
+    /// What the function being walked declares it returns, innermost last
+    /// (LR9.1). `None` where nothing was written down to check against.
+    returns: Vec<Option<Type>>,
     /// What conditions have proved about names in scope, innermost last
     /// (LR57). Kept apart from `values` so that a name declared again inside
     /// a branch is a new name rather than the narrowed one.
@@ -429,14 +433,18 @@ impl Checker<'_> {
 
         self.push();
         self.bind("self", receiver.clone());
+        self.returns.push(Some(held.clone()));
         self.block(&property.get);
+        self.returns.pop();
         self.pop();
 
         if let Some(setter) = &property.set {
             self.push();
             self.bind("self", receiver);
             self.bind(&setter.param, held);
+            self.returns.push(Some(Type::Tuple(Vec::new())));
             self.block(&setter.body);
+            self.returns.pop();
             self.pop();
         }
     }
@@ -476,17 +484,18 @@ impl Checker<'_> {
             self.param(param, declared);
         }
 
-        if signature.is_none() {
-            if let Some(result) = &function.result {
-                self.resolve(result);
-            }
-        }
+        let returns = match signature {
+            Some(signature) => Some(signature.result.clone()),
+            None => function.result.as_ref().map(|result| self.resolve(result)),
+        };
 
+        self.returns.push(returns);
         if let Some(body) = &function.body {
             for stmt in &body.stmts {
                 self.stmt(stmt);
             }
         }
+        self.returns.pop();
 
         self.pop();
         self.types.leave();
@@ -655,8 +664,22 @@ impl Checker<'_> {
                 self.exhaustive(&held, arms, scrutinee.span);
             }
             StmtKind::Return(value) => {
-                if let Some(value) = value {
-                    self.expr(value);
+                let wanted = self.returns.last().cloned().flatten();
+
+                match (value, wanted) {
+                    (Some(value), Some(wanted)) => {
+                        let held = self.expr(value);
+                        self.expect_return(&wanted, &held, value.span);
+                    }
+                    (Some(value), None) => {
+                        self.expr(value);
+                    }
+                    // LR9.1: a bare `return` leaves a function that declares
+                    // no result, and leaves nothing behind for one that does.
+                    (None, Some(wanted)) => {
+                        self.expect_return(&wanted, &Type::Tuple(Vec::new()), stmt.span);
+                    }
+                    (None, None) => {}
                 }
             }
             StmtKind::Expr(expr) => {
@@ -1042,6 +1065,8 @@ impl Checker<'_> {
                     None => Type::Unresolved,
                 };
 
+                self.returns.push(result.as_ref().map(|_| returns.clone()));
+
                 match body.as_ref() {
                     FunctionBody::Block(block) => {
                         for stmt in &block.stmts {
@@ -1052,6 +1077,8 @@ impl Checker<'_> {
                         self.expr(expr);
                     }
                 }
+
+                self.returns.pop();
                 self.pop();
 
                 Type::Function {
@@ -2148,6 +2175,22 @@ impl Checker<'_> {
                     "needs at least"
                 },
                 plural(wanted, "argument"),
+            ),
+        ));
+    }
+
+    /// LR9.1: a `return` gives a value of the declared result.
+    fn expect_return(&mut self, wanted: &Type, held: &Type, span: Span) {
+        if self.accepts(wanted, held) {
+            return;
+        }
+
+        self.diagnostics.push(Diagnostic::error(
+            codes::RETURN_TYPE,
+            span,
+            format!(
+                "this returns {}, and the function gives `{wanted}`",
+                article(held)
             ),
         ));
     }
