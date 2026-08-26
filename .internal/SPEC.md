@@ -1032,7 +1032,7 @@ LuaR retains lightweight collection literals but gives them explicit collection 
 local names = ["Alice", "Bob", "Charlie"]
 ```
 
-The inferred type is `List<string>`. `[...]` always produces a list and never anything else.
+The inferred type is `List<string>`. `[...]` always produces a sequence and never anything else. With nothing asking for a particular one it is a `List<T>`; where a fixed-size array is called for, it fills that (LR71).
 
 `List<T>` is mutable. Mutability is the common case, and naming the common case `MutableList<T>` taxes every ordinary program to label the unusual one. Immutable collections are separate types with an explicit name (LR59).
 
@@ -3074,6 +3074,8 @@ Example:
 local bytes: [u8; 4] = [0, 1, 2, 3]
 ```
 
+A bracket literal fills an array where the type calls for one, and it must have exactly `N` elements. This is the same contextual typing an integer literal takes (LR39): what the literal is written as does not change, only what it fills.
+
 `N` is compile-time known.
 
 Arrays are value types when their element type permits it.
@@ -3553,7 +3555,7 @@ Data:
     lists, maps, arrays, enums.
 
 Literals:
-    [...] is always a list, { ... } is always a record,
+    [...] is always a sequence, { ... } is always a record,
     Map { ... } is always a map. = binds values, : introduces types.
 
 Nullability:
@@ -3894,7 +3896,7 @@ An earlier draft left twenty questions open. Each is decided below, with the sec
 
 **3. Width of `int`.** `int` is exactly `i64` and `uint` exactly `u64` on every target (LR4.3). Native-width integers make overflow, serialization, and hashing depend on the host, which contradicts predictable compiled semantics. `isize` and `usize` exist separately for FFI and allocator code.
 
-**4. Record and map literal syntax.** `[...]` is always a list, `{ ... }` always a structural record, `Map { ... }` always a map (LR13.2). Context never changes what a literal constructs. The cost is six characters where a dynamic map is created; the gain is that reading a literal never requires reading its destination.
+**4. Record and map literal syntax.** `[...]` is always a sequence, `{ ... }` always a structural record, `Map { ... }` always a map (LR13.2). Context never changes what kind of thing a literal constructs, so no literal is a record in one place and a map in another. Which sequence a `[...]` fills does come from context, the way the type of an integer literal does (LR39, LR71). The cost is six characters where a dynamic map is created; the gain is that reading a literal tells you its shape without reading its destination.
 
 **5. Extension method scoping.** Extension blocks are named, exported, and imported like any other declaration, and are in scope only where declared or imported (LR20). Ambient extensions mean importing a module for one function can silently change what an unrelated method call resolves to.
 
