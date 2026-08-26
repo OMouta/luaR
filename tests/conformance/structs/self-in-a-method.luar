@@ -1,0 +1,20 @@
+--- expect: compile-ok
+--- spec: LR65
+--- spec: LR12.2
+struct Vec2
+    x: float
+    y: float
+
+    function scaled(self, factor: float): Vec2
+        return Vec2 { x = self.x * factor, y = self.y * factor }
+    end
+
+    function doubled(self): Vec2
+        return self:scaled(2.0)
+    end
+end
+
+export function main()
+    local point = Vec2 { x = 1.0, y = 2.0 }
+    print(point:doubled().x)
+end

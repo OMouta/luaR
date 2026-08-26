@@ -130,7 +130,11 @@ impl Checker<'_> {
                     if let Some(name) = name {
                         self.overrides(&target, name, function.span);
                     }
-                    self.body(function, name.and_then(|name| methods.get(name)), None);
+                    let receiver = match &target {
+                        Type::Unresolved => None,
+                        target => Some(target.clone()),
+                    };
+                    self.body(function, name.and_then(|name| methods.get(name)), receiver);
                 }
             }
             // Nothing of these is written outside their own types, which the
@@ -226,12 +230,19 @@ impl Checker<'_> {
             self.bind("self", receiver);
         }
 
-        let offset = usize::from(signature.is_some_and(|signature| signature.takes_self));
-        for (index, param) in function.params.iter().enumerate() {
+        // LR65: `self` is written like a parameter, but its type is the
+        // receiver bound above rather than anything the parameter list says.
+        // Binding it again here would replace that with nothing.
+        let params = match signature {
+            Some(signature) if signature.takes_self => function.params.get(1..).unwrap_or_default(),
+            _ => function.params.as_slice(),
+        };
+
+        for (index, param) in params.iter().enumerate() {
             let declared = match signature {
-                Some(signature) => index
-                    .checked_sub(offset)
-                    .and_then(|index| signature.params.get(index))
+                Some(signature) => signature
+                    .params
+                    .get(index)
                     .map_or(Type::Unresolved, |param| param.ty.clone()),
                 None => match &param.ty {
                     Some(ty) => self.resolve(ty),
