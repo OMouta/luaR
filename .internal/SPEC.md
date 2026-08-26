@@ -3655,6 +3655,12 @@ function_decl   = [ "export" ]
                   block
                   "end" ;
 
+type_params     = "<" identifier { "," identifier } ">" ;
+
+where_clause    = "where" constraint { "," constraint } ;
+
+constraint      = identifier ":" type ;         (* "&" composes bounds (LR19) *)
+
 extern_decl     = decorator                     (* @extern("abi") *)
                   "unsafe" "function"
                   identifier
