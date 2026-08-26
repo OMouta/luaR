@@ -91,6 +91,15 @@ pub enum ExprKind {
     Tuple(Vec<Expr>),
     /// `[a, b]` (§13.1).
     List(Vec<Expr>),
+    /// `{ name = value }`, or `Point { x = 1 }` when a path names the type
+    /// it builds (§12.1, §12.2). Braces are always a record: what a
+    /// literal constructs never depends on where it is written (§90).
+    Record {
+        path: Vec<String>,
+        fields: Vec<FieldInit>,
+    },
+    /// `Map { key = value, [computed] = value }` (§13.2).
+    Map(Vec<MapEntry>),
 
     /// `match value ... end`, whose cases are `=> expression` (§16.1).
     Match {
@@ -170,4 +179,28 @@ pub enum BinaryOp {
     ShiftRight,
     /// `??` (§8).
     Coalesce,
+}
+
+/// One field of a record or struct literal (§12.1, §12.2).
+#[derive(Debug, Clone, PartialEq)]
+pub struct FieldInit {
+    pub name: String,
+    pub value: Expr,
+    pub span: Span,
+}
+
+/// One entry of a map literal (§13.2).
+#[derive(Debug, Clone, PartialEq)]
+pub struct MapEntry {
+    pub key: MapKey,
+    pub value: Expr,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum MapKey {
+    /// `name = value`, whose key is the name written.
+    Name(String),
+    /// `[expression] = value`, whose key is computed.
+    Computed(Expr),
 }

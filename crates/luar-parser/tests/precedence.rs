@@ -131,6 +131,16 @@ fn render(expr: &Expr) -> String {
         }
         ExprKind::Interpolation(_) => "(interpolation)".to_owned(),
         ExprKind::Match { arms, .. } => format!("(match {})", arms.len()),
+        ExprKind::Record { path, fields } => format!(
+            "(record {} {})",
+            path.join("."),
+            fields
+                .iter()
+                .map(|field| format!("{} = {}", field.name, render(&field.value)))
+                .collect::<Vec<_>>()
+                .join(" ")
+        ),
+        ExprKind::Map(entries) => format!("(map {})", entries.len()),
         ExprKind::Error => "(error)".to_owned(),
     }
 }
@@ -305,4 +315,17 @@ fn what_is_missing_is_reported() {
     assert_eq!(codes("f(a"), ["LR0124"]);
     assert_eq!(codes("a +"), ["LR0123"]);
     assert_eq!(codes("[1, 2"), ["LR0124"]);
+}
+
+/// §12.1, §12.2, §13.2, §90: braces are always a record, `Map { ... }` always
+/// a map, and what a literal builds never depends on where it is written.
+#[test]
+fn braces_are_always_a_record_and_map_is_always_a_map() {
+    assert_eq!(shape("{ x = 1, y = 2 }"), "(record  x = 1 y = 2)");
+    assert_eq!(shape("Vec2 { x = 1 }"), "(record Vec2 x = 1)");
+    assert_eq!(shape("shapes.Vec2 { x = 1 }"), "(record shapes.Vec2 x = 1)");
+    assert_eq!(shape("Map { a = 1, [key] = 2 }"), "(map 2)");
+    // A path with no braces after it stays field access.
+    assert_eq!(shape("shapes.Vec2"), "(shapes .Vec2)");
+    assert_eq!(shape("a.b.c"), "((a .b) .c)");
 }

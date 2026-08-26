@@ -135,6 +135,17 @@ impl<'src> Cursor<'src> {
         self.diagnostics.truncate(mark.diagnostics);
     }
 
+    /// Consumes a name spelled `text`, where the grammar gives a name meaning
+    /// in one position without reserving it (§3.2). `get` and `set` in a
+    /// property (§43) are the only ones today.
+    pub(crate) fn eat_contextual(&mut self, text: &str) -> bool {
+        if self.kind() != TokenKind::Ident || self.text(self.span()) != text {
+            return false;
+        }
+        self.advance();
+        true
+    }
+
     /// A name, and the span it was written at.
     pub(crate) fn name(&mut self) -> (String, Span) {
         let span = self.span();

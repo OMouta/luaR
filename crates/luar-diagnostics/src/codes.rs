@@ -141,6 +141,8 @@ registry! {
         "A sequence pattern has at most one rest pattern.";
     active 132 => EXPECTED_DECLARATION, "§89",
         "A module holds declarations and statements, and this is neither.";
+    active 133 => EXPECTED_ACCESSOR, "§43",
+        "A property says what reading it does, and a setter names what is assigned.";
 }
 
 #[cfg(test)]

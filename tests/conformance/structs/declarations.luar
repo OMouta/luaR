@@ -1,0 +1,55 @@
+--- expect: compile-ok
+--- spec: §12
+--- spec: §12.2
+--- spec: §12.3
+--- spec: §12.4
+--- spec: §31
+--- spec: §42
+--- spec: §43
+export struct Vec2 implements Display
+    x: float
+    y: float
+
+    private scratch: float = 0.0
+
+    function length(self): float
+        return math.sqrt(self.x * self.x + self.y * self.y)
+    end
+
+    static function zero(): Vec2
+        return Vec2 { x = 0.0, y = 0.0 }
+    end
+
+    property magnitude: float
+        get
+            return self:length()
+        end
+    end
+end
+
+const struct Point
+    x: float
+    y: float
+end
+
+ref struct Counter
+    value: int = 0
+
+    function increment(self)
+        self.value += 1
+    end
+
+    property doubled: int
+        get
+            return self.value * 2
+        end
+
+        set (newValue)
+            self.value = newValue // 2
+        end
+    end
+end
+
+struct Repository<T>
+    items: List<T>
+end

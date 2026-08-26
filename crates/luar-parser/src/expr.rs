@@ -1,7 +1,10 @@
 //! Expressions, by precedence climbing over the table in §11.7.
 
-use luar_ast::{Argument, BinaryOp, Expr, ExprKind, InterpolationPart, Type, UnaryOp};
-use luar_diagnostics::codes;
+use luar_ast::{
+    Argument, BinaryOp, Expr, ExprKind, FieldInit, InterpolationPart, MapEntry, MapKey, Type,
+    UnaryOp,
+};
+use luar_diagnostics::{Span, codes};
 use luar_lexer::{Keyword, TokenKind};
 
 use crate::cursor::Cursor;
@@ -515,11 +518,8 @@ pub(crate) fn primary(cursor: &mut Cursor) -> Expr {
             cursor.advance();
             ExprKind::Bool(false)
         }
-        TokenKind::Ident => {
-            let text = cursor.text(span).to_owned();
-            cursor.advance();
-            ExprKind::Name(text)
-        }
+        TokenKind::Ident => return path_or_literal(cursor),
+        TokenKind::LeftBrace => return record(cursor, Vec::new(), span),
         TokenKind::Keyword(Keyword::If) => return conditional(cursor),
         TokenKind::Keyword(Keyword::Match) => return match_expression(cursor),
         TokenKind::InterpolationStart => return interpolation(cursor),
@@ -652,6 +652,139 @@ fn match_expression(cursor: &mut Cursor) -> Expr {
         },
         opened.to(end),
     )
+}
+
+/// A name, or the literal a path with braces after it builds.
+///
+/// §90: `[...]` is always a list, `{ ... }` always a record, `Map { ... }`
+/// always a map. What a literal constructs never depends on where it is
+/// written, so a `{` after a path is always the literal's.
+fn path_or_literal(cursor: &mut Cursor) -> Expr {
+    let start = cursor.span();
+    let (first, _) = cursor.name();
+
+    // Only a path leads to a literal, and only `.` continues one. Anything
+    // else is a name, and the postfix loop takes it from there.
+    if cursor.kind() != TokenKind::Dot && cursor.kind() != TokenKind::LeftBrace {
+        return Expr::new(ExprKind::Name(first), start);
+    }
+
+    if cursor.kind() == TokenKind::LeftBrace {
+        return if first == "Map" {
+            map(cursor, start)
+        } else {
+            record(cursor, vec![first], start)
+        };
+    }
+
+    // A dotted path is field access until a `{` says it names a type.
+    let mut value = Expr::new(ExprKind::Name(first.clone()), start);
+    let mut path = vec![first];
+
+    while cursor.kind() == TokenKind::Dot {
+        let mark = cursor.mark();
+        cursor.advance();
+
+        if cursor.kind() != TokenKind::Ident {
+            cursor.rewind(mark);
+            return value;
+        }
+
+        let (name, name_span) = cursor.name();
+        path.push(name.clone());
+
+        if cursor.kind() == TokenKind::LeftBrace {
+            return record(cursor, path, start);
+        }
+
+        value = Expr::new(
+            ExprKind::Field {
+                receiver: Box::new(value),
+                name,
+                optional: false,
+            },
+            start.to(name_span),
+        );
+    }
+
+    value
+}
+
+/// `{ name = value }`, with the path of the type it builds when it has one
+/// (§12.1, §12.2).
+fn record(cursor: &mut Cursor, path: Vec<String>, start: Span) -> Expr {
+    let opened = cursor.span();
+    cursor.advance();
+
+    let mut fields = Vec::new();
+    while !matches!(cursor.kind(), TokenKind::RightBrace | TokenKind::Eof) {
+        let field_start = cursor.span();
+        let (name, _) = cursor.name();
+
+        // §89.1: `=` binds a value. `:` introduces a type and nothing else.
+        if !cursor.eat(TokenKind::Equals) {
+            let here = cursor.span();
+            cursor
+                .error(codes::EXPECTED_EXPRESSION, here, "expected `=` and a value")
+                .note("Fields are bound with `=`, as in struct literals, map literals, and named arguments (§12.1).");
+            break;
+        }
+
+        let value = expression(cursor);
+        fields.push(FieldInit {
+            name,
+            value,
+            span: field_start.to(cursor.previous_span()),
+        });
+
+        if !cursor.eat(TokenKind::Comma) {
+            break;
+        }
+    }
+
+    let end = cursor.span();
+    cursor.close(TokenKind::RightBrace, opened, "}");
+    Expr::new(ExprKind::Record { path, fields }, start.to(end))
+}
+
+/// `Map { key = value, [computed] = value }` (§13.2).
+fn map(cursor: &mut Cursor, start: Span) -> Expr {
+    let opened = cursor.span();
+    cursor.advance();
+
+    let mut entries = Vec::new();
+    while !matches!(cursor.kind(), TokenKind::RightBrace | TokenKind::Eof) {
+        let entry_start = cursor.span();
+
+        let key = if cursor.eat(TokenKind::LeftBracket) {
+            let computed = expression(cursor);
+            cursor.close(TokenKind::RightBracket, entry_start, "]");
+            MapKey::Computed(computed)
+        } else {
+            MapKey::Name(cursor.name().0)
+        };
+
+        if !cursor.eat(TokenKind::Equals) {
+            let here = cursor.span();
+            cursor.error(codes::EXPECTED_EXPRESSION, here, "expected `=` and a value");
+            break;
+        }
+
+        let value = expression(cursor);
+        entries.push(MapEntry {
+            key,
+            value,
+            span: entry_start.to(cursor.previous_span()),
+        });
+
+        if !cursor.eat(TokenKind::Comma) {
+            break;
+        }
+    }
+
+    let end = cursor.span();
+    cursor.close(TokenKind::RightBrace, opened, "}");
+    Expr::new(ExprKind::Map(entries), start.to(end))
 }
 
 /// `[a, b]` (§13.1).
