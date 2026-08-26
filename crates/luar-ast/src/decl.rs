@@ -19,6 +19,7 @@ pub enum Item {
     Function(Function),
     Struct(Struct),
     Enum(Enum),
+    Interface(Interface),
     /// A statement at module level (§21.3).
     Stmt(crate::stmt::Stmt),
 }
@@ -39,7 +40,9 @@ pub struct Function {
     pub params: Vec<Param>,
     /// The declared result. Absent when the function returns nothing.
     pub result: Option<Type>,
-    pub body: Block,
+    /// The body, absent where a declaration states a signature and no more:
+    /// an interface member (§18) and a foreign declaration (§46).
+    pub body: Option<Block>,
     pub span: Span,
 }
 
@@ -153,4 +156,26 @@ pub enum VariantPayload {
     Tuple(Vec<Type>),
     /// `Move { x: int, y: int }`, carried by name.
     Record(Vec<crate::ty::RecordField>),
+}
+
+/// An `interface` declaration: a behavior contract (§18).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Interface {
+    pub exported: bool,
+    /// `structural interface`, satisfied by shape rather than by declaration.
+    /// Nominal is the default, because conformance is a claim about behavior
+    /// rather than about spelling (§18).
+    pub structural: bool,
+    pub name: String,
+    pub type_params: Vec<String>,
+    pub members: Vec<InterfaceMember>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum InterfaceMember {
+    /// A required method, whose body each implementation supplies.
+    Function(Function),
+    /// A required property (§18).
+    Property { name: String, ty: Type, span: Span },
 }

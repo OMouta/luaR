@@ -1,0 +1,27 @@
+--- expect: compile-ok
+--- spec: §18
+export interface Display
+    function display(self): string
+end
+
+export interface Entity
+    id: u64
+end
+
+export structural interface Readable
+    function read(self): bytes
+end
+
+export interface Repository<T>
+    async function find(self, id: u64): Result<T?, DbError>
+    async function save(self, value: T): Result<(), DbError>
+end
+
+export struct User implements Display, Entity
+    id: u64
+    name: string
+
+    function display(self): string
+        return self.name
+    end
+end

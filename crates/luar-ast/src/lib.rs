@@ -10,8 +10,8 @@ pub mod stmt;
 pub mod ty;
 
 pub use decl::{
-    Enum, Field, Function, Item, Member, Module, Param, Property, Semantics, Setter, Struct,
-    Variant, VariantPayload, Visibility,
+    Enum, Field, Function, Interface, InterfaceMember, Item, Member, Module, Param, Property,
+    Semantics, Setter, Struct, Variant, VariantPayload, Visibility,
 };
 pub use expr::{
     Argument, BinaryOp, Expr, ExprKind, FieldInit, InterpolationPart, MapEntry, MapKey, UnaryOp,

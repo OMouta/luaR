@@ -1,8 +1,8 @@
 //! Declarations, and the module that holds them (§9, §21.3, §44).
 
 use luar_ast::{
-    Block, Enum, Field, Function, Item, Member, Module, Param, Property, Semantics, Setter, Struct,
-    Type, Variant, VariantPayload, Visibility,
+    Block, Enum, Field, Function, Interface, InterfaceMember, Item, Member, Module, Param,
+    Property, Semantics, Setter, Struct, Type, Variant, VariantPayload, Visibility,
 };
 use luar_diagnostics::{Span, codes};
 use luar_lexer::{Keyword, TokenKind};
@@ -75,6 +75,13 @@ fn item(cursor: &mut Cursor) -> Option<Item> {
         return Some(Item::Enum(enumeration(cursor, start, exported)));
     }
 
+    let structural = cursor.eat_keyword(Keyword::Structural);
+    if cursor.kind() == TokenKind::Keyword(Keyword::Interface) {
+        return Some(Item::Interface(interface(
+            cursor, start, exported, structural,
+        )));
+    }
+
     cursor.rewind(mark);
     declaration(cursor).map(Item::Function)
 }
@@ -115,21 +122,26 @@ fn declaration(cursor: &mut Cursor) -> Option<Function> {
     Some(function(
         cursor,
         start,
-        exported,
-        asynchronous,
-        unsafe_,
-        static_,
+        &Modifiers {
+            exported,
+            asynchronous,
+            unsafe_,
+            static_,
+        },
+        true,
     ))
 }
 
-fn function(
-    cursor: &mut Cursor,
-    start: luar_diagnostics::Span,
+struct Modifiers {
     exported: bool,
     asynchronous: bool,
     unsafe_: bool,
     static_: bool,
-) -> Function {
+}
+
+/// A function declaration. `body` is read unless the caller says the
+/// declaration states a signature and no more (§18, §46).
+fn function(cursor: &mut Cursor, start: Span, modifiers: &Modifiers, bodied: bool) -> Function {
     // A qualified name declares a member of the type it names (§20, §42).
     let mut name = vec![cursor.name().0];
     while cursor.eat(TokenKind::Dot) {
@@ -139,20 +151,18 @@ fn function(
     let type_params = type_parameters(cursor);
     let params = parameters(cursor);
     let result = cursor.eat(TokenKind::Colon).then(|| ty::ty(cursor));
-    let body = stmt::block(cursor);
 
-    if !cursor.eat_keyword(Keyword::End) {
-        let here = cursor.span();
-        cursor
-            .error(codes::UNCLOSED_DELIMITER, here, "expected `end`")
-            .label(start, "this function is still open");
-    }
+    let body = bodied.then(|| {
+        let body = stmt::block(cursor);
+        close(cursor, start, "function");
+        body
+    });
 
     Function {
-        exported,
-        asynchronous,
-        unsafe_,
-        static_,
+        exported: modifiers.exported,
+        asynchronous: modifiers.asynchronous,
+        unsafe_: modifiers.unsafe_,
+        static_: modifiers.static_,
         name,
         type_params,
         params,
@@ -477,4 +487,71 @@ fn variant_types(cursor: &mut Cursor) -> Vec<Type> {
 
     cursor.close(TokenKind::RightParen, opened, ")");
     types
+}
+
+/// `interface Name ... end`, and `structural interface` (§18).
+fn interface(cursor: &mut Cursor, start: Span, exported: bool, structural: bool) -> Interface {
+    cursor.advance();
+
+    let name = cursor.name().0;
+    let type_params = type_parameters(cursor);
+
+    let mut members = Vec::new();
+    while !matches!(
+        cursor.kind(),
+        TokenKind::Keyword(Keyword::End) | TokenKind::Eof
+    ) {
+        let before = cursor.mark();
+        members.push(interface_member(cursor));
+
+        if cursor.stalled(before) {
+            cursor.advance();
+        }
+    }
+
+    close(cursor, start, "interface");
+
+    Interface {
+        exported,
+        structural,
+        name,
+        type_params,
+        members,
+        span: start.to(cursor.previous_span()),
+    }
+}
+
+/// A required method, which has no body, or a required property (§18).
+fn interface_member(cursor: &mut Cursor) -> InterfaceMember {
+    let start = cursor.span();
+    let asynchronous = cursor.eat_keyword(Keyword::Async);
+
+    if cursor.eat_keyword(Keyword::Function) {
+        return InterfaceMember::Function(function(
+            cursor,
+            start,
+            &Modifiers {
+                exported: false,
+                asynchronous,
+                unsafe_: false,
+                static_: false,
+            },
+            false,
+        ));
+    }
+
+    let name = cursor.name().0;
+    if !cursor.eat(TokenKind::Colon) {
+        let here = cursor.span();
+        cursor
+            .error(codes::EXPECTED_TYPE, here, "expected `:` and a type")
+            .note("An interface member is a function signature or a property `name: T` (§18).");
+    }
+
+    let ty = ty::ty(cursor);
+    InterfaceMember::Property {
+        name,
+        ty,
+        span: start.to(cursor.previous_span()),
+    }
 }
