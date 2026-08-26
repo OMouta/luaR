@@ -951,6 +951,17 @@ local point = Vec2 {
 }
 ```
 
+A literal gives a value for every field the struct declares, and names no field it does not. A field written with a default may be left out.
+
+```lua
+struct Request
+    path: string
+    method: string = "GET"
+end
+
+local request = Request { path = "/" }
+```
+
 Methods may be declared inside the struct.
 
 ```lua
