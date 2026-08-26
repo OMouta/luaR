@@ -532,6 +532,8 @@ end
 
 A call passes an argument for every parameter that has no default, and each argument has the type its parameter declares. A parameter list ending in a variadic takes any number of further arguments (LR9.4, LR9.6).
 
+A `return` gives a value of the type the function declares. A function that declares no result returns nothing, and a bare `return` leaves it.
+
 ### 9.2 Anonymous Functions
 
 ```lua
