@@ -232,6 +232,9 @@ pub enum Type {
     IntegerLiteral(u64),
     /// A floating-point literal, before context gives it a type (LR39).
     FloatLiteral,
+    /// `[...]`, and what its elements hold, before context says which
+    /// sequence it fills: a `List<T>` or a fixed-size array (LR13.1, LR71).
+    SequenceLiteral(Box<Type>),
     /// A type this stage does not know: either it was reported already, or
     /// working it out needs a stage that does not exist yet. It accepts
     /// everything and everything accepts it, so it causes no diagnostic.
@@ -270,6 +273,15 @@ impl Type {
             // (LR39).
             (Self::Primitive(target), Self::IntegerLiteral(literal)) => target.holds(*literal),
             (Self::Primitive(target), Self::FloatLiteral) => target.is_float(),
+
+            // A bracket literal fills either sequence (LR13.1, LR71). Whether
+            // it has N elements waits for `const` evaluation (LR24).
+            (Self::Array(element), Self::SequenceLiteral(held)) => element.accepts(held),
+            (Self::Builtin { kind, args }, Self::SequenceLiteral(held))
+                if matches!(kind, Builtin::List | Builtin::FrozenList) =>
+            {
+                args.first().is_none_or(|element| element.accepts(held))
+            }
 
             // `nil` inhabits every optional, and nothing else (LR8).
             (Self::Optional(_), Self::Primitive(Primitive::Nil)) => true,
@@ -332,6 +344,7 @@ fn compared(ty: &Type) -> bool {
             | Type::Pointer { .. }
             | Type::IntegerLiteral(_)
             | Type::FloatLiteral
+            | Type::SequenceLiteral(_)
     )
 }
 
@@ -383,6 +396,7 @@ impl fmt::Display for Type {
                 }
                 f.write_str(" }")
             }
+            Self::SequenceLiteral(element) => write!(f, "a sequence of `{element}`"),
             Self::IntegerLiteral(_) => f.write_str("an integer literal"),
             Self::FloatLiteral => f.write_str("a float literal"),
             Self::Unresolved => f.write_str("an unknown type"),

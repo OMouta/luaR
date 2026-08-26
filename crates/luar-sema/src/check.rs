@@ -501,14 +501,15 @@ impl Checker<'_> {
                 let members = items.iter().map(|item| settle(self.expr(item))).collect();
                 Type::Tuple(members)
             }
+            // LR13.1, LR71: a bracket literal is a sequence, and which one it
+            // fills comes from context, so it stays a literal until asked.
             ExprKind::List(items) => {
-                for item in items {
-                    self.expr(item);
+                let mut element = Type::Unresolved;
+                for (i, item) in items.iter().enumerate() {
+                    let held = self.expr(item);
+                    element = if i == 0 { held } else { unify(element, held) };
                 }
-                // LR13.1 and LR71 disagree about what a bracket literal is in
-                // a typed position, so it is left undecided rather than
-                // decided wrongly.
-                Type::Unresolved
+                Type::SequenceLiteral(Box::new(element))
             }
             ExprKind::Record { path, fields } => {
                 let mut members = Vec::with_capacity(fields.len());
@@ -832,7 +833,24 @@ fn settle(ty: Type) -> Type {
     match ty {
         Type::IntegerLiteral(_) => Type::Primitive(Primitive::I64),
         Type::FloatLiteral => Type::Primitive(Primitive::F64),
+        // A bracket literal with nothing asking for an array is a list
+        // (LR13.1).
+        Type::SequenceLiteral(element) => Type::Builtin {
+            kind: Builtin::List,
+            args: vec![settle(*element)],
+        },
         other => other,
+    }
+}
+
+/// What two elements of one literal have in common. Elements of different
+/// types need the union rules of LR17.2, so they are left unresolved rather
+/// than guessed at.
+fn unify(left: Type, right: Type) -> Type {
+    if left == right {
+        left
+    } else {
+        Type::Unresolved
     }
 }
 

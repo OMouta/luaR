@@ -1,0 +1,9 @@
+--- expect: compile-ok
+--- spec: LR13.1
+--- spec: LR71
+export function main()
+    local bytes: [u8; 4] = [0, 1, 2, 3]
+    local names: List<string> = ["ada", "grace"]
+    local inferred = [1, 2, 3]
+    print(bytes, names, inferred)
+end
