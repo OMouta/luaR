@@ -65,6 +65,7 @@ pub(crate) fn statement(cursor: &mut Cursor) -> Stmt {
         TokenKind::Keyword(Keyword::Repeat) => repeat_loop(cursor, None),
         TokenKind::Keyword(Keyword::For) => for_loop(cursor, None),
         TokenKind::Keyword(Keyword::Match) => match_statement(cursor),
+        TokenKind::Keyword(Keyword::Unsafe) => unsafe_block(cursor),
         TokenKind::Keyword(Keyword::Break) => {
             cursor.advance();
             StmtKind::Break(label_argument(cursor))
@@ -530,4 +531,18 @@ fn match_statement(cursor: &mut Cursor) -> StmtKind {
     close(cursor, opened, "match");
 
     StmtKind::Match { scrutinee, arms }
+}
+
+/// `unsafe ... end` (§29.2).
+///
+/// §89.1: a function declaration is not a statement, so `unsafe` in statement
+/// position always opens a block. The modifier form is read where
+/// declarations are.
+fn unsafe_block(cursor: &mut Cursor) -> StmtKind {
+    let opened = cursor.span();
+    cursor.advance();
+
+    let body = block(cursor);
+    close(cursor, opened, "unsafe");
+    StmtKind::Unsafe(body)
 }

@@ -81,6 +81,11 @@ pub enum StmtKind {
     Break(Option<String>),
     /// `continue`, or `continue outer` (§10.6, §10.7).
     Continue(Option<String>),
+    /// `unsafe ... end`, where the low-level operations are allowed (§29.2).
+    ///
+    /// §89.1: a function declaration is not a statement, so `unsafe` here
+    /// always opens a block and never modifies a declaration.
+    Unsafe(Block),
     /// `match value ... end`, whose cases are blocks (§16.1).
     Match {
         scrutinee: Expr,

@@ -1,0 +1,33 @@
+--- expect: compile-ok
+--- spec: §29.2
+--- spec: §72
+@extern("c")
+unsafe function native_clock(out: *mut CTime): i32
+
+@repr("C")
+struct CTime
+    seconds: i64
+    nanos: i64
+end
+
+export function currentNativeTime(): Result<CTime, Error>
+    local value = CTime {
+        seconds = 0,
+        nanos = 0,
+    }
+
+    unsafe
+        -- `value` is an addressable local, so &mut is valid for the
+        -- duration of this block (§72).
+        if native_clock(&mut value) ~= 0 then
+            return Result.Err(Error("native_clock failed"))
+        end
+    end
+
+    unsafe
+        local pointer = &value
+        print(pointer)
+    end
+
+    return Result.Ok(value)
+end
