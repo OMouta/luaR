@@ -1,13 +1,15 @@
 //! Statements and control flow (§5, §10).
 
 use luar_ast::{
-    BinaryOp, Binding, Block, Branch, Expr, ExprKind, FieldBinding, Stmt, StmtKind, Type,
+    ArmBody, BinaryOp, Binding, Block, Branch, Expr, ExprKind, FieldBinding, MatchArm, Stmt,
+    StmtKind, Type,
 };
 use luar_diagnostics::{Span, codes};
 use luar_lexer::{Keyword, TokenKind};
 
 use crate::cursor::Cursor;
 use crate::expr;
+use crate::pattern;
 use crate::ty;
 
 /// Statements up to whatever closes the block, which the caller consumes.
@@ -62,6 +64,7 @@ fn statement(cursor: &mut Cursor) -> Stmt {
         TokenKind::Keyword(Keyword::While) => while_loop(cursor, None),
         TokenKind::Keyword(Keyword::Repeat) => repeat_loop(cursor, None),
         TokenKind::Keyword(Keyword::For) => for_loop(cursor, None),
+        TokenKind::Keyword(Keyword::Match) => match_statement(cursor),
         TokenKind::Keyword(Keyword::Break) => {
             cursor.advance();
             StmtKind::Break(label_argument(cursor))
@@ -451,4 +454,80 @@ fn assignment_operator(kind: TokenKind) -> Option<Option<BinaryOp>> {
         _ => return None,
     };
     Some(op)
+}
+
+/// `match value ... end` (§16.1).
+///
+/// The same cases serve both forms: block cases make a statement, `=>` cases
+/// make an expression, and one `match` uses one form throughout.
+pub(crate) fn match_arms(cursor: &mut Cursor, opened: Span) -> Vec<MatchArm> {
+    let mut arms: Vec<MatchArm> = Vec::new();
+    let mut first_form: Option<bool> = None;
+
+    while cursor.kind() == TokenKind::Keyword(Keyword::Case) {
+        let start = cursor.span();
+        cursor.advance();
+
+        let pattern = pattern::pattern(cursor);
+        // §16.3: a guard is a `bool` the case is also conditional on.
+        let guard = cursor
+            .eat_keyword(Keyword::If)
+            .then(|| expr::expression(cursor));
+
+        let arrow = cursor.kind() == TokenKind::FatArrow;
+        let body = if arrow {
+            cursor.advance();
+            ArmBody::Expr(expr::expression(cursor))
+        } else {
+            ArmBody::Block(block(cursor))
+        };
+
+        // §16.1: mixing the forms is what would make a block case's extent
+        // ambiguous, so the first case decides which one this `match` uses.
+        match first_form {
+            None => first_form = Some(arrow),
+            Some(first) if first != arrow => {
+                cursor
+                    .error(
+                        codes::MIXED_MATCH_ARMS,
+                        start.to(cursor.previous_span()),
+                        "this case is written in the other form",
+                    )
+                    .label(opened, "this `match` uses one form throughout")
+                    .note(
+                        "Cases are blocks, or they are `=> expression`, and never both in one \
+                         `match` (§16.1).",
+                    );
+            }
+            Some(_) => {}
+        }
+
+        arms.push(MatchArm {
+            pattern,
+            guard,
+            body,
+            span: start.to(cursor.previous_span()),
+        });
+    }
+
+    if arms.is_empty() {
+        let here = cursor.span();
+        cursor
+            .error(codes::EXPECTED_PATTERN, here, "a `match` needs a case")
+            .label(opened, "this `match` has none");
+    }
+
+    arms
+}
+
+/// `match value ... end` as a statement (§16.1).
+fn match_statement(cursor: &mut Cursor) -> StmtKind {
+    let opened = cursor.span();
+    cursor.advance();
+
+    let scrutinee = expr::expression(cursor);
+    let arms = match_arms(cursor, opened);
+    close(cursor, opened, "match");
+
+    StmtKind::Match { scrutinee, arms }
 }

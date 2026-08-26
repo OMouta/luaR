@@ -92,6 +92,12 @@ pub enum ExprKind {
     /// `[a, b]` (§13.1).
     List(Vec<Expr>),
 
+    /// `match value ... end`, whose cases are `=> expression` (§16.1).
+    Match {
+        scrutinee: Box<Expr>,
+        arms: Vec<crate::stmt::MatchArm>,
+    },
+
     /// `if c then a else b` (§10.1), which produces a value rather than
     /// running a block. Every branch has to produce one, so the `else` is
     /// not optional.

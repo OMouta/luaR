@@ -3,6 +3,7 @@
 use luar_diagnostics::Span;
 
 use crate::expr::{BinaryOp, Expr};
+use crate::pattern::Pattern;
 use crate::ty::Type;
 
 /// A run of statements, as a body or a branch.
@@ -80,6 +81,11 @@ pub enum StmtKind {
     Break(Option<String>),
     /// `continue`, or `continue outer` (§10.6, §10.7).
     Continue(Option<String>),
+    /// `match value ... end`, whose cases are blocks (§16.1).
+    Match {
+        scrutinee: Expr,
+        arms: Vec<MatchArm>,
+    },
     /// `return`, or `return value` (§9.7).
     Return(Option<Expr>),
     /// An expression evaluated for what it does.
@@ -118,4 +124,26 @@ pub struct FieldBinding {
     /// The name it is bound to, when `as` renames it.
     pub bound_as: Option<String>,
     pub span: Span,
+}
+
+/// One case of a `match` (§16.1, §16.3).
+#[derive(Debug, Clone, PartialEq)]
+pub struct MatchArm {
+    pub pattern: Pattern,
+    /// A `bool` expression the case is also conditional on. A guarded case
+    /// never counts toward exhaustiveness (§16.3).
+    pub guard: Option<Expr>,
+    pub body: ArmBody,
+    pub span: Span,
+}
+
+/// What a case does when it matches.
+///
+/// §16.1: a `match` uses one form throughout. Block cases make it a statement
+/// and `=>` cases make it an expression, and mixing them is an error, which is
+/// what keeps a block case's extent unambiguous.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ArmBody {
+    Block(Block),
+    Expr(Expr),
 }

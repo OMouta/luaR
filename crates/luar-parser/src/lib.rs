@@ -10,6 +10,7 @@
 
 mod cursor;
 mod expr;
+mod pattern;
 mod stmt;
 mod ty;
 

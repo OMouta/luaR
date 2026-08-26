@@ -133,6 +133,12 @@ registry! {
         "Assignment writes to a name, a field, or an element, and nothing else.";
     active 128 => STATEMENT_WITHOUT_EFFECT, "§89.1",
         "An expression used as a statement must be a call, so that it does something.";
+    active 129 => EXPECTED_PATTERN, "§16.2",
+        "A pattern is required here, and what is written is not one.";
+    active 130 => MIXED_MATCH_ARMS, "§16.1",
+        "One `match` uses block cases or `=>` cases, never both.";
+    active 131 => REPEATED_REST_PATTERN, "§16.2",
+        "A sequence pattern has at most one rest pattern.";
 }
 
 #[cfg(test)]

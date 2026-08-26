@@ -475,7 +475,7 @@ fn index(cursor: &mut Cursor, receiver: Expr, optional: bool) -> Expr {
     )
 }
 
-fn primary(cursor: &mut Cursor) -> Expr {
+pub(crate) fn primary(cursor: &mut Cursor) -> Expr {
     let span = cursor.span();
 
     let kind = match cursor.kind() {
@@ -521,6 +521,7 @@ fn primary(cursor: &mut Cursor) -> Expr {
             ExprKind::Name(text)
         }
         TokenKind::Keyword(Keyword::If) => return conditional(cursor),
+        TokenKind::Keyword(Keyword::Match) => return match_expression(cursor),
         TokenKind::InterpolationStart => return interpolation(cursor),
         TokenKind::LeftParen => return parenthesized(cursor),
         TokenKind::LeftBracket => return list(cursor),
@@ -625,6 +626,31 @@ fn conditional(cursor: &mut Cursor) -> Expr {
             otherwise: Box::new(otherwise),
         },
         span,
+    )
+}
+
+/// `match value ... end` as an expression, whose cases are `=> expression`
+/// (§16.1).
+fn match_expression(cursor: &mut Cursor) -> Expr {
+    let opened = cursor.span();
+    cursor.advance();
+
+    let scrutinee = expression(cursor);
+    let arms = crate::stmt::match_arms(cursor, opened);
+
+    let end = cursor.span();
+    if !cursor.eat_keyword(Keyword::End) {
+        cursor
+            .error(codes::UNCLOSED_DELIMITER, end, "expected `end`")
+            .label(opened, "this `match` is still open");
+    }
+
+    Expr::new(
+        ExprKind::Match {
+            scrutinee: Box::new(scrutinee),
+            arms,
+        },
+        opened.to(end),
     )
 }
 

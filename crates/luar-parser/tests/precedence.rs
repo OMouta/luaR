@@ -130,6 +130,7 @@ fn render(expr: &Expr) -> String {
             format!("(if {} else {})", branches.join(" "), render(otherwise))
         }
         ExprKind::Interpolation(_) => "(interpolation)".to_owned(),
+        ExprKind::Match { arms, .. } => format!("(match {})", arms.len()),
         ExprKind::Error => "(error)".to_owned(),
     }
 }
