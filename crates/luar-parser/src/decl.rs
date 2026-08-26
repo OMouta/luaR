@@ -1,4 +1,4 @@
-//! Declarations, and the module that holds them (§9, §21.3, §44).
+//! Declarations, and the module that holds them (LR9, LR21.3, LR44).
 
 use luar_ast::{
     Block, Conditional, Decorator, Enum, Extend, Field, Function, Import, ImportName, ImportNames,
@@ -13,7 +13,7 @@ use crate::expr;
 use crate::stmt;
 use crate::ty;
 
-/// A whole source file: declarations and module-level statements (§21.3).
+/// A whole source file: declarations and module-level statements (LR21.3).
 pub(crate) fn module(cursor: &mut Cursor) -> Module {
     let start = cursor.span();
     let mut items = Vec::new();
@@ -53,13 +53,13 @@ pub(crate) fn module(cursor: &mut Cursor) -> Module {
 fn item(cursor: &mut Cursor) -> Option<Item> {
     let start = cursor.span();
 
-    // §48: conditional compilation selects declarations, so it is read where
+    // LR48: conditional compilation selects declarations, so it is read where
     // one would be.
     if cursor.at_directive(Keyword::If) {
         return Some(Item::Conditional(conditional(cursor)));
     }
 
-    // §21.1: an import takes no decorators, so it is read before them.
+    // LR21.1: an import takes no decorators, so it is read before them.
     if cursor.kind() == TokenKind::Keyword(Keyword::Import) {
         return Some(Item::Import(import(cursor, start)));
     }
@@ -69,8 +69,8 @@ fn item(cursor: &mut Cursor) -> Option<Item> {
     let export_span = cursor.span();
     let exported = cursor.eat_keyword(Keyword::Export);
 
-    // §12.4, §31: `const` and `ref` say how a struct is copied, and
-    // `const` alone binds a value (§5.2), so the `struct` decides.
+    // LR12.4, LR31: `const` and `ref` say how a struct is copied, and
+    // `const` alone binds a value (LR5.2), so the `struct` decides.
     let semantics = if cursor.kind() == TokenKind::Keyword(Keyword::Const)
         && cursor.peek_kind(1) == TokenKind::Keyword(Keyword::Struct)
     {
@@ -109,7 +109,7 @@ fn item(cursor: &mut Cursor) -> Option<Item> {
         )));
     }
 
-    // §52: `export` reaches a `const` value, and mutable module state stays
+    // LR52: `export` reaches a `const` value, and mutable module state stays
     // in the module that owns it.
     if exported
         && matches!(
@@ -124,7 +124,7 @@ fn item(cursor: &mut Cursor) -> Option<Item> {
     let decorated = decorators.first().map(|decorator| decorator.span);
     let function = declaration(cursor, decorators);
 
-    // §23: a decorator attaches to a declaration. On anything else it would
+    // LR23: a decorator attaches to a declaration. On anything else it would
     // be read and then dropped, which is worse than not reading it.
     if let (None, Some(span)) = (&function, decorated) {
         let here = cursor.span();
@@ -140,7 +140,7 @@ fn item(cursor: &mut Cursor) -> Option<Item> {
     function.map(Item::Function)
 }
 
-/// An `import` declaration (§21.1).
+/// An `import` declaration (LR21.1).
 fn import(cursor: &mut Cursor, start: Span) -> Import {
     cursor.advance();
 
@@ -160,7 +160,7 @@ fn import(cursor: &mut Cursor, start: Span) -> Import {
                 here,
                 "expected `from` and the module path",
             )
-            .note("An import says where it comes from: `import { A } from \"./a\"` (§21.1).");
+            .note("An import says where it comes from: `import { A } from \"./a\"` (LR21.1).");
     }
 
     let path_span = cursor.span();
@@ -210,7 +210,7 @@ fn import_names(cursor: &mut Cursor, opened: Span) -> Vec<ImportName> {
     names
 }
 
-/// A module-level binding written after `export` (§52).
+/// A module-level binding written after `export` (LR52).
 ///
 /// A `const` is exported. A `local` is mutable module state, which is
 /// reported and then read anyway, so the rest of the module still parses.
@@ -226,7 +226,7 @@ fn exported_binding(cursor: &mut Cursor, export_span: Span) -> luar_ast::Stmt {
             .label(export_span, "this is what exports it")
             .note(
                 "A module exposes state it owns through functions, which gives it \
-                 somewhere to put validation and synchronization (§52).",
+                 somewhere to put validation and synchronization (LR52).",
             );
     }
 
@@ -239,7 +239,7 @@ fn exported_binding(cursor: &mut Cursor, export_span: Span) -> luar_ast::Stmt {
 
 /// A function declaration, if one starts here.
 ///
-/// §89.1: `unsafe` followed by `function` or `static` is the modifier on a
+/// LR89.1: `unsafe` followed by `function` or `static` is the modifier on a
 /// declaration, and `unsafe` followed by anything else opens a block, so the
 /// modifiers are read together and only then does `function` have to follow.
 fn declaration(cursor: &mut Cursor, decorators: Vec<Decorator>) -> Option<Function> {
@@ -271,7 +271,7 @@ fn declaration(cursor: &mut Cursor, decorators: Vec<Decorator>) -> Option<Functi
 
     cursor.advance();
 
-    // §46, §89.1: a foreign declaration is its own form. It carries a
+    // LR46, LR89.1: a foreign declaration is its own form. It carries a
     // signature and no body, so a bodiless one is not a malformed function.
     let foreign = decorators
         .iter()
@@ -287,7 +287,7 @@ fn declaration(cursor: &mut Cursor, decorators: Vec<Decorator>) -> Option<Functi
                     "a foreign declaration must be `unsafe`",
                 )
                 .note(
-                    "The compiler can verify nothing about the callee, so the declaration says \n                     so: `@extern(\"c\") unsafe function` (§46).",
+                    "The compiler can verify nothing about the callee, so the declaration says \n                     so: `@extern(\"c\") unsafe function` (LR46).",
                 );
         }
         if foreign.args.is_empty() {
@@ -325,9 +325,9 @@ struct Modifiers {
 }
 
 /// A function declaration. `body` is read unless the caller says the
-/// declaration states a signature and no more (§18, §46).
+/// declaration states a signature and no more (LR18, LR46).
 fn function(cursor: &mut Cursor, start: Span, modifiers: Modifiers, bodied: bool) -> Function {
-    // A qualified name declares a member of the type it names (§20, §42).
+    // A qualified name declares a member of the type it names (LR20, LR42).
     let mut name = vec![cursor.name().0];
     while cursor.eat(TokenKind::Dot) {
         name.push(cursor.name().0);
@@ -358,7 +358,7 @@ fn function(cursor: &mut Cursor, start: Span, modifiers: Modifiers, bodied: bool
     }
 }
 
-/// `(a: int, b: int = 0, ...rest: string)` (§9.4, §9.6).
+/// `(a: int, b: int = 0, ...rest: string)` (LR9.4, LR9.6).
 pub(crate) fn parameters(cursor: &mut Cursor) -> Vec<Param> {
     let opened = cursor.span();
 
@@ -374,7 +374,7 @@ pub(crate) fn parameters(cursor: &mut Cursor) -> Vec<Param> {
         let variadic = cursor.eat(TokenKind::DotDotDot);
         let binding = stmt::binding(cursor);
         let ty = cursor.eat(TokenKind::Colon).then(|| ty::ty(cursor));
-        // §9.4: a default is evaluated at the call site when omitted.
+        // LR9.4: a default is evaluated at the call site when omitted.
         let default = cursor
             .eat(TokenKind::Equals)
             .then(|| expr::expression(cursor));
@@ -396,7 +396,7 @@ pub(crate) fn parameters(cursor: &mut Cursor) -> Vec<Param> {
     params
 }
 
-/// `struct`, `const struct`, and `ref struct` (§12.2, §12.4, §31).
+/// `struct`, `const struct`, and `ref struct` (LR12.2, LR12.4, LR31).
 fn structure(
     cursor: &mut Cursor,
     start: Span,
@@ -409,7 +409,7 @@ fn structure(
     let name = cursor.name().0;
     let type_params = type_parameters(cursor);
 
-    // §18: what the struct claims to implement, checked when types are.
+    // LR18: what the struct claims to implement, checked when types are.
     let mut implements = Vec::new();
     if cursor.eat_keyword(Keyword::Implements) {
         implements.push(ty::ty(cursor));
@@ -450,12 +450,12 @@ fn structure(
     }
 }
 
-/// A field, a method, or a property (§12.2, §42, §43).
+/// A field, a method, or a property (LR12.2, LR42, LR43).
 fn member(cursor: &mut Cursor) -> Member {
     let start = cursor.span();
     let decorators = decorators(cursor);
 
-    // §44: a member is public by default, and may say otherwise.
+    // LR44: a member is public by default, and may say otherwise.
     let visibility = match cursor.kind() {
         TokenKind::Keyword(Keyword::Private) => Some(Visibility::Private),
         TokenKind::Keyword(Keyword::Internal) => Some(Visibility::Internal),
@@ -470,7 +470,7 @@ fn member(cursor: &mut Cursor) -> Member {
         return Member::Property(property(cursor, start, visibility));
     }
 
-    // A method is an ordinary function declaration, modifiers and all (§42).
+    // A method is an ordinary function declaration, modifiers and all (LR42).
     if let Some(function) = declaration(cursor, decorators) {
         return Member::Function(function);
     }
@@ -478,7 +478,7 @@ fn member(cursor: &mut Cursor) -> Member {
     Member::Field(field(cursor, start, visibility))
 }
 
-/// `name: T`, with a default where it has one (§12.2).
+/// `name: T`, with a default where it has one (LR12.2).
 fn field(cursor: &mut Cursor, start: Span, visibility: Option<Visibility>) -> Field {
     let name = cursor.name().0;
 
@@ -488,7 +488,7 @@ fn field(cursor: &mut Cursor, start: Span, visibility: Option<Visibility>) -> Fi
         let here = cursor.span();
         cursor
             .error(codes::EXPECTED_TYPE, here, "expected `:` and a field type")
-            .note("A field is written `name: T`; `:` introduces a type (§89.1).");
+            .note("A field is written `name: T`; `:` introduces a type (LR89.1).");
 
         return Field {
             visibility,
@@ -513,9 +513,9 @@ fn field(cursor: &mut Cursor, start: Span, visibility: Option<Visibility>) -> Fi
     }
 }
 
-/// `property name: T get ... end [set (v) ... end] end` (§43).
+/// `property name: T get ... end [set (v) ... end] end` (LR43).
 ///
-/// `get` and `set` are not keywords (§3.2); they are names the grammar gives
+/// `get` and `set` are not keywords (LR3.2); they are names the grammar gives
 /// meaning here and nowhere else.
 fn property(cursor: &mut Cursor, start: Span, visibility: Option<Visibility>) -> Property {
     cursor.advance();
@@ -536,7 +536,7 @@ fn property(cursor: &mut Cursor, start: Span, visibility: Option<Visibility>) ->
         cursor
             .error(codes::EXPECTED_ACCESSOR, here, "a property needs a `get`")
             .label(start, "this property has none")
-            .note("A property is read like a field, so it must say what reading it does (§43).");
+            .note("A property is read like a field, so it must say what reading it does (LR43).");
         Block {
             stmts: Vec::new(),
             span: cursor.span(),
@@ -557,7 +557,7 @@ fn property(cursor: &mut Cursor, start: Span, visibility: Option<Visibility>) ->
     }
 }
 
-/// `set (newValue) ... end` (§43). The setter is explicit, and names the
+/// `set (newValue) ... end` (LR43). The setter is explicit, and names the
 /// value being assigned.
 fn setter(cursor: &mut Cursor) -> Setter {
     let start = cursor.previous_span();
@@ -575,7 +575,7 @@ fn setter(cursor: &mut Cursor) -> Setter {
                 here,
                 "a setter names the value being assigned",
             )
-            .note("Write `set (newValue)` (§43).");
+            .note("Write `set (newValue)` (LR43).");
         String::new()
     };
 
@@ -589,7 +589,7 @@ fn setter(cursor: &mut Cursor) -> Setter {
     }
 }
 
-/// `<T, U>` (§19). Constraints are `where` clauses, which arrive with the
+/// `<T, U>` (LR19). Constraints are `where` clauses, which arrive with the
 /// checking that uses them.
 fn type_parameters(cursor: &mut Cursor) -> Vec<String> {
     if !cursor.eat(TokenKind::Lt) {
@@ -627,7 +627,7 @@ fn close(cursor: &mut Cursor, opened: Span, construct: &str) {
         .label(opened, format!("this `{construct}` is still open"));
 }
 
-/// `enum Name ... end`, whose variants may carry data (§15).
+/// `enum Name ... end`, whose variants may carry data (LR15).
 fn enumeration(
     cursor: &mut Cursor,
     start: Span,
@@ -664,7 +664,7 @@ fn enumeration(
     }
 }
 
-/// `Quit`, `Write(string)`, or `Move { x: int, y: int }` (§15.1, §15.2).
+/// `Quit`, `Write(string)`, or `Move { x: int, y: int }` (LR15.1, LR15.2).
 fn variant(cursor: &mut Cursor) -> Variant {
     let start = cursor.span();
     let name = cursor.name().0;
@@ -699,7 +699,7 @@ fn variant_types(cursor: &mut Cursor) -> Vec<Type> {
     types
 }
 
-/// `interface Name ... end`, and `structural interface` (§18).
+/// `interface Name ... end`, and `structural interface` (LR18).
 fn interface(
     cursor: &mut Cursor,
     start: Span,
@@ -738,7 +738,7 @@ fn interface(
     }
 }
 
-/// A required method, which has no body, or a required property (§18).
+/// A required method, which has no body, or a required property (LR18).
 fn interface_member(cursor: &mut Cursor) -> InterfaceMember {
     let start = cursor.span();
     let decorators = decorators(cursor);
@@ -764,7 +764,7 @@ fn interface_member(cursor: &mut Cursor) -> InterfaceMember {
         let here = cursor.span();
         cursor
             .error(codes::EXPECTED_TYPE, here, "expected `:` and a type")
-            .note("An interface member is a function signature or a property `name: T` (§18).");
+            .note("An interface member is a function signature or a property `name: T` (LR18).");
     }
 
     let ty = ty::ty(cursor);
@@ -775,7 +775,7 @@ fn interface_member(cursor: &mut Cursor) -> InterfaceMember {
     }
 }
 
-/// `extend Name for Type ... end` (§20).
+/// `extend Name for Type ... end` (LR20).
 fn extension(
     cursor: &mut Cursor,
     start: Span,
@@ -795,7 +795,7 @@ fn extension(
                 "expected `for` and a type",
             )
             .note(
-                "An extension block names itself and what it extends: `extend Name for T` (§20).",
+                "An extension block names itself and what it extends: `extend Name for T` (LR20).",
             );
     }
 
@@ -820,7 +820,7 @@ fn extension(
                             here,
                             "an extension block holds functions",
                         )
-                        .note("Extension methods add no stored fields (§20).");
+                        .note("Extension methods add no stored fields (LR20).");
                 }
             }
         }
@@ -842,7 +842,7 @@ fn extension(
     }
 }
 
-/// `type Name = T` (§17.1).
+/// `type Name = T` (LR17.1).
 fn type_alias(
     cursor: &mut Cursor,
     start: Span,
@@ -871,7 +871,7 @@ fn type_alias(
     }
 }
 
-/// The decorators written before a declaration (§23).
+/// The decorators written before a declaration (LR23).
 fn decorators(cursor: &mut Cursor) -> Vec<Decorator> {
     let mut decorators = Vec::new();
 
@@ -896,10 +896,10 @@ fn decorators(cursor: &mut Cursor) -> Vec<Decorator> {
     decorators
 }
 
-/// `#if ... #elseif ... #else ... #end`, around declarations (§48).
+/// `#if ... #elseif ... #else ... #end`, around declarations (LR48).
 ///
 /// The directives are `#` followed by the ordinary keywords, so nothing new
-/// is reserved. §81 keeps `#if` for the compiler, and this is what it is for.
+/// is reserved. LR81 keeps `#if` for the compiler, and this is what it is for.
 fn conditional(cursor: &mut Cursor) -> Conditional {
     let start = cursor.span();
     cursor.advance();

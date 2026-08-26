@@ -1,10 +1,10 @@
 //! The reserved words.
 //!
-//! §3.2 states the complete keyword set, and §81 states the words reserved
+//! LR3.2 states the complete keyword set, and LR81 states the words reserved
 //! with no meaning assigned. Both are closed lists, so both are tables here,
 //! checked against the specification by `tests/spec_words.rs`.
 
-/// A word §3.2 reserves and gives a meaning.
+/// A word LR3.2 reserves and gives a meaning.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Keyword {
     And,
@@ -125,7 +125,7 @@ static KEYWORDS: &[(&str, Keyword)] = &[
     ("while", Keyword::While),
 ];
 
-/// Words §81 reserves without giving them a meaning. They are rejected rather
+/// Words LR81 reserves without giving them a meaning. They are rejected rather
 /// than lexed as identifiers, so that giving them one later does not silently
 /// change what an existing program means.
 pub static RESERVED_WORDS: &[&str] = &["comptime", "effect", "impl", "macro", "yield"];
@@ -188,7 +188,7 @@ impl Keyword {
     }
 }
 
-/// Whether `text` is reserved with no meaning (§81).
+/// Whether `text` is reserved with no meaning (LR81).
 #[must_use]
 pub fn is_reserved_word(text: &str) -> bool {
     RESERVED_WORDS.binary_search(&text).is_ok()

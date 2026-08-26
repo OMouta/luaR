@@ -28,7 +28,7 @@ Finding a compiler bug while working on something else does not change this. Fix
 
 - A test is a LuaR program and its observable behavior: an exit code, stdout, or a diagnostic. Never a token stream, an AST node, or what some internal function returned.
 - Every test cites the spec sections it enforces. No citation, no test.
-- A negative test matches a diagnostic code and a source span. §80 leaves wording open, so anyone may reword a message, and a test that reads one breaks for no reason.
+- A negative test matches a diagnostic code and a source span. LR80 leaves wording open, so anyone may reword a message, and a test that reads one breaks for no reason.
 - Write conformance tests by default. Save unit tests for code that is itself the contract: integer overflow helpers, UTF-8 boundary math, the range arithmetic in bounds-check elimination. Every test runs the real pipeline, never a mocked stage.
 - Write `run` tests as features arrive. They skip until the backend exists, and the day it lands the suite reports how much of the language works.
 - `luarc coverage` lists the spec sections no test cites. Start there when you want work.

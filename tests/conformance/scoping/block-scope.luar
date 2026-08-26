@@ -1,7 +1,7 @@
 --- expect: compile-error
 --- code: LR0138
 --- span: 11:11
---- spec: §54
+--- spec: LR54
 export function main()
     if true then
         local value = 10

@@ -1,4 +1,4 @@
-//! Checks `match` and patterns against §16.
+//! Checks `match` and patterns against LR16.
 
 use luar_ast::{ArmBody, MatchArm, PatternKind, Payload, StmtKind};
 use luar_diagnostics::FileId;
@@ -52,7 +52,7 @@ fn pattern(source: &str) -> PatternKind {
     arms.pop().expect("one case").pattern.kind
 }
 
-/// §16.2: the patterns that match without looking inside anything.
+/// LR16.2: the patterns that match without looking inside anything.
 #[test]
 fn simple_patterns() {
     assert_eq!(pattern("_"), PatternKind::Wildcard);
@@ -63,7 +63,7 @@ fn simple_patterns() {
     assert!(matches!(pattern("-1"), PatternKind::Literal(_)));
 }
 
-/// §16.2: enum variants, with positional or record payloads, and without one.
+/// LR16.2: enum variants, with positional or record payloads, and without one.
 #[test]
 fn enum_variants_carry_their_payload() {
     assert!(matches!(
@@ -86,7 +86,7 @@ fn enum_variants_carry_their_payload() {
     ));
 }
 
-/// §16.2: record fields match by name, `...` allows the ones not listed, and
+/// LR16.2: record fields match by name, `...` allows the ones not listed, and
 /// `as` binds under another name.
 #[test]
 fn record_patterns_match_by_name() {
@@ -106,7 +106,7 @@ fn record_patterns_match_by_name() {
     assert!(fields[1].pattern.is_none());
 }
 
-/// §16.2: sequences match by shape, and the rest pattern may sit anywhere.
+/// LR16.2: sequences match by shape, and the rest pattern may sit anywhere.
 #[test]
 fn sequence_patterns_match_by_shape() {
     assert!(matches!(
@@ -134,11 +134,11 @@ fn sequence_patterns_match_by_shape() {
         } if before.len() == 1 && after.len() == 1
     ));
 
-    // §16.2: with two rest patterns there is no telling which takes what.
+    // LR16.2: with two rest patterns there is no telling which takes what.
     assert_eq!(codes("match args case [...a, ...b] work() end"), ["LR0131"]);
 }
 
-/// §16.2: ranges, or-patterns, and type patterns.
+/// LR16.2: ranges, or-patterns, and type patterns.
 #[test]
 fn ranges_alternatives_and_types() {
     assert!(matches!(
@@ -165,7 +165,7 @@ fn ranges_alternatives_and_types() {
     ));
 }
 
-/// §16.2: patterns nest freely.
+/// LR16.2: patterns nest freely.
 #[test]
 fn patterns_nest() {
     assert!(matches!(
@@ -181,14 +181,14 @@ fn patterns_nest() {
     ));
 }
 
-/// §16.3: a guard is a condition on the case.
+/// LR16.3: a guard is a condition on the case.
 #[test]
 fn a_case_may_be_guarded() {
     let arms = arms("match result case Result.Ok(value) if value > 10 work() end");
     assert!(arms[0].guard.is_some());
 }
 
-/// §16.1: the statement form takes blocks, and a case extends to the next one.
+/// LR16.1: the statement form takes blocks, and a case extends to the next one.
 #[test]
 fn block_cases_extend_to_the_next_case() {
     let arms = arms(
@@ -203,7 +203,7 @@ fn block_cases_extend_to_the_next_case() {
     assert_eq!(first.stmts.len(), 2);
 }
 
-/// §16.1: the expression form takes `=> expression`.
+/// LR16.1: the expression form takes `=> expression`.
 #[test]
 fn arrow_cases_produce_a_value() {
     let arms = arms(
@@ -215,7 +215,7 @@ fn arrow_cases_produce_a_value() {
     assert!(matches!(arms[0].body, ArmBody::Expr(_)));
 }
 
-/// §16.1: one `match` uses one form throughout, which is what keeps a block
+/// LR16.1: one `match` uses one form throughout, which is what keeps a block
 /// case's extent unambiguous.
 #[test]
 fn mixing_the_two_case_forms_is_rejected() {

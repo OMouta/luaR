@@ -1,4 +1,4 @@
-//! Reading one escape sequence (§4.5).
+//! Reading one escape sequence (LR4.5).
 //!
 //! Escapes are read in two places: when lexing a literal, to report what is
 //! wrong with it, and when decoding one into its value. Both call this, so
@@ -17,19 +17,19 @@ pub(crate) struct Escape {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EscapeError {
-    /// Not an escape §4.5 defines.
+    /// Not an escape LR4.5 defines.
     Unknown,
     /// `\xNN` without two hexadecimal digits.
     BadHex,
     /// `\u{...}` without one to six digits in braces, or not a scalar value.
     BadUnicode,
-    /// A byte above `\x7f`, which is not valid UTF-8 on its own (§4.5).
+    /// A byte above `\x7f`, which is not valid UTF-8 on its own (LR4.5).
     NotUtf8,
 }
 
 /// Reads the escape at `at`, which must be a backslash.
 ///
-/// `raw_bytes` is true inside a byte string (§4.7), where `\xNN` may be any
+/// `raw_bytes` is true inside a byte string (LR4.7), where `\xNN` may be any
 /// byte because the value is not required to be text.
 pub(crate) fn read(body: &str, at: usize, raw_bytes: bool) -> Escape {
     let ok = |c: char, len: usize| Escape {
@@ -52,7 +52,7 @@ pub(crate) fn read(body: &str, at: usize, raw_bytes: bool) -> Escape {
         Some(b'0') => ok('\0', 2),
         Some(b'\\') => ok('\\', 2),
         // Every delimiter escapes, so a literal can hold the character that
-        // would otherwise end it (§4.5).
+        // would otherwise end it (LR4.5).
         Some(b'"') => ok('"', 2),
         Some(b'\'') => ok('\'', 2),
         Some(b'`') => ok('`', 2),

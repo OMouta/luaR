@@ -1,4 +1,4 @@
-//! What a literal denotes (§4.5, §4.6, §4.7).
+//! What a literal denotes (LR4.5, LR4.6, LR4.7).
 //!
 //! The lexer checks a literal and reports what is wrong with it; this turns
 //! one into its value, for whoever is building a syntax tree and has somewhere
@@ -8,7 +8,7 @@
 
 use crate::escape;
 
-/// The text of a string literal (§4.5), given its source including the
+/// The text of a string literal (LR4.5), given its source including the
 /// delimiters. Handles both `"..."` and long strings.
 #[must_use]
 pub fn string(literal: &str) -> Option<String> {
@@ -21,14 +21,14 @@ pub fn string(literal: &str) -> Option<String> {
     String::from_utf8(bytes).ok()
 }
 
-/// The bytes of a byte string literal (§4.7), `b"..."`.
+/// The bytes of a byte string literal (LR4.7), `b"..."`.
 #[must_use]
 pub fn byte_string(literal: &str) -> Option<Vec<u8>> {
     let body = literal.strip_prefix("b\"")?.strip_suffix('"')?;
     decode(body, true)
 }
 
-/// The text of one literal part of an interpolated string (§4.6), which is
+/// The text of one literal part of an interpolated string (LR4.6), which is
 /// already just the part, without delimiters.
 #[must_use]
 pub fn interpolation_text(part: &str) -> Option<String> {
@@ -37,7 +37,7 @@ pub fn interpolation_text(part: &str) -> Option<String> {
 
 /// A long string, whose content is taken as written: no escapes, and the
 /// newline immediately after the opening bracket is not part of the value, so
-/// that a string may start on the line after its bracket (§4.5).
+/// that a string may start on the line after its bracket (LR4.5).
 fn long_string(literal: &str, open: usize, level: usize) -> Option<String> {
     let closing = format!("]{}]", "=".repeat(level));
     let body = literal[open..].strip_suffix(&closing)?;
@@ -96,7 +96,7 @@ mod tests {
         );
     }
 
-    /// §4.5: a long string takes no escapes, and does not begin with the
+    /// LR4.5: a long string takes no escapes, and does not begin with the
     /// newline that follows its opening bracket.
     #[test]
     fn a_long_string_is_taken_as_written() {
@@ -108,7 +108,7 @@ mod tests {
         assert_eq!(string("[==[ ]] ]==]").as_deref(), Some(" ]] "));
     }
 
-    /// §4.7: a byte string keeps bytes, including ones that are not text.
+    /// LR4.7: a byte string keeps bytes, including ones that are not text.
     #[test]
     fn a_byte_string_keeps_its_bytes() {
         assert_eq!(byte_string(r#"b"\xff\x00""#), Some(vec![0xff, 0x00]));

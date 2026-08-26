@@ -1,9 +1,9 @@
 --- expect: compile-ok
---- spec: §14
---- spec: §17
---- spec: §17.2
---- spec: §17.3
---- spec: §71
+--- spec: LR14
+--- spec: LR17
+--- spec: LR17.2
+--- spec: LR17.3
+--- spec: LR71
 interface Named
     function name(self): string
 end

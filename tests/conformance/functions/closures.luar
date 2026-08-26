@@ -1,6 +1,6 @@
 --- expect: compile-ok
---- spec: §9.2
---- spec: §9.8
+--- spec: LR9.2
+--- spec: LR9.8
 export function main()
     local double = function(value: int): int
         return value * 2
@@ -17,7 +17,7 @@ export function main()
         return 1
     end
 
-    -- A parenthesized list with no arrow after it stays a tuple (§14).
+    -- A parenthesized list with no arrow after it stays a tuple (LR14).
     local pair = (1, 2)
     local grouped = (1 + 2) * 3
 

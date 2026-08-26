@@ -1,5 +1,5 @@
 --- expect: compile-ok
---- spec: §52
+--- spec: LR52
 local count = 0
 
 export function main()

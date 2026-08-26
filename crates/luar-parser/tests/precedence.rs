@@ -1,4 +1,4 @@
-//! Checks the parse against the precedence table §11.7 states.
+//! Checks the parse against the precedence table LR11.7 states.
 //!
 //! These read the tree rather than a program's behavior, which the testing
 //! policy keeps for conformance tests. Precedence has no observable behavior
@@ -192,7 +192,7 @@ fn spell(op: BinaryOp) -> &'static str {
     }
 }
 
-/// §11.7, read down the table: each row binds tighter than the one below it.
+/// LR11.7, read down the table: each row binds tighter than the one below it.
 #[test]
 fn each_level_binds_tighter_than_the_one_below() {
     assert_eq!(shape("a or b and c"), "(a or (b and c))");
@@ -208,21 +208,21 @@ fn each_level_binds_tighter_than_the_one_below() {
     assert_eq!(shape("a * not b"), "(a * (not b))");
 }
 
-/// §11.7: `a & b == c` masks first, as in Lua, rather than comparing first.
+/// LR11.7: `a & b == c` masks first, as in Lua, rather than comparing first.
 #[test]
 fn bitwise_operators_bind_tighter_than_comparison() {
     assert_eq!(shape("a & b == c"), "((a & b) == c)");
     assert_eq!(shape("a | b ~= c"), "((a | b) ~= c)");
 }
 
-/// §11.7: left-associative rows group leftmost first.
+/// LR11.7: left-associative rows group leftmost first.
 #[test]
 fn arithmetic_associates_to_the_left() {
     assert_eq!(shape("a - b - c"), "((a - b) - c)");
     assert_eq!(shape("a / b * c"), "((a / b) * c)");
 }
 
-/// §11.7: `..`, `??`, and `**` associate to the right.
+/// LR11.7: `..`, `??`, and `**` associate to the right.
 #[test]
 fn concatenation_coalescing_and_power_associate_to_the_right() {
     assert_eq!(shape("a .. b .. c"), "(a .. (b .. c))");
@@ -230,7 +230,7 @@ fn concatenation_coalescing_and_power_associate_to_the_right() {
     assert_eq!(shape("2 ** 3 ** 2"), "(2 ** (3 ** 2))");
 }
 
-/// §11.7: `**` binds tighter than a prefix operator, so the power is negated
+/// LR11.7: `**` binds tighter than a prefix operator, so the power is negated
 /// rather than the base.
 #[test]
 fn power_binds_tighter_than_prefix_operators() {
@@ -239,14 +239,14 @@ fn power_binds_tighter_than_prefix_operators() {
     assert_eq!(shape("not a == b"), "((not a) == b)");
 }
 
-/// §11.7, §11.1: `as` binds tighter than arithmetic, so the example in §11.1
+/// LR11.7, LR11.1: `as` binds tighter than arithmetic, so the example in LR11.1
 /// divides the two converted values.
 #[test]
 fn conversion_binds_tighter_than_arithmetic() {
     assert_eq!(shape("a as f64 / b as f64"), "((a as f64) / (b as f64))");
 }
 
-/// §11.7: ranges bind loosest, so a bound may be an expression without
+/// LR11.7: ranges bind loosest, so a bound may be an expression without
 /// parentheses.
 #[test]
 fn ranges_bind_loosest() {
@@ -255,7 +255,7 @@ fn ranges_bind_loosest() {
     assert_eq!(shape("a or b ..< c"), "((a or b) ..< c)");
 }
 
-/// §11.7: comparison and range operators do not chain.
+/// LR11.7: comparison and range operators do not chain.
 #[test]
 fn chained_comparisons_are_rejected() {
     assert_eq!(codes("a < b < c"), ["LR0125"]);
@@ -263,7 +263,7 @@ fn chained_comparisons_are_rejected() {
     assert_eq!(codes("a < b"), Vec::<String>::new());
 }
 
-/// §8, §12.2, §25.2, §37: postfix operators bind tightest, and chain.
+/// LR8, LR12.2, LR25.2, LR37: postfix operators bind tightest, and chain.
 #[test]
 fn postfix_operators_bind_tightest() {
     assert_eq!(shape("-f(x)"), "(- (call f x))");
@@ -275,7 +275,7 @@ fn postfix_operators_bind_tightest() {
     assert_eq!(shape("config.port ?? 8080"), "((config .port) ?? 8080)");
 }
 
-/// §89.1: `name <` opens type arguments only when the tokens through the
+/// LR89.1: `name <` opens type arguments only when the tokens through the
 /// matching `>` are a type list and a `(` follows immediately. Everything else
 /// is a comparison.
 #[test]
@@ -290,7 +290,7 @@ fn type_arguments_are_told_from_comparison_by_the_paren_that_follows() {
     // says which reading was taken.
     assert_eq!(codes("a < b > c"), ["LR0125"]);
     // With one, it is a call. The comparison reading was never valid, because
-    // comparison does not chain (§11.7, §89.1).
+    // comparison does not chain (LR11.7, LR89.1).
     assert_eq!(shape("a < b > (c)"), "(call a <1> c)");
     assert_eq!(
         shape("into<Map<string, List<int>>>(value)"),
@@ -298,7 +298,7 @@ fn type_arguments_are_told_from_comparison_by_the_paren_that_follows() {
     );
 }
 
-/// §9.5: an argument may be passed by name, which is `=` and not `:`.
+/// LR9.5: an argument may be passed by name, which is `=` and not `:`.
 #[test]
 fn arguments_may_be_named() {
     assert_eq!(
@@ -307,7 +307,7 @@ fn arguments_may_be_named() {
     );
 }
 
-/// §14, §13.1: parentheses group, and a comma makes a tuple.
+/// LR14, LR13.1: parentheses group, and a comma makes a tuple.
 #[test]
 fn parentheses_group_and_commas_make_tuples() {
     assert_eq!(shape("(a + b) * c"), "((a + b) * c)");
@@ -325,7 +325,7 @@ fn what_is_missing_is_reported() {
     assert_eq!(codes("[1, 2"), ["LR0124"]);
 }
 
-/// §12.1, §12.2, §13.2, §90: braces are always a record, `Map { ... }` always
+/// LR12.1, LR12.2, LR13.2, LR90: braces are always a record, `Map { ... }` always
 /// a map, and what a literal builds never depends on where it is written.
 #[test]
 fn braces_are_always_a_record_and_map_is_always_a_map() {
@@ -338,7 +338,7 @@ fn braces_are_always_a_record_and_map_is_always_a_map() {
     assert_eq!(shape("a.b.c"), "((a .b) .c)");
 }
 
-/// §9.2, §14: a parenthesized list is a closure's parameters when `=>`
+/// LR9.2, LR14: a parenthesized list is a closure's parameters when `=>`
 /// follows it, and a tuple otherwise.
 #[test]
 fn a_parenthesized_list_is_a_closure_only_before_an_arrow() {

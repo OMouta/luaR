@@ -1,5 +1,5 @@
 --- expect: compile-ok
---- spec: §89.1
+--- spec: LR89.1
 struct User
     id: u64
 end

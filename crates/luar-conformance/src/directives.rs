@@ -7,7 +7,7 @@
 //! --- expect: compile-error
 //! --- code: LR0114
 //! --- span: 2:15
-//! --- spec: §11.1
+//! --- spec: LR11.1
 //! local ratio = 10 / 3
 //! ```
 //!
@@ -43,7 +43,7 @@ impl Expect {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Directives {
     pub expect: Expect,
-    /// Spec sections this test enforces, such as `§11.1`. Never empty.
+    /// Spec sections this test enforces, such as `LR11.1`. Never empty.
     pub spec: Vec<String>,
     pub code: Option<Code>,
     pub span: Option<Position>,
@@ -125,7 +125,7 @@ pub fn parse(source: &str) -> Result<Directives, DirectiveError> {
             }
             "spec" => {
                 if value.is_empty() {
-                    return Err(at("`spec` needs a section, such as §11.1".to_owned()));
+                    return Err(at("`spec` needs a section, such as LR11.1".to_owned()));
                 }
                 spec.push(value.to_owned());
             }

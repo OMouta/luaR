@@ -1,7 +1,7 @@
 --- expect: run
 --- exit: 0
 --- stdout: "3\n"
---- spec: §11.1
+--- spec: LR11.1
 export function main()
     print(10 // 3)
 end

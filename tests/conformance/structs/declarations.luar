@@ -1,11 +1,11 @@
 --- expect: compile-ok
---- spec: §12
---- spec: §12.2
---- spec: §12.3
---- spec: §12.4
---- spec: §31
---- spec: §42
---- spec: §43
+--- spec: LR12
+--- spec: LR12.2
+--- spec: LR12.3
+--- spec: LR12.4
+--- spec: LR31
+--- spec: LR42
+--- spec: LR43
 interface Measured
     function length(self): float
 end

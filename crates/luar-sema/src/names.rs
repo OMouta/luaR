@@ -1,4 +1,4 @@
-//! What each module declares, exports, and imports (§21, §21.1).
+//! What each module declares, exports, and imports (LR21, LR21.1).
 //!
 //! A module's top level is a set of names. Some are declared there, some are
 //! brought in by an import, and an import may bind a name that is not the one
@@ -7,8 +7,8 @@
 //! other module keeps to itself.
 //!
 //! Only declarations are bound here. Module-level `local` and `const`
-//! bindings (§21.3) are names too, and they arrive with the rest of lexical
-//! scoping (§54).
+//! bindings (LR21.3) are names too, and they arrive with the rest of lexical
+//! scoping (LR54).
 
 use std::collections::BTreeMap;
 
@@ -27,19 +27,19 @@ pub struct Binding {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Origin {
-    /// Declared in this module. Private to it unless exported (§21).
+    /// Declared in this module. Private to it unless exported (LR21).
     ///
     /// A declaration is in scope throughout the module, which is what lets
     /// two functions call each other.
     Declared { exported: bool },
-    /// A module-level `local` or `const` (§21.3), in scope from where it is
+    /// A module-level `local` or `const` (LR21.3), in scope from where it is
     /// written onward rather than throughout. Only a `const` is exportable
-    /// (§52).
+    /// (LR52).
     Binding { exported: bool },
     /// One name from another module, under the name it has here, which `as`
-    /// may have changed (§21.1).
+    /// may have changed (LR21.1).
     Imported { module: ModuleId, name: String },
-    /// A whole module, bound to a name (§21.1).
+    /// A whole module, bound to a name (LR21.1).
     Namespace(ModuleId),
 }
 
@@ -61,7 +61,7 @@ impl Scope {
             .map(|(name, binding)| (name.as_str(), binding))
     }
 
-    /// Whether an importing module may name `name` (§21).
+    /// Whether an importing module may name `name` (LR21).
     #[must_use]
     pub fn exports(&self, name: &str) -> bool {
         matches!(
@@ -132,7 +132,7 @@ fn declared(node: &Node) -> Scope {
     scope
 }
 
-/// Collects declarations, including the ones inside `#if` (§48).
+/// Collects declarations, including the ones inside `#if` (LR48).
 ///
 /// Every branch contributes. Which one the target selects is decided later,
 /// and a name that only one branch declares is still a name this module can
@@ -140,7 +140,7 @@ fn declared(node: &Node) -> Scope {
 fn declarations(items: &[Item], scope: &mut Scope) {
     for item in items {
         let (name, exported, span) = match item {
-            // A qualified name declares a member of a type (§20, §42), not a
+            // A qualified name declares a member of a type (LR20, LR42), not a
             // name of its own.
             Item::Function(f) if f.name.len() == 1 => (&f.name[0], f.exported, f.span),
             Item::Struct(s) => (&s.name, s.exported, s.span),
@@ -157,8 +157,8 @@ fn declarations(items: &[Item], scope: &mut Scope) {
                 }
                 continue;
             }
-            // A module-level binding is a name of the module too (§21.3), and
-            // a `const` may be exported (§52).
+            // A module-level binding is a name of the module too (LR21.3), and
+            // a `const` may be exported (LR52).
             Item::Stmt(stmt) => {
                 let (binding, exported) = match &stmt.kind {
                     StmtKind::Local { binding, .. } => (binding, false),
@@ -259,7 +259,7 @@ fn not_exported(
             span,
             format!("`{name}` is declared in `{from}`, and not exported"),
         )
-        .note("A declaration is private to its module unless it is exported (§21).")
+        .note("A declaration is private to its module unless it is exported (LR21).")
     } else {
         Diagnostic::error(
             codes::NAME_NOT_EXPORTED,
@@ -278,7 +278,7 @@ fn imports(node: &Node) -> impl Iterator<Item = &Import> {
     })
 }
 
-/// The names a binding binds, in the order written (§5.3).
+/// The names a binding binds, in the order written (LR5.3).
 pub(crate) fn bound(binding: &Bound) -> Vec<String> {
     match binding {
         Bound::Name(name) => vec![name.clone()],

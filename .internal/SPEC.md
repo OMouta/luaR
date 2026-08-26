@@ -168,7 +168,7 @@ if user ~= nil then     -- correct
 if user then            -- compile-time error: User? is not bool
 ```
 
-Lua's `value or default` idiom is served by `??` (§8), which tests for `nil` specifically rather than for falsiness.
+Lua's `value or default` idiom is served by `??` (LR8), which tests for `nil` specifically rather than for falsiness.
 
 ### 4.3 Integers
 
@@ -249,9 +249,9 @@ Escape sequences include:
 \u{...}
 ```
 
-Every delimiter is escapable, so any character can appear in a literal that could otherwise end it: `\"` in a string, `\'` in a character literal (§6.1), and `` \` `` and `\{` in an interpolated string (§4.6), where a backtick would close the literal and `{` would open an expression.
+Every delimiter is escapable, so any character can appear in a literal that could otherwise end it: `\"` in a string, `\'` in a character literal (LR6.1), and `` \` `` and `\{` in an interpolated string (LR4.6), where a backtick would close the literal and `{` would open an expression.
 
-`\xNN` writes one byte. A string holds valid UTF-8, so a byte above `\x7f` is written `\u{...}` or belongs in a byte string (§4.7).
+`\xNN` writes one byte. A string holds valid UTF-8, so a byte above `\x7f` is written `\u{...}` or belongs in a byte string (LR4.7).
 
 A quoted string ends at the end of its line. An unterminated one is an error at the line it opened on, rather than a literal that runs on to the next quote somewhere later in the file. Values that span lines use long strings:
 
@@ -281,7 +281,7 @@ print(`2 + 2 = {2 + 2}`)
 
 Interpolation is syntax, not runtime source evaluation.
 
-An interpolated string takes the escapes of §4.5 and, like a quoted string, ends at the end of its line. A literal backtick or `{` is written `` \` `` or `\{`.
+An interpolated string takes the escapes of LR4.5 and, like a quoted string, ends at the end of its line. A literal backtick or `{` is written `` \` `` or `\{`.
 
 ### 4.7 Byte Strings
 
@@ -343,15 +343,15 @@ local { name, age } = user
 local (x, y) = point
 ```
 
-Lists do not destructure in a binding, because a list's length is a runtime property and `local [a, b] = values` would have to trap on a short list. Matching a list by shape is a refutable pattern and belongs in `match` (§16.2).
+Lists do not destructure in a binding, because a list's length is a runtime property and `local [a, b] = values` would have to trap on a short list. Matching a list by shape is a refutable pattern and belongs in `match` (LR16.2).
 
-Renaming uses `as`, matching import renaming (§21.1).
+Renaming uses `as`, matching import renaming (LR21.1).
 
 ```lua
 local { name as displayName } = user
 ```
 
-`:` is never a value-binding separator in LuaR. It introduces a type and nothing else (§89.1).
+`:` is never a value-binding separator in LuaR. It introduces a type and nothing else (LR89.1).
 
 ### 5.4 Assignment Operators
 
@@ -362,7 +362,7 @@ The complete set of compound assignment operators is:
 &=   |=   ^=   <<=  >>=
 ```
 
-There is no `..=`. The token `..=` is the inclusive range operator (§10.4), so concatenating in place is written out:
+There is no `..=`. The token `..=` is the inclusive range operator (LR10.4), so concatenating in place is written out:
 
 ```lua
 text = text .. suffix
@@ -591,7 +591,7 @@ Within the function, `values` behaves as a read-only variadic sequence.
 
 ### 9.7 Returning Several Values
 
-A function returns exactly one value. Returning several values means returning a tuple (§14).
+A function returns exactly one value. Returning several values means returning a tuple (LR14).
 
 ```lua
 function divide(a: int, b: int): (int, int)
@@ -687,9 +687,9 @@ for i in 1..=10 do
 end
 ```
 
-There is no bare `a..b` range. `..` is string concatenation (§11.2) and only that, so `a .. b`, `a..<b`, and `a..=b` are three distinct tokens with no context-sensitive parsing and no ambiguity against float literals.
+There is no bare `a..b` range. `..` is string concatenation (LR11.2) and only that, so `a .. b`, `a..<b`, and `a..=b` are three distinct tokens with no context-sensitive parsing and no ambiguity against float literals.
 
-There is also no `for i = start, stop do` form. Lua's numeric `for` is inclusive, which composes badly with zero-based indexing (§37): `for i = 0, values.length` reads naturally and runs one iteration too many. A single loop form over an explicit range removes that class of bug.
+There is also no `for i = start, stop do` form. Lua's numeric `for` is inclusive, which composes badly with zero-based indexing (LR37): `for i = 0, values.length` reads naturally and runs one iteration too many. A single loop form over an explicit range removes that class of bug.
 
 ```lua
 for i in 0..<values.length do
@@ -697,7 +697,7 @@ for i in 0..<values.length do
 end
 ```
 
-Ranges are values and may be stored, passed, and used for slicing (§38).
+Ranges are values and may be stored, passed, and used for slicing (LR38).
 
 ```lua
 const window = 10..<20
@@ -795,9 +795,9 @@ Division by zero traps for integers. Floating-point division follows IEEE-754.
 
 `%` is the remainder, defined so that `(a // b) * b + (a % b) == a`.
 
-`**` is exponentiation. Lua spells this `^`, which LuaR uses for bitwise XOR (§11.5).
+`**` is exponentiation. Lua spells this `^`, which LuaR uses for bitwise XOR (LR11.5).
 
-Silently truncating `10 / 3` to `3` is the kind of lossy implicit behavior §4.4 rules out for conversions, so it is ruled out here too.
+Silently truncating `10 / 3` to `3` is the kind of lossy implicit behavior LR4.4 rules out for conversions, so it is ruled out here too.
 
 ### 11.2 Concatenation
 
@@ -807,9 +807,9 @@ String concatenation uses `..`.
 local full = first .. last
 ```
 
-Both operands must already be `string`. There is no implicit stringification; use interpolation (§4.6) or `Display` (§35) to convert.
+Both operands must already be `string`. There is no implicit stringification; use interpolation (LR4.6) or `Display` (LR35) to convert.
 
-`..` is concatenation in every position. Ranges are spelled `..<` and `..=` (§10.4) precisely so this operator keeps one meaning.
+`..` is concatenation in every position. Ranges are spelled `..<` and `..=` (LR10.4) precisely so this operator keeps one meaning.
 
 ### 11.3 Comparison
 
@@ -832,7 +832,7 @@ not
 
 Operands must have type `bool` and the result has type `bool`. `and` and `or` short-circuit.
 
-They do not return operand values as Lua's do. Value-returning `and`/`or` depends on truthiness, which LuaR does not have (§4.2), and it defeats narrowing: `local port = config.port or 8080` silently discards a legitimate `0`.
+They do not return operand values as Lua's do. Value-returning `and`/`or` depends on truthiness, which LuaR does not have (LR4.2), and it defeats narrowing: `local port = config.port or 8080` silently discards a legitimate `0`.
 
 The two Lua idioms it replaces have direct spellings:
 
@@ -885,7 +885,7 @@ This is Lua's table with LuaR's additions placed in it, so familiar expressions 
 
 `**` binds tighter than prefix `-`, so `-x ** 2` is `-(x ** 2)`, and it associates to the right, so `2 ** 3 ** 2` is `2 ** (3 ** 2)`.
 
-`as` and `is` bind tighter than arithmetic, so `a as f64 / b as f64` divides the two converted values (§11.1).
+`as` and `is` bind tighter than arithmetic, so `a as f64 / b as f64` divides the two converted values (LR11.1).
 
 `??` binds tighter than comparison, so `x ?? 0 == y` compares the coalesced value. It associates to the right, so `a ?? b ?? c` tries each in turn.
 
@@ -921,7 +921,7 @@ local user: User = {
 }
 ```
 
-Fields are bound with `=`, consistently with struct literals (§12.2), map literals (§13.2), and named arguments (§9.5).
+Fields are bound with `=`, consistently with struct literals (LR12.2), map literals (LR13.2), and named arguments (LR9.5).
 
 Structural records are compatible by structure unless marked nominal by another construct.
 
@@ -974,14 +974,14 @@ This is syntactic sugar for:
 Vec2.length(point)
 ```
 
-`self` is an ordinary explicit parameter (§65), so the desugared form stays valid. It is the same call written out, not a second way to spell it.
+`self` is an ordinary explicit parameter (LR65), so the desugared form stays valid. It is the same call written out, not a second way to spell it.
 
 `:` calls a method. `.` reaches everything else: fields, properties, tuple elements, static functions, enum variants, and module members.
 
 ```lua
 point:length()      -- method, receives self
 point.x             -- field
-rect.area           -- property (§43)
+rect.area           -- property (LR43)
 Vec2.zero()         -- static function, no self
 Result.Ok(value)    -- enum variant
 math.sqrt(value)    -- module member
@@ -1003,7 +1003,7 @@ struct Client
 end
 ```
 
-A private member is accessible only within the module that declares it. §44 defines the full set of visibility levels.
+A private member is accessible only within the module that declares it. LR44 defines the full set of visibility levels.
 
 ### 12.4 Immutable Structs
 
@@ -1032,7 +1032,7 @@ local names = ["Alice", "Bob", "Charlie"]
 
 The inferred type is `List<string>`. `[...]` always produces a list and never anything else.
 
-`List<T>` is mutable. Mutability is the common case, and naming the common case `MutableList<T>` taxes every ordinary program to label the unusual one. Immutable collections are separate types with an explicit name (§59).
+`List<T>` is mutable. Mutability is the common case, and naming the common case `MutableList<T>` taxes every ordinary program to label the unusual one. Immutable collections are separate types with an explicit name (LR59).
 
 Lists are zero-indexed.
 
@@ -1068,7 +1068,7 @@ local headers = Map {
 
 The inferred type is `Map<string, int>` and `Map<string, string>` respectively.
 
-A bare `{ ... }` literal is **always** a structural record (§12.1), never a map. Context does not change what a literal constructs.
+A bare `{ ... }` literal is **always** a structural record (LR12.1), never a map. Context does not change what a literal constructs.
 
 ```lua
 local config = {                -- record: { host: string, mode: string }
@@ -1294,7 +1294,7 @@ case Direction.North | Direction.South
     ...
 ```
 
-**Type pattern.** `is` matches a member of a union (§57):
+**Type pattern.** `is` matches a member of a union (LR57):
 
 ```lua
 case value is string
@@ -1712,9 +1712,9 @@ const bufferSize = 1024 * 64
 Compile-time evaluation is limited to two places:
 
 1. `const` initializers, evaluated over a pure subset of the language: literals, arithmetic and comparison, string operations, tuple/record/array construction, enum construction, and calls to other `const` values.
-2. The decorator API (§23), which runs in the compiler and is the mechanism for generated code.
+2. The decorator API (LR23), which runs in the compiler and is the mechanism for generated code.
 
-There is no user-facing `comptime` block. `comptime` remains reserved (§81) and a compiler rejects it rather than treating it as an identifier.
+There is no user-facing `comptime` block. `comptime` remains reserved (LR81) and a compiler rejects it rather than treating it as an identifier.
 
 Exposing general compile-time execution would give LuaR a second, differently-scoped language inside itself, with its own rules about what is available, its own failure modes, and its own effect on build reproducibility and IDE responsiveness. Decorators already cover the cases that motivate it, in a form that is typed, bounded to a target, and inspectable.
 
@@ -1750,7 +1750,7 @@ function loadUser(path: string): Result<User, Error>
 end
 ```
 
-`expression?` requires that the enclosing function returns `Result<_, E>`, and that the expression's error type converts into `E` through `Into` (§35). On `Err`, it returns from the function; on `Ok`, it evaluates to the wrapped value.
+`expression?` requires that the enclosing function returns `Result<_, E>`, and that the expression's error type converts into `E` through `Into` (LR35). On `Err`, it returns from the function; on `Ok`, it evaluates to the wrapped value.
 
 `?` does **not** apply to optionals. One operator that propagates errors in some positions and absence in others would mean the reader has to know the enclosing function's return type to know what `x?` does, and `Result<T?, E>` would be genuinely ambiguous.
 
@@ -2012,8 +2012,8 @@ A `ref struct`:
 
 - is always heap-allocated and managed;
 - is copied by reference, so all bindings observe one object;
-- has observable identity (§32);
-- may declare a finalizer (§51);
+- has observable identity (LR32);
+- may declare a finalizer (LR51);
 - may be self-referential and cyclic;
 - may not also be declared `const struct`.
 
@@ -2063,7 +2063,7 @@ import { identical } from "std/mem"
 if identical(a, b) then
 ```
 
-`identical` accepts only types with observable identity: `ref struct` types (§31), closures, interface values, and the standard reference-backed collections. Calling it on value structs, strings, or primitives is a compile-time error rather than an answer that depends on whether the compiler happened to intern or copy the value.
+`identical` accepts only types with observable identity: `ref struct` types (LR31), closures, interface values, and the standard reference-backed collections. Calling it on value structs, strings, or primitives is a compile-time error rather than an answer that depends on whether the compiler happened to intern or copy the value.
 
 Identity is therefore a property a type declares, not a property every value happens to have. This leaves the compiler free to copy, inline, unbox, and intern value types without changing observable behavior.
 
@@ -2191,13 +2191,13 @@ text:graphemes()    -- Iterator<string>
 
 This avoids pretending that UTF-8 strings are arrays of characters. `text.length` is not defined for the same reason; the count you want is `text.byteLength`, `text:chars():count()`, or `text:graphemes():count()`, and they differ.
 
-Strings are not sliced with `[]` either (§38).
+Strings are not sliced with `[]` either (LR38).
 
 ---
 
 ## 38. Slices and Ranges
 
-Slicing uses range values (§10.4).
+Slicing uses range values (LR10.4).
 
 ```lua
 local firstTen = values[0..<10]
@@ -2215,7 +2215,7 @@ values[10..]
 
 A slice of a list is a view rather than a copy. `Slice<T>` borrows its backing storage, and mutating the list while a slice of it is live is a compile-time error where the compiler can see it and a panic where it cannot.
 
-Strings are not sliced with `[]`, on the same reasoning as §37: a byte range is not a meaningful unit of text, and `text[0..<10]` invites treating one for the other. String subranges come from explicit APIs that name their unit and their failure mode:
+Strings are not sliced with `[]`, on the same reasoning as LR37: a byte range is not a meaningful unit of text, and `text[0..<10]` invites treating one for the other. String subranges come from explicit APIs that name their unit and their failure mode:
 
 ```lua
 text:byteSlice(0..<10)      -- Result<string, Utf8Error>, errors off a boundary
@@ -2366,7 +2366,7 @@ property value: int
 end
 ```
 
-The property and method distinction is visible at every call site, because properties are reached with `.` and methods with `:` (§12.2). `rect.area` cannot be a method and `rect:area()` cannot be a property.
+The property and method distinction is visible at every call site, because properties are reached with `.` and methods with `:` (LR12.2). `rect.area` cannot be a method and `rect:area()` cannot be a property.
 
 Tooling distinguishes computed properties from stored fields, and documentation output marks properties as computed.
 
@@ -2587,7 +2587,7 @@ export const defaultTimeout = 30            -- allowed
 export local currentMode = "development"    -- compile-time error
 ```
 
-Exported mutable state makes any module a hidden input to any other, defeats the initialization-order rules in §78, and cannot be made thread-safe by a caller who can only see the name.
+Exported mutable state makes any module a hidden input to any other, defeats the initialization-order rules in LR78, and cannot be made thread-safe by a caller who can only see the name.
 
 A module that owns mutable state exposes it through functions, which gives the owning module a place to put validation, synchronization, and invariants:
 
@@ -2661,9 +2661,9 @@ Predeclared names occupy a scope outside the module. A declaration or an import 
 local print = collect
 ```
 
-Predeclared names are not a module. They cannot be imported from, renamed, or re-exported. Everything else the standard library provides is imported like any other module (§21.1, §60).
+Predeclared names are not a module. They cannot be imported from, renamed, or re-exported. Everything else the standard library provides is imported like any other module (LR21.1, LR60).
 
-Type names work the same way. The primitive types (§6) need no import, and neither do the collection types the language builds from its own literal syntax (§13, §59):
+Type names work the same way. The primitive types (LR6) need no import, and neither do the collection types the language builds from its own literal syntax (LR13, LR59):
 
 ```text
 List
@@ -2674,9 +2674,9 @@ FrozenMap
 FrozenSet
 ```
 
-Every other name in a type is declared by the module or imported (§21.1). The standard protocols (§35) are library names and are imported like any other.
+Every other name in a type is declared by the module or imported (LR21.1). The standard protocols (LR35) are library names and are imported like any other.
 
-The set is closed. A name belongs in it only because it cannot be written as an ordinary declaration, or because every program needs it to state a signature. `assert` and `debugAssert` depend on compilation mode (§49), `unreachable` has type `never` (§50), and `panic` does not return (§25.4). `Result` names the type of every fallible signature (§25.1). `print` is neither, and is predeclared so that writing a line of output does not require an import.
+The set is closed. A name belongs in it only because it cannot be written as an ordinary declaration, or because every program needs it to state a signature. `assert` and `debugAssert` depend on compilation mode (LR49), `unreachable` has type `never` (LR50), and `panic` does not return (LR25.4). `Result` names the type of every fallible signature (LR25.1). `print` is neither, and is predeclared so that writing a line of output does not require an import.
 
 ---
 
@@ -2771,7 +2771,7 @@ const user = User { ... }
 
 prevents rebinding `user`, but does not necessarily make `user` deeply immutable.
 
-Immutable data types encode immutability in their type or declaration: `const struct` (§12.4) for values, and frozen collections for containers.
+Immutable data types encode immutability in their type or declaration: `const struct` (LR12.4) for values, and frozen collections for containers.
 
 The standard collections are mutable, and the frozen ones carry the qualifier:
 
@@ -3032,7 +3032,7 @@ Indexing a `Map<K, V>` returns `V?`, so a missing key is a value the type system
 local value: User? = users[id]
 ```
 
-Indexing a `List<T>` returns `T` and panics out of range (§70). The difference is deliberate: a missing map key is an ordinary outcome, while an out-of-range list index is a bug in the caller's arithmetic.
+Indexing a `List<T>` returns `T` and panics out of range (LR70). The difference is deliberate: a missing map key is an ordinary outcome, while an out-of-range list index is a bug in the caller's arithmetic.
 
 For records and structs, an unknown field is a compile-time error rather than `nil`.
 
@@ -3182,7 +3182,7 @@ Method resolution follows deterministic priority:
 
 1. inherent methods declared on the type;
 2. methods required by an explicitly selected interface context;
-3. methods from extension blocks in scope (§20).
+3. methods from extension blocks in scope (LR20).
 
 Each step is fully resolved before the next is considered, so adding an inherent method to a type shadows an extension method of the same name. That is a source-compatible change for the type's author and a compile-time diagnostic, not a silent behavior change, at every call site relying on the extension.
 
@@ -3269,22 +3269,22 @@ Diagnostic wording is not standardized, but source semantics should be designed 
 These words are reserved and rejected rather than treated as identifiers, though LuaR assigns them no meaning:
 
 ```text
-comptime    -- general compile-time execution; ruled out in §24
+comptime    -- general compile-time execution; ruled out in LR24
 effect      -- effect annotations
 impl        -- alternative implementation-block syntax
-macro       -- textual or syntactic macros; ruled out in §24
+macro       -- textual or syntactic macros; ruled out in LR24
 yield       -- generators and coroutines
 ```
 
 These syntactic spaces are reserved for the compiler and must not be given library-level meanings:
 
 ```text
-@name       -- decorator syntax (§23)
-#if         -- conditional compilation (§48)
+@name       -- decorator syntax (LR23)
+#if         -- conditional compilation (LR48)
 #[...]      -- attribute syntax, should one ever be introduced
 ```
 
-`unsafe` and `where` are not reserved-for-later; they are live keywords defined in §29.2 and §19.
+`unsafe` and `where` are not reserved-for-later; they are live keywords defined in LR29.2 and LR19.
 
 ---
 
@@ -3383,7 +3383,7 @@ function parseArgs(args: List<string>): Result<Command, string>
     end
 end
 
--- Sequence patterns (§16.2) match a list by shape. The wildcard skips argv[0],
+-- Sequence patterns (LR16.2) match a list by shape. The wildcard skips argv[0],
 -- and `case _` is required because a list is not a closed type.
 
 export function main(args: List<string>): int
@@ -3471,7 +3471,7 @@ function currentNativeTime(): Result<CTime, Error>
 
     unsafe
         -- `value` is an addressable local, so &mut is valid for the
-        -- duration of this block (§72).
+        -- duration of this block (LR72).
         if native_clock(&mut value) ~= 0 then
             return Result.Err(Error("native_clock failed"))
         end
@@ -3596,7 +3596,7 @@ Global state:
 
 ## 89. Grammar Sketch
 
-This is an illustrative grammar, not a normative parser grammar. It reflects the decisions recorded in §90.
+This is an illustrative grammar, not a normative parser grammar. It reflects the decisions recorded in LR90.
 
 ```ebnf
 module          = { import_decl | declaration | statement } ;
@@ -3677,7 +3677,7 @@ interface_member
                 = [ "async" ] "function" identifier [ type_params ]
                   "(" [ parameter_list ] ")" [ ":" type ]
                                                 (* required, and has no body *)
-                | identifier ":" type ;         (* a required property (§18) *)
+                | identifier ":" type ;         (* a required property (LR18) *)
 
 extend_decl     = [ "export" ]
                   "extend" identifier "for" type
@@ -3730,7 +3730,7 @@ expression_stmt = expression ;       (* whose outermost operation is a call *)
 conditional     = "#if" expression { item }
                   { "#elseif" expression { item } }
                   [ "#else" { item } ]
-                  "#end" ;                      (* §48 *)
+                  "#end" ;                      (* LR48 *)
                   (* `item` is whatever the surrounding position holds: a
                      declaration at module level, a statement in a block *)
 
@@ -3770,7 +3770,7 @@ or_pattern      = primary_pattern { "|" primary_pattern } ;
 
 primary_pattern = typed_pattern ;
 
-typed_pattern   = base_pattern [ "is" type ] ;   (* §16.2 type pattern *)
+typed_pattern   = base_pattern [ "is" type ] ;   (* LR16.2 type pattern *)
 
 base_pattern    = "_"
                 | identifier
@@ -3822,7 +3822,7 @@ pointer_type    = ( "*const" | "*mut" ) type ;
 
 expression      = literal | identifier | unary_expr | binary_expr
                 | postfix_expr | range_expr | primary_expr ;
-                  (* §11.7 states precedence and associativity *)
+                  (* LR11.7 states precedence and associativity *)
 
 range_expr      = [ expression ] ( "..<" | "..=" ) [ expression ] ;
 
@@ -3860,25 +3860,25 @@ The interactions that previously blocked a normative grammar are decided.
 
 **Type arguments versus comparison.** In expression position, `name <` begins a type-argument list only when the tokens through the matching `>` parse as a type list *and* the token after `>` is `(`. Type arguments in expression position only ever precede a call, so `json.decode<User>(text)` is a generic call. No turbofish is required and the rule needs only bounded lookahead.
 
-The rule cannot take a comparison away from a program that has one. `a < b > (c)` matches it and reads as a call, and its reading as a comparison was never valid: comparison does not chain (§11.7). Anything that does compare a comparison is parenthesized, `(a < b) == c`, and parentheses keep it out of the rule's way.
+The rule cannot take a comparison away from a program that has one. `a < b > (c)` matches it and reads as a call, and its reading as a comparison was never valid: comparison does not chain (LR11.7). Anything that does compare a comparison is parenthesized, `(a < b) == c`, and parentheses keep it out of the rule's way.
 
-**Ranges versus concatenation and float literals.** `..`, `..<`, and `..=` are three distinct tokens (§10.4). Bare `..` is always concatenation and no range is spelled with it. `0..<10` cannot lex as a float because `0.` requires a following digit.
+**Ranges versus concatenation and float literals.** `..`, `..<`, and `..=` are three distinct tokens (LR10.4). Bare `..` is always concatenation and no range is spelled with it. `0..<10` cannot lex as a float because `0.` requires a following digit.
 
-**Tuple types versus function types.** A parenthesized type list is a tuple unless `->` follows it (§14).
+**Tuple types versus function types.** A parenthesized type list is a tuple unless `->` follows it (LR14).
 
-**Expression statements.** A statement that is an expression must be one whose outermost operation is a call: `f(x)`, `x:method()`, `await f(x)`, and either of those with `?`. Anything else computes a value and discards it, which is a mistake rather than a program, and the most common one is a compound assignment that does not exist: `text ..= suffix` is a range (§10.4) evaluated for nothing, not a concatenation (§5.4).
+**Expression statements.** A statement that is an expression must be one whose outermost operation is a call: `f(x)`, `x:method()`, `await f(x)`, and either of those with `?`. Anything else computes a value and discards it, which is a mistake rather than a program, and the most common one is a compound assignment that does not exist: `text ..= suffix` is a range (LR10.4) evaluated for nothing, not a concatenation (LR5.4).
 
-**Match arm extent.** A `match` uses block arms or `=>` arms throughout, never both (§16.1), so a block arm ends unambiguously at the next `case` or at `end`.
+**Match arm extent.** A `match` uses block arms or `=>` arms throughout, never both (LR16.1), so a block arm ends unambiguously at the next `case` or at `end`.
 
 **Value binding versus type annotation.** `=` binds a value in record literals, map literals, struct literals, named arguments, and field defaults. `:` introduces a type and nothing else. Renaming, in both imports and destructuring, uses `as`.
 
-**`is`.** `is` always takes a type on its right. Identity is `std/mem.identical` (§32).
+**`is`.** `is` always takes a type on its right. Identity is `std/mem.identical` (LR32).
 
-**Method calls versus member access.** `:` calls a method, `.` reaches fields, properties, tuple elements, static functions, enum variants, and module members (§12.2). Neither spelling is a fallback for the other.
+**Method calls versus member access.** `:` calls a method, `.` reaches fields, properties, tuple elements, static functions, enum variants, and module members (LR12.2). Neither spelling is a fallback for the other.
 
 **Foreign declarations.** `extern_decl` is its own production with no body, so a bodiless signature is not a malformed `function_decl`.
 
-**Unsafe blocks versus the `unsafe` modifier.** A function declaration is not a statement, so it cannot open a block. `unsafe` followed by `function` or `static` is therefore always the modifier on a declaration (§46), and `unsafe` followed by anything else opens a block that runs to its `end` (§29.2).
+**Unsafe blocks versus the `unsafe` modifier.** A function declaration is not a statement, so it cannot open a block. `unsafe` followed by `function` or `static` is therefore always the modifier on a declaration (LR46), and `unsafe` followed by anything else opens a block that runs to its `end` (LR29.2).
 
 ---
 
@@ -3886,45 +3886,45 @@ The rule cannot take a comparison away from a program that has one. `a < b > (c)
 
 An earlier draft left twenty questions open. Each is decided below, with the section that specifies it and the reasoning. They are recorded rather than deleted so a future revision can see what was traded away.
 
-**1. Collection mutability naming.** `List<T>`, `Map<K, V>`, and `Set<T>` are mutable; the immutable forms are `FrozenList<T>`, `FrozenMap<K, V>`, and `FrozenSet<T>` (§59). Most code builds and returns mutable collections, and a scheme that gives the common case the longer name gets routed around rather than followed. Frozen types have no mutating methods, so immutability is checked rather than trapped.
+**1. Collection mutability naming.** `List<T>`, `Map<K, V>`, and `Set<T>` are mutable; the immutable forms are `FrozenList<T>`, `FrozenMap<K, V>`, and `FrozenSet<T>` (LR59). Most code builds and returns mutable collections, and a scheme that gives the common case the longer name gets routed around rather than followed. Frozen types have no mutating methods, so immutability is checked rather than trapped.
 
-**2. The role of exceptions.** Exceptions are unchecked and absent from signatures. `Result` is the standard for expected failure and every fallible standard-library API returns it (§25.3). Checked exceptions push transitive failure sets into every signature; silent but common exceptions defeat `Result` entirely. Exceptions are left to foreign boundaries and cross-cutting aborts.
+**2. The role of exceptions.** Exceptions are unchecked and absent from signatures. `Result` is the standard for expected failure and every fallible standard-library API returns it (LR25.3). Checked exceptions push transitive failure sets into every signature; silent but common exceptions defeat `Result` entirely. Exceptions are left to foreign boundaries and cross-cutting aborts.
 
-**3. Width of `int`.** `int` is exactly `i64` and `uint` exactly `u64` on every target (§4.3). Native-width integers make overflow, serialization, and hashing depend on the host, which contradicts predictable compiled semantics. `isize` and `usize` exist separately for FFI and allocator code.
+**3. Width of `int`.** `int` is exactly `i64` and `uint` exactly `u64` on every target (LR4.3). Native-width integers make overflow, serialization, and hashing depend on the host, which contradicts predictable compiled semantics. `isize` and `usize` exist separately for FFI and allocator code.
 
-**4. Record and map literal syntax.** `[...]` is always a list, `{ ... }` always a structural record, `Map { ... }` always a map (§13.2). Context never changes what a literal constructs. The cost is six characters where a dynamic map is created; the gain is that reading a literal never requires reading its destination.
+**4. Record and map literal syntax.** `[...]` is always a list, `{ ... }` always a structural record, `Map { ... }` always a map (LR13.2). Context never changes what a literal constructs. The cost is six characters where a dynamic map is created; the gain is that reading a literal never requires reading its destination.
 
-**5. Extension method scoping.** Extension blocks are named, exported, and imported like any other declaration, and are in scope only where declared or imported (§20). Ambient extensions mean importing a module for one function can silently change what an unrelated method call resolves to.
+**5. Extension method scoping.** Extension blocks are named, exported, and imported like any other declaration, and are in scope only where declared or imported (LR20). Ambient extensions mean importing a module for one function can silently change what an unrelated method call resolves to.
 
-**6. Reflection opt-in.** `@reflect` (§34). Reflection is metadata rather than behavior: an interface would imply members the type does not have and would let reflectability be demanded by a signature, and a dedicated modifier would duplicate what decorators already express.
+**6. Reflection opt-in.** `@reflect` (LR34). Reflection is metadata rather than behavior: an interface would imply members the type does not have and would let reflectability be demanded by a signature, and a dedicated modifier would duplicate what decorators already express.
 
-**7. What decorators may generate.** A decorator may add members and interface implementations to the declaration it is attached to, and may not introduce new top-level declarations (§23.1). This keeps every name in a module traceable to something written in it, which grep, go-to-definition, and human readers all rely on.
+**7. What decorators may generate.** A decorator may add members and interface implementations to the declaration it is attached to, and may not introduce new top-level declarations (LR23.1). This keeps every name in a module traceable to something written in it, which grep, go-to-definition, and human readers all rely on.
 
-**8. `is` and identity.** `is` is a type test only; identity is `identical(a, b)` from `std/mem`, defined only on types with observable identity (§32). Overloading one operator on whether the name to its right is a type or a binding makes a line's meaning depend on name resolution, and breaks under shadowing.
+**8. `is` and identity.** `is` is a type test only; identity is `identical(a, b)` from `std/mem`, defined only on types with observable identity (LR32). Overloading one operator on whether the name to its right is a type or a binding makes a line's meaning depend on name resolution, and breaks under shadowing.
 
-**9. Properties in the core.** Kept, with constraints: cheap, idempotent, non-failing, non-async (§43). Without them, promoting a stored field to a computed value is a breaking API change, so authors pre-emptively wrap every field in accessors and callers read `getName()` forever.
+**9. Properties in the core.** Kept, with constraints: cheap, idempotent, non-failing, non-async (LR43). Without them, promoting a stored field to a computed value is a breaking API change, so authors pre-emptively wrap every field in accessors and callers read `getName()` forever.
 
-**10. Compile-time execution.** No user-facing `comptime`. Compile-time evaluation lives in `const` initializers and the decorator API, and nowhere else (§24). A general compile-time sublanguage is a second language inside the first, with its own scoping rules, failure modes, and consequences for build reproducibility.
+**10. Compile-time execution.** No user-facing `comptime`. Compile-time evaluation lives in `const` initializers and the decorator API, and nowhere else (LR24). A general compile-time sublanguage is a second language inside the first, with its own scoping rules, failure modes, and consequences for build reproducibility.
 
-**11. Multiple return values.** Removed. A function returns exactly one value; returning several means returning a tuple, and `local (a, b) = f()` is destructuring sugar (§9.7). Lua's adjusting multiple-value convention has no static typing story and truncates depending on argument position.
+**11. Multiple return values.** Removed. A function returns exactly one value; returning several means returning a tuple, and `local (a, b) = f()` is destructuring sugar (LR9.7). Lua's adjusting multiple-value convention has no static typing story and truncates depending on argument position.
 
-**12. Range syntax.** `a..<b` exclusive and `a..=b` inclusive, with no bare `..` range (§10.4). `..` stays concatenation, which is the operator Lua programmers reach for daily. The consequence is that `..=` is unavailable as compound concat-assign, so `text = text .. suffix` is written out (§5.4).
+**12. Range syntax.** `a..<b` exclusive and `a..=b` inclusive, with no bare `..` range (LR10.4). `..` stays concatenation, which is the operator Lua programmers reach for daily. The consequence is that `..=` is unavailable as compound concat-assign, so `text = text .. suffix` is written out (LR5.4).
 
-**13. Integer division.** `//` is integer division; `/` is float division and is a compile-time error on two integers (§11.1). Silently truncating `10 / 3` to `3` is exactly the lossy implicit behavior §4.4 already rules out for conversions.
+**13. Integer division.** `//` is integer division; `/` is float division and is a compile-time error on two integers (LR11.1). Silently truncating `10 / 3` to `3` is exactly the lossy implicit behavior LR4.4 already rules out for conversions.
 
-**14. `and` and `or`.** Bool operands, bool result (§11.4). Value-returning `and`/`or` depends on truthiness, which LuaR does not have, and silently discards legitimate `0` and `""` values. `??` and `if` expressions cover the idioms it replaces.
+**14. `and` and `or`.** Bool operands, bool result (LR11.4). Value-returning `and`/`or` depends on truthiness, which LuaR does not have, and silently discards legitimate `0` and `""` values. `??` and `if` expressions cover the idioms it replaces.
 
-**15. Overflow checking across modes.** Integer overflow traps in every compilation mode, release included (§4.3). Mode-dependent arithmetic means the program that was tested is not the program that ships. Wrapping, saturating, and checked operations are explicit methods.
+**15. Overflow checking across modes.** Integer overflow traps in every compilation mode, release included (LR4.3). Mode-dependent arithmetic means the program that was tested is not the program that ships. Wrapping, saturating, and checked operations are explicit methods.
 
-**16. Interface conformance.** Nominal by default, `structural interface` as opt-in (§18). Conformance is a claim about behavior, and accidental structural matches turn unrelated renames into breaking changes. Structural remains available for narrow protocols and for adapting foreign types.
+**16. Interface conformance.** Nominal by default, `structural interface` as opt-in (LR18). Conformance is a claim about behavior, and accidental structural matches turn unrelated renames into breaking changes. Structural remains available for narrow protocols and for adapting foreign types.
 
-**17. Observable object identity.** Only for types that declare reference semantics: `ref struct`, closures, interface values, and reference-backed collections (§32). Universal identity would forbid copying, inlining, unboxing, and interning value types.
+**17. Observable object identity.** Only for types that declare reference semantics: `ref struct`, closures, interface values, and reference-backed collections (LR32). Universal identity would forbid copying, inlining, unboxing, and interning value types.
 
-**18. Optional versus `Result` propagation.** `?` propagates `Result` only; there is no optional propagation operator (§25.2). One operator with two meanings would require knowing the enclosing signature to read a call site, and would be genuinely ambiguous on `Result<T?, E>`. Optionals convert with `:okOr(error)`.
+**18. Optional versus `Result` propagation.** `?` propagates `Result` only; there is no optional propagation operator (LR25.2). One operator with two meanings would require knowing the enclosing signature to read a call site, and would be genuinely ambiguous on `Result<T?, E>`. Optionals convert with `:okOr(error)`.
 
-**19. Exported mutable state.** Forbidden. `export` applies to functions, types, interfaces, extension blocks, and `const` values (§52). Exported mutable state makes every module a hidden input to every other, and cannot be synchronized by a caller who sees only the name.
+**19. Exported mutable state.** Forbidden. `export` applies to functions, types, interfaces, extension blocks, and `const` values (LR52). Exported mutable state makes every module a hidden input to every other, and cannot be synchronized by a caller who sees only the name.
 
-**20. A reference-semantics nominal type.** Added as `ref struct` (§31), a modifier on the existing construct rather than a new declaration form. Shared, identifiable, mutable objects are a real need that value structs silently mismodel by copying. It grants reference semantics, identity, and finalizers, and deliberately does not grant inheritance.
+**20. A reference-semantics nominal type.** Added as `ref struct` (LR31), a modifier on the existing construct rather than a new declaration form. Shared, identifiable, mutable objects are a real need that value structs silently mismodel by copying. It grants reference semantics, identity, and finalizers, and deliberately does not grant inheritance.
 
 ---
 

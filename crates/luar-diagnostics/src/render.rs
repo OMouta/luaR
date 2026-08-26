@@ -1,6 +1,6 @@
 //! Writing a diagnostic out for a person to read.
 //!
-//! §80 asks for exact source ranges and enough context to explain a failure
+//! LR80 asks for exact source ranges and enough context to explain a failure
 //! without exposing compiler internals. That is what this prints: the rule's
 //! code, where it applies, the line it applies to, and the notes attached to
 //! it. Wording is not normative, and neither is this layout.

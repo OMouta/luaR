@@ -1,8 +1,8 @@
-//! Reading a program: the root module, and everything it imports (§21.1).
+//! Reading a program: the root module, and everything it imports (LR21.1).
 //!
 //! Modules are read breadth first from the root. A module already in the
 //! graph is not read again, which is both what makes a cycle terminate here
-//! and what §21.2 requires of initialization.
+//! and what LR21.2 requires of initialization.
 
 use std::collections::VecDeque;
 use std::fs;
@@ -116,7 +116,7 @@ fn missing(import: &Import, why: Missing) -> Diagnostic {
         )
         .note(
             "A module path is relative, as in `./config`, a standard library \
-             module, as in `std/fs`, or a package, as in `http/client` (§21.1).",
+             module, as in `std/fs`, or a package, as in `http/client` (LR21.1).",
         ),
         Missing::StandardLibrary => Diagnostic::error(
             codes::UNRESOLVED_IMPORT,

@@ -1,5 +1,5 @@
 --- expect: compile-error
 --- code: LR0120
 --- span: 5:12
---- spec: §4.5
+--- spec: LR4.5
 local x = "\xff"

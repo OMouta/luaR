@@ -77,14 +77,14 @@ directory, so there is no list to add it to.
 --- expect: compile-error
 --- code: LR0114
 --- span: 2:15
---- spec: §11.1
+--- spec: LR11.1
 local ratio = 10 / 3
 ```
 
 `expect` is `compile-ok`, `compile-error`, or `run`.
 
 `compile-error` needs `code` and `span`, and they are the only things it
-matches on. Never match message text. §80 makes wording non-normative, so
+matches on. Never match message text. LR80 makes wording non-normative, so
 messages get reworded without warning and a test that reads them breaks for no
 reason.
 

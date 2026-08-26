@@ -1,5 +1,5 @@
 --- expect: compile-error
 --- code: LR0141
 --- span: 5:8
---- spec: §52
+--- spec: LR52
 export local currentMode = "development"

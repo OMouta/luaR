@@ -1,11 +1,11 @@
 --- expect: compile-ok
---- spec: §11
---- spec: §11.1
---- spec: §11.2
---- spec: §11.3
---- spec: §11.5
---- spec: §11.7
---- spec: §5.4
+--- spec: LR11
+--- spec: LR11.1
+--- spec: LR11.2
+--- spec: LR11.3
+--- spec: LR11.5
+--- spec: LR11.7
+--- spec: LR5.4
 export function main()
     local a = 7
     local b = 3

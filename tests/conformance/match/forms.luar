@@ -1,7 +1,7 @@
 --- expect: compile-ok
---- spec: §16.1
---- spec: §16.2
---- spec: §16.3
+--- spec: LR16.1
+--- spec: LR16.2
+--- spec: LR16.3
 enum Message
     Quit
     Move { x: int, y: int }

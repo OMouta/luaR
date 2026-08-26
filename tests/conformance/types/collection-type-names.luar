@@ -1,7 +1,7 @@
 --- expect: compile-ok
---- spec: §54.1
---- spec: §13
---- spec: §59
+--- spec: LR54.1
+--- spec: LR13
+--- spec: LR59
 export function main()
     local names: List<string> = ["ada"]
     local ages: Map<string, int> = Map { ada = 36 }

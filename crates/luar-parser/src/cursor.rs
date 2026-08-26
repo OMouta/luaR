@@ -135,7 +135,7 @@ impl<'src> Cursor<'src> {
         self.diagnostics.truncate(mark.diagnostics);
     }
 
-    /// Whether a conditional compilation directive starts here (§48).
+    /// Whether a conditional compilation directive starts here (LR48).
     ///
     /// A directive is `#` and a keyword, written together, so `#if` reserves
     /// nothing that `#` and `if` did not already spell.
@@ -156,8 +156,8 @@ impl<'src> Cursor<'src> {
     }
 
     /// Consumes a name spelled `text`, where the grammar gives a name meaning
-    /// in one position without reserving it (§3.2). `get` and `set` in a
-    /// property (§43) are the only ones today.
+    /// in one position without reserving it (LR3.2). `get` and `set` in a
+    /// property (LR43) are the only ones today.
     pub(crate) fn eat_contextual(&mut self, text: &str) -> bool {
         if self.kind() != TokenKind::Ident || self.text(self.span()) != text {
             return false;
@@ -192,7 +192,7 @@ impl<'src> Cursor<'src> {
     /// Consumes the `>` closing a type-argument list.
     ///
     /// `Map<string, List<int>>` ends in one `>>` token, because the lexer
-    /// takes the longest operator it can (§11.5). Splitting it here, where the
+    /// takes the longest operator it can (LR11.5). Splitting it here, where the
     /// grammar knows a type argument list is being closed, keeps the lexer
     /// from having to know what it is inside of.
     pub(crate) fn eat_type_args_close(&mut self) -> bool {

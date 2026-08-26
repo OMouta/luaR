@@ -1,4 +1,4 @@
-//! Types, following the grammar of §89 and the readings §89.1 settles.
+//! Types, following the grammar of LR89 and the readings LR89.1 settles.
 
 use luar_ast::{RecordField, Type, TypeKind};
 use luar_diagnostics::codes;
@@ -7,7 +7,7 @@ use luar_lexer::{Keyword, TokenKind};
 use crate::cursor::Cursor;
 use crate::expr;
 
-/// A type: unions of intersections of postfix types (§17.2, §17.3).
+/// A type: unions of intersections of postfix types (LR17.2, LR17.3).
 pub(crate) fn ty(cursor: &mut Cursor) -> Type {
     let first = intersection(cursor);
 
@@ -77,7 +77,7 @@ fn primary(cursor: &mut Cursor) -> Type {
     }
 }
 
-/// `Name`, `module.Name`, and either with type arguments (§19, §21.1).
+/// `Name`, `module.Name`, and either with type arguments (LR19, LR21.1).
 fn path(cursor: &mut Cursor) -> Type {
     let start = cursor.span();
     let mut segments = vec![cursor.name().0];
@@ -110,8 +110,8 @@ fn path(cursor: &mut Cursor) -> Type {
     )
 }
 
-/// A parenthesized type list, which is a tuple unless `->` follows it (§14,
-/// §89.1), and a single type in parentheses, which is that type.
+/// A parenthesized type list, which is a tuple unless `->` follows it (LR14,
+/// LR89.1), and a single type in parentheses, which is that type.
 fn parenthesized(cursor: &mut Cursor, asynchronous: bool) -> Type {
     let opened = cursor.span();
 
@@ -154,10 +154,10 @@ fn parenthesized(cursor: &mut Cursor, asynchronous: bool) -> Type {
                 opened.to(end),
                 "`async` describes a function type, so `->` and a result type must follow",
             )
-            .note("An async function type is written `async (A) -> B` (§9.3).");
+            .note("An async function type is written `async (A) -> B` (LR9.3).");
     }
 
-    // One type in parentheses groups it; anything else is a tuple (§14).
+    // One type in parentheses groups it; anything else is a tuple (LR14).
     if members.len() == 1 && !comma {
         let single = members.pop().expect("one member");
         return Type::new(single.kind, opened.to(end));
@@ -166,7 +166,7 @@ fn parenthesized(cursor: &mut Cursor, asynchronous: bool) -> Type {
     Type::new(TypeKind::Tuple(members), opened.to(end))
 }
 
-/// `[T; N]` (§71).
+/// `[T; N]` (LR71).
 fn array(cursor: &mut Cursor) -> Type {
     let opened = cursor.span();
     cursor.advance();
@@ -177,7 +177,7 @@ fn array(cursor: &mut Cursor) -> Type {
         let here = cursor.span();
         cursor
             .error(codes::EXPECTED_TYPE, here, "expected `;` and a length")
-            .note("A fixed-size array is written `[T; N]`, and `List<T>` grows (§71).");
+            .note("A fixed-size array is written `[T; N]`, and `List<T>` grows (LR71).");
         return Type::new(TypeKind::Error, opened.to(here));
     }
 
@@ -194,15 +194,15 @@ fn array(cursor: &mut Cursor) -> Type {
     )
 }
 
-/// `{ name: T, ... }` as a type (§12.1).
+/// `{ name: T, ... }` as a type (LR12.1).
 fn record(cursor: &mut Cursor) -> Type {
     let start = cursor.span();
     let fields = record_fields(cursor);
     Type::new(TypeKind::Record(fields), start.to(cursor.previous_span()))
 }
 
-/// The fields of a braced type list, shared by record types (§12.1) and the
-/// record payload of an enum variant (§15.2).
+/// The fields of a braced type list, shared by record types (LR12.1) and the
+/// record payload of an enum variant (LR15.2).
 pub(crate) fn record_fields(cursor: &mut Cursor) -> Vec<RecordField> {
     let opened = cursor.span();
     cursor.advance();
@@ -216,7 +216,7 @@ pub(crate) fn record_fields(cursor: &mut Cursor) -> Vec<RecordField> {
             let here = cursor.span();
             cursor
                 .error(codes::EXPECTED_TYPE, here, "expected `:` and a field type")
-                .note("`:` introduces a type; `=` binds a value (§89.1).");
+                .note("`:` introduces a type; `=` binds a value (LR89.1).");
             break;
         }
 
@@ -236,7 +236,7 @@ pub(crate) fn record_fields(cursor: &mut Cursor) -> Vec<RecordField> {
     fields
 }
 
-/// `*const T` and `*mut T` (§72).
+/// `*const T` and `*mut T` (LR72).
 fn pointer(cursor: &mut Cursor) -> Type {
     let start = cursor.span();
     cursor.advance();
@@ -253,7 +253,7 @@ fn pointer(cursor: &mut Cursor) -> Type {
                 here,
                 "a pointer type says whether it points at mutable memory",
             )
-            .note("Raw pointers are written `*const T` and `*mut T` (§72).");
+            .note("Raw pointers are written `*const T` and `*mut T` (LR72).");
         return Type::new(TypeKind::Error, start.to(here));
     };
 

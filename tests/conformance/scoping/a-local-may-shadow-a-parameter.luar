@@ -1,5 +1,5 @@
 --- expect: compile-ok
---- spec: §53
+--- spec: LR53
 export function trim(value: string): string
     local value = value
     return value

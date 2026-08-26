@@ -1,6 +1,6 @@
 --- expect: compile-ok
---- spec: §21.1
---- spec: §52
+--- spec: LR21.1
+--- spec: LR52
 import { version } from "./support/config"
 
 const fallback = version

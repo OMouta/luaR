@@ -1,5 +1,5 @@
 --- expect: compile-ok
---- spec: §46
+--- spec: LR46
 @extern("c")
 unsafe function puts(text: *const u8): i32
 

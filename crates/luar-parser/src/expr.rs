@@ -1,4 +1,4 @@
-//! Expressions, by precedence climbing over the table in §11.7.
+//! Expressions, by precedence climbing over the table in LR11.7.
 
 use luar_ast::{
     Argument, BinaryOp, Expr, ExprKind, FieldInit, FunctionBody, InterpolationPart, MapEntry,
@@ -10,10 +10,10 @@ use luar_lexer::{Keyword, TokenKind};
 use crate::cursor::Cursor;
 use crate::ty::ty;
 
-/// A binding power, as §11.7 orders them. Larger binds tighter.
+/// A binding power, as LR11.7 orders them. Larger binds tighter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Level {
-    /// `..<` and `..=` (§10.4).
+    /// `..<` and `..=` (LR10.4).
     Range,
     Or,
     And,
@@ -35,7 +35,7 @@ enum Level {
 enum Associativity {
     Left,
     Right,
-    /// `a < b < c` and `a..<b..<c` are errors rather than expressions (§11.7).
+    /// `a < b < c` and `a..<b..<c` are errors rather than expressions (LR11.7).
     None,
 }
 
@@ -153,14 +153,14 @@ fn binary(cursor: &mut Cursor, level: Level) -> Expr {
                     "this operator does not chain",
                 )
                 .label(op_span, "after this one")
-                .note("Compare each pair separately and join them with `and` (§11.7).");
+                .note("Compare each pair separately and join them with `and` (LR11.7).");
             cursor.advance();
             let _ = binary(cursor, level.next());
         }
     }
 }
 
-/// `a..<b` and `a..=b`, whose bounds are optional (§10.4, §38).
+/// `a..<b` and `a..=b`, whose bounds are optional (LR10.4, LR38).
 fn range(cursor: &mut Cursor) -> Expr {
     let start_span = cursor.span();
 
@@ -187,7 +187,7 @@ fn range(cursor: &mut Cursor) -> Expr {
         .map_or(start_span, |s| s.span)
         .to(end.as_ref().map_or(start_span, |e| e.span));
 
-    // §11.7: ranges do not chain, and `a..<b..<c` has no reading at all.
+    // LR11.7: ranges do not chain, and `a..<b..<c` has no reading at all.
     if matches!(cursor.kind(), TokenKind::DotDotLt | TokenKind::DotDotEquals) {
         let here = cursor.span();
         cursor
@@ -196,7 +196,7 @@ fn range(cursor: &mut Cursor) -> Expr {
                 here,
                 "a range does not chain onto another",
             )
-            .note("A range has one lower bound and one upper bound (§10.4).");
+            .note("A range has one lower bound and one upper bound (LR10.4).");
         cursor.advance();
         let _ = binary(cursor, Level::Range.next());
     }
@@ -211,8 +211,8 @@ fn range(cursor: &mut Cursor) -> Expr {
     )
 }
 
-/// `x as T` and `x is T` (§33, §57), which bind tighter than arithmetic so
-/// that `a as f64 / b as f64` divides the converted values (§11.1).
+/// `x as T` and `x is T` (LR33, LR57), which bind tighter than arithmetic so
+/// that `a as f64 / b as f64` divides the converted values (LR11.1).
 fn conversion(cursor: &mut Cursor) -> Expr {
     let mut value = unary(cursor);
 
@@ -245,7 +245,7 @@ fn conversion(cursor: &mut Cursor) -> Expr {
 /// `not x`, `-x`, `~x`, `&x`, `&mut x`, and `x ** y`.
 ///
 /// `**` binds tighter than a prefix operator, so `-x ** 2` negates the power
-/// (§11.7), and it associates to the right.
+/// (LR11.7), and it associates to the right.
 fn unary(cursor: &mut Cursor) -> Expr {
     let start = cursor.span();
 
@@ -272,7 +272,7 @@ fn unary(cursor: &mut Cursor) -> Expr {
         );
     }
 
-    // `&value` and `&mut value` (§72).
+    // `&value` and `&mut value` (LR72).
     cursor.advance();
     let mutable = cursor.eat_keyword(Keyword::Mut);
     let operand = unary(cursor);
@@ -308,12 +308,12 @@ fn power(cursor: &mut Cursor) -> Expr {
     )
 }
 
-/// Calls, indexing, field and method access, and `?` (§8, §12.2, §25.2, §37).
+/// Calls, indexing, field and method access, and `?` (LR8, LR12.2, LR25.2, LR37).
 fn postfix(cursor: &mut Cursor) -> Expr {
     let mut value = primary(cursor);
 
     loop {
-        // §89.1: `name <` opens type arguments only when what follows parses
+        // LR89.1: `name <` opens type arguments only when what follows parses
         // as a type list and a `(` comes straight after the `>`. Type
         // arguments in expression position only ever precede a call, so
         // `json.decode<User>(text)` is a generic call and `a < b > (c)` is a
@@ -334,7 +334,7 @@ fn postfix(cursor: &mut Cursor) -> Expr {
                 let optional = cursor.kind() == TokenKind::QuestionDot;
                 cursor.advance();
 
-                // `x?[i]` indexes the receiver when it is present (§8).
+                // `x?[i]` indexes the receiver when it is present (LR8).
                 if optional && cursor.kind() == TokenKind::LeftBracket {
                     index(cursor, value, true)
                 } else {
@@ -355,7 +355,7 @@ fn postfix(cursor: &mut Cursor) -> Expr {
                 cursor.advance();
                 let (method, _) = cursor.name();
 
-                // §89.1: a method call is a call, so the same rule decides
+                // LR89.1: a method call is a call, so the same rule decides
                 // its type arguments. They are read here rather than at the
                 // top of the loop because `:` reads its call immediately,
                 // where `.` comes back around.
@@ -370,8 +370,8 @@ fn postfix(cursor: &mut Cursor) -> Expr {
                 }
                 called
             }
-            // `map?[key]` indexes an optional receiver (§8), while `x?`
-            // propagates an error (§25.2). The two are told apart by what
+            // `map?[key]` indexes an optional receiver (LR8), while `x?`
+            // propagates an error (LR25.2). The two are told apart by what
             // follows, and only when it follows immediately.
             TokenKind::Question
                 if cursor.peek_kind(1) == TokenKind::LeftBracket && cursor.adjacent(1) =>
@@ -393,7 +393,7 @@ fn postfix(cursor: &mut Cursor) -> Expr {
 ///
 /// The whole reading is speculative: what is written may equally be a
 /// comparison, so the parse is rewound and anything it reported is dropped
-/// unless a `(` confirms it (§89.1).
+/// unless a `(` confirms it (LR89.1).
 fn type_arguments(cursor: &mut Cursor) -> Option<Vec<Type>> {
     let mark = cursor.mark();
     cursor.advance();
@@ -423,7 +423,7 @@ fn type_arguments(cursor: &mut Cursor) -> Option<Vec<Type>> {
     Some(args)
 }
 
-/// The arguments of a call, or of a decorator (§9.5, §23).
+/// The arguments of a call, or of a decorator (LR9.5, LR23).
 pub(crate) fn arguments(cursor: &mut Cursor) -> Vec<Argument> {
     let opened = cursor.span();
     cursor.advance();
@@ -460,7 +460,7 @@ fn call(cursor: &mut Cursor, callee: Expr, method: Option<String>) -> Expr {
     )
 }
 
-/// A positional argument, or `name = value` (§9.5).
+/// A positional argument, or `name = value` (LR9.5).
 fn argument(cursor: &mut Cursor) -> Argument {
     let start = cursor.span();
 
@@ -571,7 +571,7 @@ pub(crate) fn primary(cursor: &mut Cursor) -> Expr {
     Expr::new(kind, span)
 }
 
-/// `function(x) ... end` (§9.2).
+/// `function(x) ... end` (LR9.2).
 fn anonymous(cursor: &mut Cursor, asynchronous: bool) -> Expr {
     let start = cursor.span();
     cursor.advance();
@@ -598,7 +598,7 @@ fn anonymous(cursor: &mut Cursor, asynchronous: bool) -> Expr {
     )
 }
 
-/// `(value: int) => value * 2` (§9.2).
+/// `(value: int) => value * 2` (LR9.2).
 fn arrow(cursor: &mut Cursor) -> Expr {
     let start = cursor.span();
 
@@ -622,7 +622,7 @@ fn arrow(cursor: &mut Cursor) -> Expr {
 /// Whether the parenthesized list starting here is a closure's parameters.
 ///
 /// A parenthesized list is a tuple unless `=>` follows it, which is the shape
-/// the type grammar settles with `->` (§14, §89.1). Which one it is decides
+/// the type grammar settles with `->` (LR14, LR89.1). Which one it is decides
 /// how the contents are read, so the matching `)` is found first and the token
 /// after it answers the question.
 fn opens_a_closure(cursor: &Cursor) -> bool {
@@ -645,7 +645,7 @@ fn opens_a_closure(cursor: &Cursor) -> bool {
     }
 }
 
-/// `()` is the empty tuple, `(a)` is `a`, and `(a, b)` is a tuple (§14).
+/// `()` is the empty tuple, `(a)` is `a`, and `(a, b)` is a tuple (LR14).
 fn parenthesized(cursor: &mut Cursor) -> Expr {
     if opens_a_closure(cursor) {
         return arrow(cursor);
@@ -683,7 +683,7 @@ fn parenthesized(cursor: &mut Cursor) -> Expr {
     Expr::new(ExprKind::Tuple(items), opened.to(end))
 }
 
-/// `if c then a else b` (§10.1).
+/// `if c then a else b` (LR10.1).
 ///
 /// In expression position `if` produces a value, so it takes expressions
 /// rather than blocks and needs no `end`. The `else` is required: without one
@@ -717,7 +717,7 @@ fn conditional(cursor: &mut Cursor) -> Expr {
                 "an `if` used as a value needs an `else`",
             )
             .label(opened, "this `if` produces a value")
-            .note("Every branch has to produce one, including the one not written (§10.1).");
+            .note("Every branch has to produce one, including the one not written (LR10.1).");
 
         let span = opened.to(here);
         return Expr::new(
@@ -741,7 +741,7 @@ fn conditional(cursor: &mut Cursor) -> Expr {
 }
 
 /// `match value ... end` as an expression, whose cases are `=> expression`
-/// (§16.1).
+/// (LR16.1).
 fn match_expression(cursor: &mut Cursor) -> Expr {
     let opened = cursor.span();
     cursor.advance();
@@ -767,7 +767,7 @@ fn match_expression(cursor: &mut Cursor) -> Expr {
 
 /// A name, or the literal a path with braces after it builds.
 ///
-/// §90: `[...]` is always a list, `{ ... }` always a record, `Map { ... }`
+/// LR90: `[...]` is always a list, `{ ... }` always a record, `Map { ... }`
 /// always a map. What a literal constructs never depends on where it is
 /// written, so a `{` after a path is always the literal's.
 fn path_or_literal(cursor: &mut Cursor) -> Expr {
@@ -822,7 +822,7 @@ fn path_or_literal(cursor: &mut Cursor) -> Expr {
 }
 
 /// `{ name = value }`, with the path of the type it builds when it has one
-/// (§12.1, §12.2).
+/// (LR12.1, LR12.2).
 fn record(cursor: &mut Cursor, path: Vec<String>, start: Span) -> Expr {
     let opened = cursor.span();
     cursor.advance();
@@ -832,12 +832,12 @@ fn record(cursor: &mut Cursor, path: Vec<String>, start: Span) -> Expr {
         let field_start = cursor.span();
         let (name, _) = cursor.name();
 
-        // §89.1: `=` binds a value. `:` introduces a type and nothing else.
+        // LR89.1: `=` binds a value. `:` introduces a type and nothing else.
         if !cursor.eat(TokenKind::Equals) {
             let here = cursor.span();
             cursor
                 .error(codes::EXPECTED_EXPRESSION, here, "expected `=` and a value")
-                .note("Fields are bound with `=`, as in struct literals, map literals, and named arguments (§12.1).");
+                .note("Fields are bound with `=`, as in struct literals, map literals, and named arguments (LR12.1).");
             break;
         }
 
@@ -858,7 +858,7 @@ fn record(cursor: &mut Cursor, path: Vec<String>, start: Span) -> Expr {
     Expr::new(ExprKind::Record { path, fields }, start.to(end))
 }
 
-/// `Map { key = value, [computed] = value }` (§13.2).
+/// `Map { key = value, [computed] = value }` (LR13.2).
 fn map(cursor: &mut Cursor, start: Span) -> Expr {
     let opened = cursor.span();
     cursor.advance();
@@ -898,7 +898,7 @@ fn map(cursor: &mut Cursor, start: Span) -> Expr {
     Expr::new(ExprKind::Map(entries), start.to(end))
 }
 
-/// `[a, b]` (§13.1).
+/// `[a, b]` (LR13.1).
 fn list(cursor: &mut Cursor) -> Expr {
     let opened = cursor.span();
     cursor.advance();
@@ -916,7 +916,7 @@ fn list(cursor: &mut Cursor) -> Expr {
     Expr::new(ExprKind::List(items), opened.to(end))
 }
 
-/// An interpolated string (§4.6), whose holes hold ordinary expressions.
+/// An interpolated string (LR4.6), whose holes hold ordinary expressions.
 fn interpolation(cursor: &mut Cursor) -> Expr {
     let opened = cursor.span();
     cursor.advance();
@@ -949,7 +949,7 @@ fn interpolation(cursor: &mut Cursor) -> Expr {
 }
 
 /// Whether a token can begin an expression, which is what decides if a range
-/// has an upper bound (§38).
+/// has an upper bound (LR38).
 fn starts_expression(kind: TokenKind) -> bool {
     matches!(
         kind,

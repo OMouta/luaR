@@ -1,5 +1,5 @@
 --- expect: compile-ok
---- spec: §54.1
+--- spec: LR54.1
 function collect(text: string)
 end
 

@@ -1,6 +1,6 @@
 --- expect: compile-ok
---- spec: §29.2
---- spec: §72
+--- spec: LR29.2
+--- spec: LR72
 @extern("c")
 unsafe function native_clock(out: *mut CTime): i32
 
@@ -22,7 +22,7 @@ export function currentNativeTime(): Result<CTime, ClockError>
 
     unsafe
         -- `value` is an addressable local, so &mut is valid for the
-        -- duration of this block (§72).
+        -- duration of this block (LR72).
         if native_clock(&mut value) ~= 0 then
             return Result.Err(ClockError { message = "native_clock failed" })
         end

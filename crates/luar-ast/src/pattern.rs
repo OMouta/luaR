@@ -1,7 +1,7 @@
-//! Patterns (§16.2).
+//! Patterns (LR16.2).
 //!
 //! Patterns are refutable: matching one may fail, which is what separates them
-//! from the bindings of §5.3. Nesting is free, so every position that takes a
+//! from the bindings of LR5.3. Nesting is free, so every position that takes a
 //! pattern takes any of them.
 
 use luar_diagnostics::Span;
@@ -51,11 +51,11 @@ pub enum PatternKind {
         rest: Option<Option<String>>,
         after: Vec<Pattern>,
     },
-    /// `(a, b)` (§14).
+    /// `(a, b)` (LR14).
     Tuple(Vec<Pattern>),
     /// `A | B`, whose alternatives bind the same names at the same types.
     Or(Vec<Pattern>),
-    /// `value is string`, matching a member of a union (§57).
+    /// `value is string`, matching a member of a union (LR57).
     Typed { inner: Box<Pattern>, ty: Type },
     /// Stands in for a pattern that could not be parsed, already reported.
     Error,
@@ -74,7 +74,7 @@ pub enum Payload {
     },
 }
 
-/// One field of a record pattern (§16.2).
+/// One field of a record pattern (LR16.2).
 #[derive(Debug, Clone, PartialEq)]
 pub struct FieldPattern {
     pub field: String,

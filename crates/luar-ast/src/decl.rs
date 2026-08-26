@@ -6,10 +6,10 @@ use crate::expr::Expr;
 use crate::stmt::{Binding, Block};
 use crate::ty::Type;
 
-/// One source file (§2).
+/// One source file (LR2).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Module {
-    /// Declarations and module-level statements, in the order written (§21.3).
+    /// Declarations and module-level statements, in the order written (LR21.3).
     pub items: Vec<Item>,
     pub span: Span,
 }
@@ -24,11 +24,11 @@ pub enum Item {
     Extend(Extend),
     TypeAlias(TypeAlias),
     Conditional(Conditional),
-    /// A statement at module level (§21.3).
+    /// A statement at module level (LR21.3).
     Stmt(crate::stmt::Stmt),
 }
 
-/// An `import` declaration (§21.1).
+/// An `import` declaration (LR21.1).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Import {
     pub names: ImportNames,
@@ -58,51 +58,51 @@ pub struct ImportName {
     pub span: Span,
 }
 
-/// A function declaration (§9.1).
+/// A function declaration (LR9.1).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Function {
     pub decorators: Vec<Decorator>,
-    /// Exposed from the module (§44).
+    /// Exposed from the module (LR44).
     pub exported: bool,
     pub asynchronous: bool,
     pub unsafe_: bool,
-    /// A static member, which takes no `self` (§42).
+    /// A static member, which takes no `self` (LR42).
     pub static_: bool,
     /// The name, qualified where it names a member: `Type.method`.
     pub name: Vec<String>,
-    /// Type parameters, by name (§19).
+    /// Type parameters, by name (LR19).
     pub type_params: Vec<String>,
     pub params: Vec<Param>,
     /// The declared result. Absent when the function returns nothing.
     pub result: Option<Type>,
     /// The body, absent where a declaration states a signature and no more:
-    /// an interface member (§18) and a foreign declaration (§46).
+    /// an interface member (LR18) and a foreign declaration (LR46).
     pub body: Option<Block>,
     pub span: Span,
 }
 
-/// One parameter (§9.4, §9.5, §9.6).
+/// One parameter (LR9.4, LR9.5, LR9.6).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Param {
     pub binding: Binding,
     pub ty: Option<Type>,
-    /// Evaluated at the call site when the argument is omitted (§9.4).
+    /// Evaluated at the call site when the argument is omitted (LR9.4).
     pub default: Option<Expr>,
-    /// `...values`, a read-only variadic sequence (§9.6).
+    /// `...values`, a read-only variadic sequence (LR9.6).
     pub variadic: bool,
     pub span: Span,
 }
 
-/// A `struct` declaration (§12.2, §12.4, §31).
+/// A `struct` declaration (LR12.2, LR12.4, LR31).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Struct {
     pub decorators: Vec<Decorator>,
     pub exported: bool,
     pub semantics: Semantics,
     pub name: String,
-    /// Type parameters, by name (§19).
+    /// Type parameters, by name (LR19).
     pub type_params: Vec<String>,
-    /// The interfaces it claims to implement (§18).
+    /// The interfaces it claims to implement (LR18).
     pub implements: Vec<Type>,
     pub members: Vec<Member>,
     pub span: Span,
@@ -112,13 +112,13 @@ pub struct Struct {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Semantics {
     /// A value struct: assigning it may copy it, and equal fields are
-    /// indistinguishable (§31).
+    /// indistinguishable (LR31).
     Value,
     /// `const struct`, whose fields cannot be mutated after initialization
-    /// (§12.4).
+    /// (LR12.4).
     Const,
     /// `ref struct`, one shared identifiable object every holder observes
-    /// (§31).
+    /// (LR31).
     Ref,
 }
 
@@ -129,7 +129,7 @@ pub enum Member {
     Property(Property),
 }
 
-/// A stored field (§12.2), with a default where it has one.
+/// A stored field (LR12.2), with a default where it has one.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Field {
     pub visibility: Option<Visibility>,
@@ -139,7 +139,7 @@ pub struct Field {
     pub span: Span,
 }
 
-/// §44. Members are public by default; `private` narrows them to the module.
+/// LR44. Members are public by default; `private` narrows them to the module.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Visibility {
     Private,
@@ -147,14 +147,14 @@ pub enum Visibility {
     Public,
 }
 
-/// A computed property (§43), which reads like a field and runs code.
+/// A computed property (LR43), which reads like a field and runs code.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Property {
     pub visibility: Option<Visibility>,
     pub name: String,
     pub ty: Type,
     pub get: Block,
-    /// The setter, where one is written. Setters are explicit (§43).
+    /// The setter, where one is written. Setters are explicit (LR43).
     pub set: Option<Setter>,
     pub span: Span,
 }
@@ -167,7 +167,7 @@ pub struct Setter {
     pub span: Span,
 }
 
-/// An `enum` declaration: a nominal tagged value (§15).
+/// An `enum` declaration: a nominal tagged value (LR15).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Enum {
     pub decorators: Vec<Decorator>,
@@ -178,7 +178,7 @@ pub struct Enum {
     pub span: Span,
 }
 
-/// One variant, namespaced by the enum that declares it (§15.3).
+/// One variant, namespaced by the enum that declares it (LR15.3).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Variant {
     pub name: String,
@@ -186,7 +186,7 @@ pub struct Variant {
     pub span: Span,
 }
 
-/// What a variant carries (§15.2).
+/// What a variant carries (LR15.2).
 #[derive(Debug, Clone, PartialEq)]
 pub enum VariantPayload {
     /// `Write(string)`, carried by position.
@@ -195,14 +195,14 @@ pub enum VariantPayload {
     Record(Vec<crate::ty::RecordField>),
 }
 
-/// An `interface` declaration: a behavior contract (§18).
+/// An `interface` declaration: a behavior contract (LR18).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Interface {
     pub decorators: Vec<Decorator>,
     pub exported: bool,
     /// `structural interface`, satisfied by shape rather than by declaration.
     /// Nominal is the default, because conformance is a claim about behavior
-    /// rather than about spelling (§18).
+    /// rather than about spelling (LR18).
     pub structural: bool,
     pub name: String,
     pub type_params: Vec<String>,
@@ -214,11 +214,11 @@ pub struct Interface {
 pub enum InterfaceMember {
     /// A required method, whose body each implementation supplies.
     Function(Function),
-    /// A required property (§18).
+    /// A required property (LR18).
     Property { name: String, ty: Type, span: Span },
 }
 
-/// An `extend Name for Type` block (§20).
+/// An `extend Name for Type` block (LR20).
 ///
 /// The block is named, exported, and imported like any other declaration, so
 /// importing a module for one function never changes what a method call means
@@ -233,7 +233,7 @@ pub struct Extend {
     pub span: Span,
 }
 
-/// A type alias (§17.1).
+/// A type alias (LR17.1).
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeAlias {
     pub decorators: Vec<Decorator>,
@@ -244,9 +244,9 @@ pub struct TypeAlias {
     pub span: Span,
 }
 
-/// A decorator, attached to the declaration it precedes (§23).
+/// A decorator, attached to the declaration it precedes (LR23).
 ///
-/// What it does is decided when decorators are expanded (§23.1); here it is
+/// What it does is decided when decorators are expanded (LR23.1); here it is
 /// its name and the arguments written with it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Decorator {
@@ -255,7 +255,7 @@ pub struct Decorator {
     pub span: Span,
 }
 
-/// `#if ... #end` around declarations (§48).
+/// `#if ... #end` around declarations (LR48).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Conditional {
     pub branches: Vec<(crate::expr::Expr, Vec<Item>)>,

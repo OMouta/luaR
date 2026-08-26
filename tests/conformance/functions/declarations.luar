@@ -1,11 +1,11 @@
 --- expect: compile-ok
---- spec: §9
---- spec: §9.1
---- spec: §9.4
---- spec: §9.5
---- spec: §9.6
---- spec: §9.7
---- spec: §44
+--- spec: LR9
+--- spec: LR9.1
+--- spec: LR9.4
+--- spec: LR9.5
+--- spec: LR9.6
+--- spec: LR9.7
+--- spec: LR44
 function add(a: int, b: int): int
     return a + b
 end

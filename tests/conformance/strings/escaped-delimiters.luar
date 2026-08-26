@@ -1,6 +1,6 @@
 --- expect: compile-ok
---- spec: §4.5
---- spec: §4.6
+--- spec: LR4.5
+--- spec: LR4.6
 export function main()
     print("a \" quote")
     print(`a \` backtick and a \{ brace`)

@@ -16,16 +16,16 @@ use std::path::Path;
 
 use crate::{directives, discover};
 
-/// A section number such as `11.1`, without the `§`.
+/// A section number such as `11.1`, without the `LR`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Section(String);
 
 impl Section {
-    /// Reads a section number from a heading or a citation, accepting `§11.1`,
+    /// Reads a section number from a heading or a citation, accepting `LR11.1`,
     /// `11.1` and `11.` alike. `None` if there is no number to read.
     #[must_use]
     pub fn parse(text: &str) -> Option<Self> {
-        let text = text.trim().trim_start_matches('§').trim();
+        let text = text.trim().trim_start_matches("LR").trim();
         let number: String = text
             .chars()
             .take_while(|c| c.is_ascii_digit() || *c == '.')
@@ -61,7 +61,7 @@ impl Section {
 
 impl fmt::Display for Section {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "§{}", self.0)
+        write!(f, "LR{}", self.0)
     }
 }
 

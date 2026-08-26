@@ -1,5 +1,5 @@
 --- expect: compile-ok
---- spec: §21.1
+--- spec: LR21.1
 import config from "./support/config"
 import { User, Session as Login } from "./support/models"
 import { label } from "./support/deep/nested"

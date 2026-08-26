@@ -1,5 +1,5 @@
 --- expect: compile-ok
---- spec: §4.4
+--- spec: LR4.4
 export function main()
     local whole = 1.0
     local pi = 3.14159

@@ -1,4 +1,4 @@
-//! Statements and control flow (§5, §10).
+//! Statements and control flow (LR5, LR10).
 
 use luar_ast::{
     ArmBody, BinaryOp, Binding, Block, Branch, Expr, ExprKind, FieldBinding, MatchArm, Stmt,
@@ -21,7 +21,7 @@ pub(crate) fn block(cursor: &mut Cursor) -> Block {
         let before = cursor.mark();
         stmts.push(statement(cursor));
 
-        // §3.4: semicolons separate statements and are optional.
+        // LR3.4: semicolons separate statements and are optional.
         while cursor.eat(TokenKind::Semicolon) {}
 
         // A statement that consumed nothing would loop forever. The
@@ -39,7 +39,7 @@ pub(crate) fn block(cursor: &mut Cursor) -> Block {
 
 /// Whether the current token closes the block rather than opening a statement.
 fn at_block_end(cursor: &Cursor) -> bool {
-    // §48: the directives that close a branch end the run of statements in
+    // LR48: the directives that close a branch end the run of statements in
     // it. `#if` opens one, so it is a statement rather than a terminator.
     if cursor.at_directive(Keyword::Elseif)
         || cursor.at_directive(Keyword::Else)
@@ -75,7 +75,7 @@ pub(crate) fn statement(cursor: &mut Cursor) -> Stmt {
         TokenKind::Keyword(Keyword::For) => for_loop(cursor, None),
         TokenKind::Keyword(Keyword::Match) => match_statement(cursor),
         TokenKind::Keyword(Keyword::Unsafe) => unsafe_block(cursor),
-        // §48: conditional compilation selects statements here, declarations
+        // LR48: conditional compilation selects statements here, declarations
         // where declarations go.
         TokenKind::Hash if cursor.at_directive(Keyword::If) => conditional_compilation(cursor),
         TokenKind::Keyword(Keyword::Break) => {
@@ -94,7 +94,7 @@ pub(crate) fn statement(cursor: &mut Cursor) -> Stmt {
                 StmtKind::Return(Some(expr::expression(cursor)))
             }
         }
-        // §10.7: a label names the loop it precedes. `name :` is a label only
+        // LR10.7: a label names the loop it precedes. `name :` is a label only
         // when a loop follows; otherwise the `:` is a method call.
         TokenKind::Ident if cursor.peek_kind(1) == TokenKind::Colon && labels_a_loop(cursor) => {
             let (label, _) = cursor.name();
@@ -119,7 +119,7 @@ fn labels_a_loop(cursor: &Cursor) -> bool {
     )
 }
 
-/// The label on a `break` or `continue`, if it names one (§10.7).
+/// The label on a `break` or `continue`, if it names one (LR10.7).
 fn label_argument(cursor: &mut Cursor) -> Option<String> {
     if cursor.kind() == TokenKind::Ident {
         return Some(cursor.name().0);
@@ -132,7 +132,7 @@ fn ends_statement(cursor: &Cursor) -> bool {
     at_block_end(cursor) || cursor.kind() == TokenKind::Semicolon
 }
 
-/// `local x = 1`, with an optional type and an optional value (§5.1).
+/// `local x = 1`, with an optional type and an optional value (LR5.1).
 fn local(cursor: &mut Cursor) -> StmtKind {
     cursor.advance();
     let binding = self::binding(cursor);
@@ -144,7 +144,7 @@ fn local(cursor: &mut Cursor) -> StmtKind {
         None
     };
 
-    // §5.1: a declaration with no initializer says what it will hold, since
+    // LR5.1: a declaration with no initializer says what it will hold, since
     // there is nothing to infer it from.
     if value.is_none() && ty.is_none() {
         let here = cursor.previous_span();
@@ -154,13 +154,13 @@ fn local(cursor: &mut Cursor) -> StmtKind {
                 here,
                 "a local with no value must state its type",
             )
-            .note("Write `local socket: Socket`, or give it a value (§5.1).");
+            .note("Write `local socket: Socket`, or give it a value (LR5.1).");
     }
 
     StmtKind::Local { binding, ty, value }
 }
 
-/// `const port = 8080` (§5.2).
+/// `const port = 8080` (LR5.2).
 fn constant(cursor: &mut Cursor) -> StmtKind {
     cursor.advance();
     let binding = self::binding(cursor);
@@ -174,7 +174,7 @@ fn constant(cursor: &mut Cursor) -> StmtKind {
                 here,
                 "a `const` binding needs a value",
             )
-            .note("`const` cannot be assigned later, so it is given its value here (§5.2).");
+            .note("`const` cannot be assigned later, so it is given its value here (LR5.2).");
         return StmtKind::Error;
     }
 
@@ -191,7 +191,7 @@ fn annotation(cursor: &mut Cursor) -> Option<Type> {
     cursor.eat(TokenKind::Colon).then(|| ty::ty(cursor))
 }
 
-/// A name, a record, or a tuple of them (§5.3).
+/// A name, a record, or a tuple of them (LR5.3).
 pub(crate) fn binding(cursor: &mut Cursor) -> Binding {
     match cursor.kind() {
         TokenKind::Ident => Binding::Name(cursor.name().0),
@@ -203,14 +203,14 @@ pub(crate) fn binding(cursor: &mut Cursor) -> Binding {
                 .error(codes::EXPECTED_EXPRESSION, here, "expected a binding here")
                 .note(
                     "A binding is a name, a record `{ a, b }`, or a tuple `(a, b)`. Matching a \
-                     list by shape belongs in `match` (§5.3).",
+                     list by shape belongs in `match` (LR5.3).",
                 );
             Binding::Error
         }
     }
 }
 
-/// `{ name, age as years }` (§5.3).
+/// `{ name, age as years }` (LR5.3).
 fn record_binding(cursor: &mut Cursor) -> Binding {
     let opened = cursor.span();
     cursor.advance();
@@ -235,7 +235,7 @@ fn record_binding(cursor: &mut Cursor) -> Binding {
     Binding::Record(fields)
 }
 
-/// `(x, y)` (§5.3, §14).
+/// `(x, y)` (LR5.3, LR14).
 fn tuple_binding(cursor: &mut Cursor) -> Binding {
     let opened = cursor.span();
     cursor.advance();
@@ -252,7 +252,7 @@ fn tuple_binding(cursor: &mut Cursor) -> Binding {
     Binding::Tuple(members)
 }
 
-/// `if ... then ... elseif ... else ... end` (§10.1).
+/// `if ... then ... elseif ... else ... end` (LR10.1).
 fn conditional(cursor: &mut Cursor) -> StmtKind {
     let opened = cursor.span();
     cursor.advance();
@@ -309,7 +309,7 @@ fn while_loop(cursor: &mut Cursor, label: Option<String>) -> StmtKind {
     }
 }
 
-/// `repeat ... until c` (§10.3), which closes on `until` rather than `end`.
+/// `repeat ... until c` (LR10.3), which closes on `until` rather than `end`.
 fn repeat_loop(cursor: &mut Cursor, label: Option<String>) -> StmtKind {
     let opened = cursor.span();
     cursor.advance();
@@ -330,8 +330,8 @@ fn repeat_loop(cursor: &mut Cursor, label: Option<String>) -> StmtKind {
     }
 }
 
-/// `for x in xs do ... end` (§10.5). There is no numeric `for`: a count is a
-/// range, and iterating one is the same statement (§10.4).
+/// `for x in xs do ... end` (LR10.5). There is no numeric `for`: a count is a
+/// range, and iterating one is the same statement (LR10.4).
 fn for_loop(cursor: &mut Cursor, label: Option<String>) -> StmtKind {
     let opened = cursor.span();
     cursor.advance();
@@ -345,7 +345,7 @@ fn for_loop(cursor: &mut Cursor, label: Option<String>) -> StmtKind {
         let here = cursor.span();
         cursor
             .error(codes::EXPECTED_EXPRESSION, here, "expected `in`")
-            .note("A loop reads `for item in items do` (§10.5).");
+            .note("A loop reads `for item in items do` (LR10.5).");
     }
 
     let iterable = expr::expression(cursor);
@@ -380,14 +380,14 @@ fn close(cursor: &mut Cursor, opened: Span, construct: &str) {
         .label(opened, format!("this `{construct}` is still open"));
 }
 
-/// An assignment, or an expression evaluated for what it does (§5.4).
+/// An assignment, or an expression evaluated for what it does (LR5.4).
 fn assignment_or_expression(cursor: &mut Cursor) -> StmtKind {
     let target = expr::expression(cursor);
 
     let Some(op) = assignment_operator(cursor.kind()) else {
-        // §89.1: a statement has to do something. The common way to write one
+        // LR89.1: a statement has to do something. The common way to write one
         // that does not is a compound assignment that does not exist, so
-        // `text ..= suffix` is caught here as the range it is (§5.4, §10.4).
+        // `text ..= suffix` is caught here as the range it is (LR5.4, LR10.4).
         if !has_effect(&target) {
             cursor
                 .error(
@@ -398,7 +398,7 @@ fn assignment_or_expression(cursor: &mut Cursor) -> StmtKind {
                 .note(
                     "A statement is a call, or something written with it. There is no `..=` \
                      assignment: `..=` is the inclusive range, so concatenating in place is \
-                     written `text = text .. suffix` (§5.4).",
+                     written `text = text .. suffix` (LR5.4).",
                 );
         }
         return StmtKind::Expr(target);
@@ -406,7 +406,7 @@ fn assignment_or_expression(cursor: &mut Cursor) -> StmtKind {
     let operator_span = cursor.span();
     cursor.advance();
 
-    // §89: what can be assigned to is a name, a field, or an element. A call
+    // LR89: what can be assigned to is a name, a field, or an element. A call
     // is not, and neither is a literal.
     if !is_assignable(&target) {
         cursor
@@ -416,7 +416,7 @@ fn assignment_or_expression(cursor: &mut Cursor) -> StmtKind {
                 "this cannot be assigned to",
             )
             .label(operator_span, "assigned here")
-            .note("Assignment writes to a name, a field, or an element (§5.1, §37).");
+            .note("Assignment writes to a name, a field, or an element (LR5.1, LR37).");
     }
 
     StmtKind::Assign {
@@ -427,12 +427,12 @@ fn assignment_or_expression(cursor: &mut Cursor) -> StmtKind {
 }
 
 /// Whether evaluating `expr` does anything, which is what makes it a
-/// statement rather than a discarded value (§89.1).
+/// statement rather than a discarded value (LR89.1).
 fn has_effect(expr: &Expr) -> bool {
     match &expr.kind {
         ExprKind::Call { .. } | ExprKind::Error => true,
         // `f(x)?` is the call, and the propagation says what to do with what
-        // it returned (§25.2).
+        // it returned (LR25.2).
         ExprKind::Try(inner) => has_effect(inner),
         _ => false,
     }
@@ -448,8 +448,8 @@ fn is_assignable(expr: &Expr) -> bool {
 
 /// The operator a compound assignment applies, or `None` for plain `=`.
 ///
-/// §5.4 states the complete set. There is no `..=`, which is the inclusive
-/// range (§10.4), so concatenating in place is written out.
+/// LR5.4 states the complete set. There is no `..=`, which is the inclusive
+/// range (LR10.4), so concatenating in place is written out.
 fn assignment_operator(kind: TokenKind) -> Option<Option<BinaryOp>> {
     let op = match kind {
         TokenKind::Equals => None,
@@ -470,7 +470,7 @@ fn assignment_operator(kind: TokenKind) -> Option<Option<BinaryOp>> {
     Some(op)
 }
 
-/// `match value ... end` (§16.1).
+/// `match value ... end` (LR16.1).
 ///
 /// The same cases serve both forms: block cases make a statement, `=>` cases
 /// make an expression, and one `match` uses one form throughout.
@@ -483,7 +483,7 @@ pub(crate) fn match_arms(cursor: &mut Cursor, opened: Span) -> Vec<MatchArm> {
         cursor.advance();
 
         let pattern = pattern::pattern(cursor);
-        // §16.3: a guard is a `bool` the case is also conditional on.
+        // LR16.3: a guard is a `bool` the case is also conditional on.
         let guard = cursor
             .eat_keyword(Keyword::If)
             .then(|| expr::expression(cursor));
@@ -496,7 +496,7 @@ pub(crate) fn match_arms(cursor: &mut Cursor, opened: Span) -> Vec<MatchArm> {
             ArmBody::Block(block(cursor))
         };
 
-        // §16.1: mixing the forms is what would make a block case's extent
+        // LR16.1: mixing the forms is what would make a block case's extent
         // ambiguous, so the first case decides which one this `match` uses.
         match first_form {
             None => first_form = Some(arrow),
@@ -510,7 +510,7 @@ pub(crate) fn match_arms(cursor: &mut Cursor, opened: Span) -> Vec<MatchArm> {
                     .label(opened, "this `match` uses one form throughout")
                     .note(
                         "Cases are blocks, or they are `=> expression`, and never both in one \
-                         `match` (§16.1).",
+                         `match` (LR16.1).",
                     );
             }
             Some(_) => {}
@@ -534,7 +534,7 @@ pub(crate) fn match_arms(cursor: &mut Cursor, opened: Span) -> Vec<MatchArm> {
     arms
 }
 
-/// `match value ... end` as a statement (§16.1).
+/// `match value ... end` as a statement (LR16.1).
 fn match_statement(cursor: &mut Cursor) -> StmtKind {
     let opened = cursor.span();
     cursor.advance();
@@ -546,9 +546,9 @@ fn match_statement(cursor: &mut Cursor) -> StmtKind {
     StmtKind::Match { scrutinee, arms }
 }
 
-/// `unsafe ... end` (§29.2).
+/// `unsafe ... end` (LR29.2).
 ///
-/// §89.1: a function declaration is not a statement, so `unsafe` in statement
+/// LR89.1: a function declaration is not a statement, so `unsafe` in statement
 /// position always opens a block. The modifier form is read where
 /// declarations are.
 fn unsafe_block(cursor: &mut Cursor) -> StmtKind {
@@ -560,7 +560,7 @@ fn unsafe_block(cursor: &mut Cursor) -> StmtKind {
     StmtKind::Unsafe(body)
 }
 
-/// `#if ... #end` around statements (§48).
+/// `#if ... #end` around statements (LR48).
 fn conditional_compilation(cursor: &mut Cursor) -> StmtKind {
     let start = cursor.span();
     cursor.advance();

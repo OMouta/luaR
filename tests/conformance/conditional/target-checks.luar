@@ -1,5 +1,5 @@
 --- expect: compile-ok
---- spec: §48
+--- spec: LR48
 #if target.os == "windows"
     export function separator(): string
         return "\\"

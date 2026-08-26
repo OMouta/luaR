@@ -39,37 +39,37 @@ fn cite(sections: &[&str]) -> BTreeMap<Section, Vec<String>> {
 #[test]
 fn headings_become_sections_and_code_fences_do_not() {
     let found: Vec<String> = sections(SPEC).iter().map(Section::to_string).collect();
-    assert_eq!(found, ["§4", "§4.3", "§11", "§11.1", "§11.2", "§80"]);
+    assert_eq!(found, ["LR4", "LR4.3", "LR11", "LR11.1", "LR11.2", "LR80"]);
 }
 
 #[test]
 fn untested_sections_are_listed_in_spec_order() {
-    let report = coverage(&sections(SPEC), &cite(&["§11.1"]));
+    let report = coverage(&sections(SPEC), &cite(&["LR11.1"]));
     let untested: Vec<String> = report.untested.iter().map(Section::to_string).collect();
 
-    assert_eq!(untested, ["§4", "§4.3", "§11", "§11.2", "§80"]);
+    assert_eq!(untested, ["LR4", "LR4.3", "LR11", "LR11.2", "LR80"]);
     assert_eq!(report.tested.len(), 1);
     assert_eq!(report.section_count(), 6);
 }
 
 #[test]
 fn a_heading_is_covered_once_all_its_subsections_are() {
-    let report = coverage(&sections(SPEC), &cite(&["§11.1", "§11.2"]));
+    let report = coverage(&sections(SPEC), &cite(&["LR11.1", "LR11.2"]));
     let tested: Vec<String> = report.tested.iter().map(Section::to_string).collect();
 
-    // §11 has nothing to test beyond its subsections. §4 still does, since
-    // §4.3 is untested.
-    assert_eq!(tested, ["§11", "§11.1", "§11.2"]);
+    // LR11 has nothing to test beyond its subsections. LR4 still does, since
+    // LR4.3 is untested.
+    assert_eq!(tested, ["LR11", "LR11.1", "LR11.2"]);
 }
 
 #[test]
 fn citing_a_section_the_spec_does_not_have_is_reported() {
-    let report = coverage(&sections(SPEC), &cite(&["§11.1", "§93.4"]));
+    let report = coverage(&sections(SPEC), &cite(&["LR11.1", "LR93.4"]));
 
     let unknown: Vec<String> = report.unknown.keys().map(Section::to_string).collect();
-    assert_eq!(unknown, ["§93.4"]);
+    assert_eq!(unknown, ["LR93.4"]);
     assert_eq!(
-        report.unknown[&Section::parse("§93.4").unwrap()],
+        report.unknown[&Section::parse("LR93.4").unwrap()],
         ["a-test.luar"]
     );
 }
@@ -77,19 +77,19 @@ fn citing_a_section_the_spec_does_not_have_is_reported() {
 #[test]
 fn sections_sort_by_number_not_by_text() {
     let mut found = [
-        Section::parse("§11.10").unwrap(),
-        Section::parse("§11.2").unwrap(),
-        Section::parse("§9").unwrap(),
+        Section::parse("LR11.10").unwrap(),
+        Section::parse("LR11.2").unwrap(),
+        Section::parse("LR9").unwrap(),
     ];
     found.sort();
 
     let sorted: Vec<String> = found.iter().map(Section::to_string).collect();
-    assert_eq!(sorted, ["§9", "§11.2", "§11.10"]);
+    assert_eq!(sorted, ["LR9", "LR11.2", "LR11.10"]);
 }
 
 #[test]
 fn a_citation_without_a_number_is_not_a_section() {
-    assert!(Section::parse("§").is_none());
+    assert!(Section::parse("LR").is_none());
     assert!(Section::parse("arithmetic").is_none());
     assert_eq!(Section::parse("11. Operators").unwrap().as_str(), "11");
 }

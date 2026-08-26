@@ -1,7 +1,7 @@
 --- expect: compile-ok
---- spec: §4.5
---- spec: §4.7
---- spec: §6.1
+--- spec: LR4.5
+--- spec: LR4.7
+--- spec: LR6.1
 export function main()
     local plain = "Jon Doe"
     local escaped = "tab:\there\nline\u{1F600}"

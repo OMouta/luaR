@@ -28,7 +28,7 @@ pub struct Label {
 /// `primary` is where the problem is. Secondary `labels` are the other places
 /// that explain it: the earlier binding, the interface being implemented, the
 /// import that pulled the module in. `notes` say what to do about it and carry
-/// the context §80 asks for, such as how a generic was instantiated.
+/// the context LR80 asks for, such as how a generic was instantiated.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
     pub severity: Severity,

@@ -1,6 +1,6 @@
 --- expect: compile-ok
---- spec: §9.8
---- spec: §54
+--- spec: LR9.8
+--- spec: LR54
 export function main()
     local total = 0
 

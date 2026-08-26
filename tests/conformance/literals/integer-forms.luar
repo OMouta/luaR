@@ -1,5 +1,5 @@
 --- expect: compile-ok
---- spec: §4.3
+--- spec: LR4.3
 export function main()
     local decimal = 42
     local separated = 1_000_000

@@ -1,4 +1,4 @@
-//! Initialization order, and the cycles that have none (§21.2, §78).
+//! Initialization order, and the cycles that have none (LR21.2, LR78).
 //!
 //! Every module reachable from the entry module initializes before `main`,
 //! in an order that follows the dependency graph. A module that reaches for
@@ -12,7 +12,7 @@
 //!
 //! What counts as a need is deliberately blunt: any name of another module,
 //! read anywhere in top-level code, including inside a closure written there.
-//! §21.2 permits a cycle only where the compiler can establish that it is
+//! LR21.2 permits a cycle only where the compiler can establish that it is
 //! safe, so a case this cannot order is one it rejects.
 
 use std::collections::BTreeMap;
@@ -139,7 +139,7 @@ impl Walk<'_> {
 
         self.diagnostics.push(diagnostic.note(
             "Modules in a cycle are ordered by what their top-level code reads. \
-             Reading it inside a function instead leaves the cycle orderable (§21.2, §78).",
+             Reading it inside a function instead leaves the cycle orderable (LR21.2, LR78).",
         ));
     }
 

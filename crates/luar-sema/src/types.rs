@@ -1,5 +1,5 @@
 //! Types: what the spellings mean, and whether a written type names anything
-//! (§4.3, §6, §54).
+//! (LR4.3, LR6, LR54).
 //!
 //! A type annotation is checked here the way a name is checked in value
 //! position: every path in it must name a primitive, a collection the
@@ -17,10 +17,10 @@ use luar_diagnostics::{Diagnostic, Span, codes};
 use crate::modules::{Graph, ModuleId};
 use crate::names::{Names, Origin};
 
-/// A primitive type (§6).
+/// A primitive type (LR6).
 ///
 /// `int`, `uint`, and `float` are spellings of `i64`, `u64`, and `f64`
-/// (§4.3, §4.4): the same type under two names, on every target. `isize` and
+/// (LR4.3, LR4.4): the same type under two names, on every target. `isize` and
 /// `usize` are distinct types, and exist for FFI and allocator code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Primitive {
@@ -77,7 +77,7 @@ impl Primitive {
     }
 
     /// How a diagnostic spells it. `int` reads as `int` rather than `i64`,
-    /// because that is the name the spec gives the default (§4.3).
+    /// because that is the name the spec gives the default (LR4.3).
     #[must_use]
     pub fn spelling(self) -> &'static str {
         match self {
@@ -105,16 +105,16 @@ impl Primitive {
     }
 }
 
-/// A generic type the language names without an import (§54.1).
+/// A generic type the language names without an import (LR54.1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Builtin {
-    /// `Result<T, E>`, the type of every fallible signature (§25.1).
+    /// `Result<T, E>`, the type of every fallible signature (LR25.1).
     Result,
-    /// The collections `[...]` and `Map { ... }` build (§13).
+    /// The collections `[...]` and `Map { ... }` build (LR13).
     List,
     Map,
     Set,
-    /// What freezing one returns (§59).
+    /// What freezing one returns (LR59).
     FrozenList,
     FrozenMap,
     FrozenSet,
@@ -159,7 +159,7 @@ struct Checker<'a> {
     module: &'a Names,
     scope: ModuleId,
     /// The type parameters of the declarations being walked, innermost last
-    /// (§19).
+    /// (LR19).
     parameters: Vec<HashSet<String>>,
     diagnostics: &'a mut Vec<Diagnostic>,
 }
@@ -365,7 +365,7 @@ impl Checker<'_> {
         }
     }
 
-    /// `value is string` writes a type inside a pattern (§57).
+    /// `value is string` writes a type inside a pattern (LR57).
     fn pattern(&mut self, pattern: &luar_ast::Pattern) {
         use luar_ast::{PatternKind, Payload};
 

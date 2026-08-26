@@ -1,6 +1,6 @@
 --- expect: compile-ok
---- spec: §53
---- spec: §54
+--- spec: LR53
+--- spec: LR54
 export function main()
     local value = 1
 

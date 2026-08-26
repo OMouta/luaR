@@ -1,5 +1,5 @@
 --- expect: compile-error
 --- code: LR0117
 --- span: 5:11
---- spec: §4.3
+--- spec: LR4.3
 local x = 18446744073709551616

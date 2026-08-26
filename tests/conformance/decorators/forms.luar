@@ -1,6 +1,6 @@
 --- expect: compile-ok
---- spec: §23
---- spec: §23.2
+--- spec: LR23
+--- spec: LR23.2
 @serializable
 export struct User
     id: u64

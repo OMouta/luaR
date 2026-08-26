@@ -10,7 +10,7 @@ use crate::token::{Token, TokenKind};
 ///
 /// The order is what implements maximal munch: `..=` is found before `..`,
 /// which is found before `.`, so `0..=9` is a range and not a field access on
-/// a concatenation. The table is the whole set, so §11 and §5.4 can be checked
+/// a concatenation. The table is the whole set, so LR11 and LR5.4 can be checked
 /// against it by reading it.
 const OPERATORS: &[(&str, TokenKind)] = &[
     ("//=", TokenKind::SlashSlashEquals),
@@ -80,7 +80,7 @@ const _: () = {
     }
 };
 
-/// Where the lexer is inside an interpolated string (§4.6).
+/// Where the lexer is inside an interpolated string (LR4.6).
 ///
 /// Interpolation nests: an expression in a hole may be another interpolated
 /// string, so this is a stack rather than a flag.
@@ -94,15 +94,15 @@ enum Mode {
     Hole { braces: usize },
 }
 
-/// A comment, and where it was (§3.3, §62).
+/// A comment, and where it was (LR3.3, LR62).
 ///
 /// Comments are kept beside the tokens rather than in them. A parser does not
-/// want to skip them at every step, and a formatter (§64) and the
-/// documentation generator (§62) can find the ones they care about by span.
+/// want to skip them at every step, and a formatter (LR64) and the
+/// documentation generator (LR62) can find the ones they care about by span.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Comment {
     pub span: Span,
-    /// Written `---`, so it documents whatever follows it (§62).
+    /// Written `---`, so it documents whatever follows it (LR62).
     pub doc: bool,
 }
 
@@ -159,7 +159,7 @@ impl<'src> Lexer<'src> {
         }
 
         // A brace closes the hole it opened, and only that one, so an
-        // expression may contain braces of its own (§4.6).
+        // expression may contain braces of its own (LR4.6).
         if let Some(Mode::Hole { braces }) = self.modes.last_mut() {
             match next {
                 '{' => *braces += 1,
@@ -173,7 +173,7 @@ impl<'src> Lexer<'src> {
         }
 
         // Before words, because `b"..."` opens a byte string and `b` alone is
-        // an ordinary name (§4.7).
+        // an ordinary name (LR4.7).
         if rest.starts_with("b\"") {
             return self.quoted(rest, Literal::Bytes);
         }
@@ -238,7 +238,7 @@ impl<'src> Lexer<'src> {
         token
     }
 
-    /// A numeric literal (§4.3, §4.4).
+    /// A numeric literal (LR4.3, LR4.4).
     ///
     /// The literal runs to the end of the word-like text, not to the first
     /// character that cannot appear in it, so `0b12` is one bad literal
@@ -254,7 +254,7 @@ impl<'src> Lexer<'src> {
             _ => (10, text),
         };
 
-        // A radix prefix means an integer: §4.4 states no hexadecimal or
+        // A radix prefix means an integer: LR4.4 states no hexadecimal or
         // binary spelling of a floating-point literal, so `0x1.8` is a bad
         // integer rather than a float.
         let read = if radix == 10 && text.contains(['.', 'e', 'E']) {
@@ -291,7 +291,7 @@ impl<'src> Lexer<'src> {
         token
     }
 
-    /// A `"..."`, `b"..."`, or `'...'` literal (§4.5, §4.7, §6.1).
+    /// A `"..."`, `b"..."`, or `'...'` literal (LR4.5, LR4.7, LR6.1).
     ///
     /// The literal ends at its closing quote, at the end of the line, or at
     /// the end of the file. A newline ends it because a string that reaches
@@ -332,7 +332,7 @@ impl<'src> Lexer<'src> {
                 }
                 _ => {
                     // Outside ASCII, take the whole character: a `char`
-                    // literal holds one scalar (§6.1), not one byte, and the
+                    // literal holds one scalar (LR6.1), not one byte, and the
                     // scan has to land on a boundary either way.
                     let c = rest[open + at..]
                         .chars()
@@ -358,7 +358,7 @@ impl<'src> Lexer<'src> {
                         token.span,
                         "a character literal holds exactly one character",
                     )
-                    .note("Text goes in double quotes; single quotes are for `char` (§6.1)."),
+                    .note("Text goes in double quotes; single quotes are for `char` (LR6.1)."),
                 );
             }
         } else {
@@ -417,14 +417,14 @@ impl<'src> Lexer<'src> {
                 span(escape.len),
                 "this byte is not valid UTF-8 on its own",
             )
-            .note(r#"Write the character as `\u{...}`, or use a byte string `b"..."` (§4.7)."#),
+            .note(r#"Write the character as `\u{...}`, or use a byte string `b"..."` (LR4.7)."#),
         };
 
         self.diagnostics.push(message);
         escape
     }
 
-    /// One part of an interpolated string (§4.6): the closing backtick, the
+    /// One part of an interpolated string (LR4.6): the closing backtick, the
     /// start of a hole, or a run of literal text.
     ///
     /// Like a quoted string, the literal ends at the end of the line, so a
@@ -487,7 +487,7 @@ impl<'src> Lexer<'src> {
         }
     }
 
-    /// A long string, `[[...]]` or `[==[...]==]` (§4.5).
+    /// A long string, `[[...]]` or `[==[...]==]` (LR4.5).
     ///
     /// Escapes are not processed inside one, so the only thing to find is the
     /// closing bracket at the same level.
@@ -513,7 +513,7 @@ impl<'src> Lexer<'src> {
         token
     }
 
-    /// Consumes whitespace and comments, recording each comment (§3.3, §62).
+    /// Consumes whitespace and comments, recording each comment (LR3.3, LR62).
     fn skip_trivia(&mut self) {
         loop {
             self.skip_whitespace();
@@ -526,7 +526,7 @@ impl<'src> Lexer<'src> {
             let start = self.offset;
             let (len, doc) = match long_bracket(&rest[2..]) {
                 Some((open, level)) => (self.block_comment(rest, 2 + open, level), false),
-                // §62: `---` documents what follows, but a row of dashes is a
+                // LR62: `---` documents what follows, but a row of dashes is a
                 // divider and documents nothing.
                 None => (
                     rest.find('\n').unwrap_or(rest.len()),
@@ -542,7 +542,7 @@ impl<'src> Lexer<'src> {
         }
     }
 
-    /// How far a block comment reaches, from its opening `--[[` (§3.3).
+    /// How far a block comment reaches, from its opening `--[[` (LR3.3).
     ///
     /// Block comments nest, so this counts openings of the same level rather
     /// than stopping at the first `]]`.
@@ -600,11 +600,11 @@ impl<'src> Lexer<'src> {
 /// Which quoted literal is being read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Literal {
-    /// `"..."` (§4.5).
+    /// `"..."` (LR4.5).
     Text,
-    /// `b"..."` (§4.7).
+    /// `b"..."` (LR4.7).
     Bytes,
-    /// `'...'` (§6.1).
+    /// `'...'` (LR6.1).
     Char,
 }
 
@@ -636,7 +636,7 @@ impl Literal {
 /// The opening of a long bracket, as `(length, level)`.
 ///
 /// `[[` is level 0, `[=[` is level 1, and so on, so that a string can contain
-/// any bracket sequence shorter than its own (§4.5).
+/// any bracket sequence shorter than its own (LR4.5).
 pub(crate) fn long_bracket(rest: &str) -> Option<(usize, usize)> {
     let after = rest.strip_prefix('[')?;
     let level = after.len() - after.trim_start_matches('=').len();
@@ -655,7 +655,7 @@ enum NumberError {
 ///
 /// Digits, letters, and separators run together, so `0xff` and `1e10` are one
 /// literal each. A `.` extends it only when a digit follows, which is what
-/// keeps `0..<10` from lexing as a float (§10.4, §89.1), and `0.length` from
+/// keeps `0..<10` from lexing as a float (LR10.4, LR89.1), and `0.length` from
 /// swallowing the field. An exponent's sign extends it too, since `+` and `-`
 /// are otherwise operators.
 fn number_len(rest: &str) -> usize {
@@ -683,13 +683,13 @@ fn number_len(rest: &str) -> usize {
     len
 }
 
-/// The value of a floating-point literal (§4.4), ignoring `_` separators.
+/// The value of a floating-point literal (LR4.4), ignoring `_` separators.
 fn read_float(text: &str) -> Result<f64, NumberError> {
     let digits: String = text.chars().filter(|&c| c != '_').collect();
     digits.parse().map_err(|_| NumberError::Malformed)
 }
 
-/// The value of `digits` in `radix`, ignoring `_` separators (§4.3).
+/// The value of `digits` in `radix`, ignoring `_` separators (LR4.3).
 fn read_digits(digits: &str, radix: u32) -> Result<u64, NumberError> {
     let mut value: u64 = 0;
     let mut seen = false;
@@ -713,12 +713,12 @@ fn read_digits(digits: &str, radix: u32) -> Result<u64, NumberError> {
     }
 }
 
-/// §3.1: a name starts with a letter or an underscore.
+/// LR3.1: a name starts with a letter or an underscore.
 fn starts_word(c: char) -> bool {
     c.is_alphabetic() || c == '_'
 }
 
-/// §3.1: and continues with letters, digits, and underscores.
+/// LR3.1: and continues with letters, digits, and underscores.
 fn continues_word(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
 }
@@ -728,7 +728,7 @@ fn continues_word(c: char) -> bool {
 pub struct Lexed {
     /// Every token, ending with [`TokenKind::Eof`].
     pub tokens: Vec<Token>,
-    /// Every comment, in the order they appear (§3.3, §62).
+    /// Every comment, in the order they appear (LR3.3, LR62).
     pub comments: Vec<Comment>,
     /// The rules the text broke. Errors here reject the program even though
     /// the tokens are still usable.
@@ -787,7 +787,7 @@ mod tests {
         }
     }
 
-    /// §10.4, §89.1: `..`, `..<`, and `..=` are three distinct tokens, and the
+    /// LR10.4, LR89.1: `..`, `..<`, and `..=` are three distinct tokens, and the
     /// variadic marker is a fourth.
     #[test]
     fn range_and_concatenation_tokens_stay_distinct() {
@@ -801,7 +801,7 @@ mod tests {
         assert_eq!(kinds("...."), [DotDotDot, Dot, Eof]);
     }
 
-    /// §11.1, §5.4: the longer spelling wins, including where the longer one
+    /// LR11.1, LR5.4: the longer spelling wins, including where the longer one
     /// is a compound assignment ending in `=`.
     #[test]
     fn longer_operators_win_over_their_prefixes() {
@@ -814,7 +814,7 @@ mod tests {
         assert_eq!(kinds("* ** >> >>="), [Star, StarStar, Shr, ShrEquals, Eof]);
     }
 
-    /// §8, §25.2: `?` alone propagates an error, and the optional operators
+    /// LR8, LR25.2: `?` alone propagates an error, and the optional operators
     /// are their own tokens rather than `?` followed by something.
     #[test]
     fn optional_operators_are_single_tokens() {
@@ -833,7 +833,7 @@ mod tests {
         assert_eq!(spans, [(0, 1), (2, 4), (5, 6), (6, 6)]);
     }
 
-    /// §3.1: a word runs to its end, so a keyword spelled as a prefix of a
+    /// LR3.1: a word runs to its end, so a keyword spelled as a prefix of a
     /// longer name does not split it.
     #[test]
     fn words_are_lexed_whole() {
@@ -846,7 +846,7 @@ mod tests {
         );
     }
 
-    /// §4.3: every integer form, and `_` separators are ignored.
+    /// LR4.3: every integer form, and `_` separators are ignored.
     #[test]
     fn integer_literals_carry_their_value() {
         use TokenKind::{Eof, Integer};
@@ -862,10 +862,10 @@ mod tests {
         assert_eq!(kinds("0xDEAD_beef"), [Integer(0xDEAD_BEEF), Eof]);
     }
 
-    /// §4.4: a fraction, an exponent, or both.
+    /// LR4.4: a fraction, an exponent, or both.
     #[allow(
         clippy::approx_constant,
-        reason = "3.14159 is the literal §4.4 gives as an example"
+        reason = "3.14159 is the literal LR4.4 gives as an example"
     )]
     #[test]
     fn float_literals_carry_their_value() {
@@ -878,7 +878,7 @@ mod tests {
         );
     }
 
-    /// §10.4: a range is not a float, so the bound ends at the dots.
+    /// LR10.4: a range is not a float, so the bound ends at the dots.
     #[test]
     fn a_range_bound_is_not_part_of_the_number() {
         use TokenKind::{DotDotEquals, DotDotLt, Eof, Integer};
@@ -890,7 +890,7 @@ mod tests {
         );
     }
 
-    /// §89.1: `0.` is a float only when a digit follows, which is what leaves
+    /// LR89.1: `0.` is a float only when a digit follows, which is what leaves
     /// a method call on a number readable.
     #[test]
     fn a_dot_without_a_digit_is_not_part_of_the_number() {
@@ -899,7 +899,7 @@ mod tests {
         assert_eq!(kinds("0.reversed"), [Integer(0), Dot, Ident, Eof]);
     }
 
-    /// §4.3: a literal that is not one of the stated forms is rejected as one
+    /// LR4.3: a literal that is not one of the stated forms is rejected as one
     /// literal, rather than split into a number and a name.
     #[test]
     fn a_malformed_number_is_one_rejected_literal() {
@@ -911,7 +911,7 @@ mod tests {
         assert_eq!(lexed.diagnostics[0].primary, Span::new(FILE, 0, 4));
     }
 
-    /// §4.5, §4.7, §6.1: the three quoted forms, and what closes each.
+    /// LR4.5, LR4.7, LR6.1: the three quoted forms, and what closes each.
     #[test]
     fn quoted_literals_end_at_their_own_delimiter() {
         use TokenKind::{ByteString, Char, Eof, String};
@@ -924,7 +924,7 @@ mod tests {
         assert_eq!(lex(r#""with \"quotes\" in it""#, FILE).tokens.len(), 2);
     }
 
-    /// §4.5: escapes are checked where they are written, and a `\x` past 0x7F
+    /// LR4.5: escapes are checked where they are written, and a `\x` past 0x7F
     /// needs a byte string, since a string is UTF-8.
     #[test]
     fn escapes_are_checked() {
@@ -943,7 +943,7 @@ mod tests {
         assert_eq!(lex(r#"b"\xff""#, FILE).diagnostics, []);
     }
 
-    /// §4.5: a long string spans lines and takes no escapes, and closes only
+    /// LR4.5: a long string spans lines and takes no escapes, and closes only
     /// at its own level.
     #[test]
     fn long_strings_close_at_their_own_level() {
@@ -954,7 +954,7 @@ mod tests {
         assert_eq!(lex(r"[[\n]]", FILE).diagnostics, []);
     }
 
-    /// §4.5: a literal that never closes is reported where it starts, not
+    /// LR4.5: a literal that never closes is reported where it starts, not
     /// wherever the next quote happens to be.
     #[test]
     fn an_unclosed_literal_stops_at_the_line() {
@@ -969,7 +969,7 @@ mod tests {
         );
     }
 
-    /// §6.1: single quotes hold one scalar, not a string.
+    /// LR6.1: single quotes hold one scalar, not a string.
     #[test]
     fn a_character_literal_holds_one_scalar() {
         assert_eq!(kinds("'é'"), [TokenKind::Char('é'), TokenKind::Eof]);
@@ -984,7 +984,7 @@ mod tests {
         assert_eq!(empty.diagnostics[0].code, codes::MALFORMED_CHAR);
     }
 
-    /// §4.6: an interpolated string becomes its parts, and the expression in
+    /// LR4.6: an interpolated string becomes its parts, and the expression in
     /// a hole is lexed as an ordinary expression.
     #[test]
     fn an_interpolated_string_lexes_into_parts() {
@@ -1022,7 +1022,7 @@ mod tests {
         );
     }
 
-    /// §4.6: a hole holds an expression, so braces inside it are the
+    /// LR4.6: a hole holds an expression, so braces inside it are the
     /// expression's own, and one interpolated string may contain another.
     #[test]
     fn holes_nest() {
@@ -1061,7 +1061,7 @@ mod tests {
         );
     }
 
-    /// §4.6: the text takes the escapes §4.5 defines, and an unclosed literal
+    /// LR4.6: the text takes the escapes LR4.5 defines, and an unclosed literal
     /// is reported from its opening backtick.
     #[test]
     fn interpolated_text_is_checked_like_a_string() {
@@ -1071,7 +1071,7 @@ mod tests {
         assert_eq!(bad.diagnostics.len(), 1);
         assert_eq!(bad.diagnostics[0].code, codes::INVALID_ESCAPE);
 
-        // §4.5: the delimiters escape, so text can hold a backtick or a brace
+        // LR4.5: the delimiters escape, so text can hold a backtick or a brace
         // without ending the literal or opening a hole.
         let delimiters = lex(r"`a \` b \{ c`", FILE);
         assert_eq!(delimiters.diagnostics, []);
@@ -1095,8 +1095,8 @@ mod tests {
         );
     }
 
-    /// §3.3: comments are trivia, so they do not reach the token stream, and
-    /// §62: `---` documents what follows while a divider does not.
+    /// LR3.3: comments are trivia, so they do not reach the token stream, and
+    /// LR62: `---` documents what follows while a divider does not.
     #[test]
     fn comments_are_kept_beside_the_tokens() {
         use TokenKind::{Eof, Ident};
@@ -1116,7 +1116,7 @@ mod tests {
         );
     }
 
-    /// §3.3: block comments nest, so an inner one does not end the outer.
+    /// LR3.3: block comments nest, so an inner one does not end the outer.
     #[test]
     fn block_comments_nest() {
         use TokenKind::{Eof, Ident};

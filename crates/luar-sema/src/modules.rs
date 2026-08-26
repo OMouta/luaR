@@ -1,4 +1,4 @@
-//! The module graph, and where an import points (§21.1).
+//! The module graph, and where an import points (LR21.1).
 //!
 //! An import path is one of three things: a path relative to the importing
 //! file, a standard library module, or a module in a package. Which one it is
@@ -16,10 +16,10 @@ use std::path::{Path, PathBuf};
 use luar_ast::Module;
 use luar_diagnostics::{FileId, Span};
 
-/// The extension a module file carries (§2).
+/// The extension a module file carries (LR2).
 const EXTENSION: &str = "luar";
 
-/// What an import path names (§21.1).
+/// What an import path names (LR21.1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Specifier<'a> {
     /// `./config`, `../models/user`: a module beside the importing one.
@@ -47,12 +47,12 @@ pub enum Target {
 /// Why an import path names no file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Missing {
-    /// The path is not one of the three forms §21.1 states.
+    /// The path is not one of the three forms LR21.1 states.
     Malformed,
     /// A standard library module, and there is no standard library to read
     /// it from yet.
     StandardLibrary,
-    /// A package module, and packages are not resolved yet (§22).
+    /// A package module, and packages are not resolved yet (LR22).
     Package,
 }
 
@@ -101,7 +101,7 @@ pub fn resolve(path: &str, importer: &Path) -> Target {
 /// Resolves `.` and `..` in `path` without touching the filesystem.
 ///
 /// Two spellings of one module must reach the same file, since a module is
-/// initialized once (§21.2) and the graph keys modules by path. That includes
+/// initialized once (LR21.2) and the graph keys modules by path. That includes
 /// the root, which is spelled by whoever started the compilation and may well
 /// be reached again by an import. Doing it lexically keeps a path in a
 /// diagnostic looking like what the user wrote, which `fs::canonicalize` does
@@ -136,7 +136,7 @@ pub struct ModuleId(u32);
 pub struct Node {
     pub file: FileId,
     /// The file it was read from, resolved. Two imports naming this module
-    /// spell it the same way, so the graph holds it once (§21.2).
+    /// spell it the same way, so the graph holds it once (LR21.2).
     pub path: PathBuf,
     pub ast: Module,
     /// One edge per import, in the order written.
@@ -153,7 +153,7 @@ pub struct Edge {
     pub span: Span,
 }
 
-/// Every module one compilation reaches, and the imports between them (§21.1).
+/// Every module one compilation reaches, and the imports between them (LR21.1).
 ///
 /// The root is the first module inserted, so a graph is never empty in
 /// practice and the order of the rest is the order they were discovered in.
@@ -170,7 +170,7 @@ impl Graph {
     ///
     /// Panics if a module was already added for `path`. Callers ask
     /// [`Graph::find`] first, because reading one file twice would give a
-    /// module two initializations (§21.2).
+    /// module two initializations (LR21.2).
     pub fn insert(&mut self, file: FileId, path: PathBuf, ast: Module) -> ModuleId {
         let id = ModuleId(u32::try_from(self.nodes.len()).expect("module count fits in u32"));
         assert!(

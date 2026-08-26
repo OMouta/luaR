@@ -1,6 +1,6 @@
 //! Parser: tokens in, `luar_ast` out.
 //!
-//! Expressions are parsed by precedence climbing over the table §11.7 states,
+//! Expressions are parsed by precedence climbing over the table LR11.7 states,
 //! so that the table and the code can be read against each other. Everything
 //! else is recursive descent.
 //!
@@ -40,7 +40,7 @@ pub fn expression(source: &str, file: FileId) -> Parsed<Expr> {
     }
 }
 
-/// Parses one module: a whole source file (§2).
+/// Parses one module: a whole source file (LR2).
 #[must_use]
 pub fn module(source: &str, file: FileId) -> Parsed<Module> {
     let mut cursor = Cursor::new(source, file);

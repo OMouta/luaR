@@ -1,4 +1,4 @@
-//! Checks the type grammar of §89 and the readings §89.1 settles.
+//! Checks the type grammar of LR89 and the readings LR89.1 settles.
 
 use luar_diagnostics::FileId;
 
@@ -85,7 +85,7 @@ fn joined(types: &[luar_ast::Type], separator: &str) -> String {
     types.iter().map(render).collect::<Vec<_>>().join(separator)
 }
 
-/// §17.2, §17.3, §8: unions of intersections of optionals, loosest first.
+/// LR17.2, LR17.3, LR8: unions of intersections of optionals, loosest first.
 #[test]
 fn unions_are_looser_than_intersections_and_optionals() {
     assert_eq!(shape("string | u64"), "(string | u64)");
@@ -95,7 +95,7 @@ fn unions_are_looser_than_intersections_and_optionals() {
     assert_eq!(shape("string?"), "string?");
 }
 
-/// §19, §21.1: type arguments, and names qualified by module.
+/// LR19, LR21.1: type arguments, and names qualified by module.
 #[test]
 fn paths_carry_type_arguments() {
     assert_eq!(shape("Map<string, int>"), "Map<string, int>");
@@ -111,7 +111,7 @@ fn nested_type_arguments_close_on_a_shift_token() {
     assert_eq!(shape("List<List<List<int>>>"), "List<List<List<int>>>");
 }
 
-/// §14, §89.1: a parenthesized type list is a tuple unless `->` follows.
+/// LR14, LR89.1: a parenthesized type list is a tuple unless `->` follows.
 #[test]
 fn a_parenthesized_list_is_a_tuple_unless_an_arrow_follows() {
     assert_eq!(shape("(int, string)"), "(int, string)");
@@ -125,7 +125,7 @@ fn a_parenthesized_list_is_a_tuple_unless_an_arrow_follows() {
     assert_eq!(shape("(int)"), "int");
 }
 
-/// §71, §72, §12.1: arrays, pointers, and structural records.
+/// LR71, LR72, LR12.1: arrays, pointers, and structural records.
 #[test]
 fn arrays_pointers_and_records() {
     assert_eq!(shape("[u8; 4]"), "[u8; Integer(4)]");

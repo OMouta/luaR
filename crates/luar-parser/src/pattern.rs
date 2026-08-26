@@ -1,4 +1,4 @@
-//! Patterns (§16.2).
+//! Patterns (LR16.2).
 
 use luar_ast::{Expr, ExprKind, FieldPattern, Pattern, PatternKind, Payload, UnaryOp};
 use luar_diagnostics::codes;
@@ -8,7 +8,7 @@ use crate::cursor::Cursor;
 use crate::expr;
 use crate::ty;
 
-/// `A | B`, whose alternatives must bind the same names (§16.2).
+/// `A | B`, whose alternatives must bind the same names (LR16.2).
 pub(crate) fn pattern(cursor: &mut Cursor) -> Pattern {
     let first = typed(cursor);
 
@@ -27,7 +27,7 @@ pub(crate) fn pattern(cursor: &mut Cursor) -> Pattern {
     Pattern::new(PatternKind::Or(alternatives), span)
 }
 
-/// `p is T`, matching a member of a union (§16.2, §57).
+/// `p is T`, matching a member of a union (LR16.2, LR57).
 fn typed(cursor: &mut Cursor) -> Pattern {
     let inner = primary(cursor);
 
@@ -59,7 +59,7 @@ fn primary(cursor: &mut Cursor) -> Pattern {
                 .error(codes::EXPECTED_PATTERN, start, "expected a pattern here")
                 .note(
                     "A pattern is `_`, a name, a literal, a range, a path with a payload, a \
-                     sequence, or a tuple (§16.2).",
+                     sequence, or a tuple (LR16.2).",
                 );
             Pattern::new(PatternKind::Error, start)
         }
@@ -86,7 +86,7 @@ fn name_or_path(cursor: &mut Cursor) -> Pattern {
     let span = start.to(cursor.previous_span());
 
     // A bare name binds whatever is matched. `_` is the one that binds
-    // nothing, and a path or a payload names something instead (§16.2).
+    // nothing, and a path or a payload names something instead (LR16.2).
     if payload.is_none() && segments.len() == 1 {
         let name = segments.pop().expect("one segment");
         let kind = if name == "_" {
@@ -100,7 +100,7 @@ fn name_or_path(cursor: &mut Cursor) -> Pattern {
     Pattern::new(PatternKind::Path { segments, payload }, span)
 }
 
-/// `Message.Write(text)` (§16.2).
+/// `Message.Write(text)` (LR16.2).
 fn tuple_payload(cursor: &mut Cursor) -> Payload {
     let opened = cursor.span();
     cursor.advance();
@@ -117,7 +117,7 @@ fn tuple_payload(cursor: &mut Cursor) -> Payload {
     Payload::Tuple(members)
 }
 
-/// `User { id = 0, name as displayName, ... }` (§16.2).
+/// `User { id = 0, name as displayName, ... }` (LR16.2).
 fn record_payload(cursor: &mut Cursor) -> Payload {
     let opened = cursor.span();
     cursor.advance();
@@ -135,7 +135,7 @@ fn record_payload(cursor: &mut Cursor) -> Payload {
         let start = cursor.span();
         let (field, _) = cursor.name();
         let bound_as = cursor.eat_keyword(Keyword::As).then(|| cursor.name().0);
-        // §89.1: `=` binds a value, here the pattern the field must match.
+        // LR89.1: `=` binds a value, here the pattern the field must match.
         let field_pattern = cursor.eat(TokenKind::Equals).then(|| pattern(cursor));
 
         fields.push(FieldPattern {
@@ -154,7 +154,7 @@ fn record_payload(cursor: &mut Cursor) -> Payload {
     Payload::Record { fields, rest }
 }
 
-/// `[first, ...middle, last]`, with at most one rest pattern (§16.2).
+/// `[first, ...middle, last]`, with at most one rest pattern (LR16.2).
 fn sequence(cursor: &mut Cursor) -> Pattern {
     let opened = cursor.span();
     cursor.advance();
@@ -176,7 +176,7 @@ fn sequence(cursor: &mut Cursor) -> Pattern {
                         here,
                         "a sequence pattern has at most one rest pattern",
                     )
-                    .note("With two, there is no telling which elements each one takes (§16.2).");
+                    .note("With two, there is no telling which elements each one takes (LR16.2).");
             } else {
                 rest = Some(bound);
             }
@@ -204,7 +204,7 @@ fn sequence(cursor: &mut Cursor) -> Pattern {
     )
 }
 
-/// `(a, b)` (§16.2, §14).
+/// `(a, b)` (LR16.2, LR14).
 fn tuple(cursor: &mut Cursor) -> Pattern {
     let opened = cursor.span();
     cursor.advance();
@@ -222,7 +222,7 @@ fn tuple(cursor: &mut Cursor) -> Pattern {
     let end = cursor.span();
     cursor.close(TokenKind::RightParen, opened, ")");
 
-    // One pattern in parentheses is that pattern, as in a type (§89).
+    // One pattern in parentheses is that pattern, as in a type (LR89).
     if members.len() == 1 && !comma {
         let mut single = members.pop().expect("one member");
         single.span = opened.to(end);
@@ -232,7 +232,7 @@ fn tuple(cursor: &mut Cursor) -> Pattern {
     Pattern::new(PatternKind::Tuple(members), opened.to(end))
 }
 
-/// A literal, or a range between two of them (§16.2).
+/// A literal, or a range between two of them (LR16.2).
 fn literal(cursor: &mut Cursor) -> Pattern {
     let start = cursor.span();
     let value = literal_value(cursor);
@@ -260,7 +260,7 @@ fn literal(cursor: &mut Cursor) -> Pattern {
 }
 
 /// One literal, which may be negated: `-1` is the negation of a literal
-/// (§4.3), and patterns match negative numbers.
+/// (LR4.3), and patterns match negative numbers.
 fn literal_value(cursor: &mut Cursor) -> Expr {
     let start = cursor.span();
 
@@ -284,7 +284,7 @@ fn literal_value(cursor: &mut Cursor) -> Expr {
     expr::primary(cursor)
 }
 
-/// Whether a token begins a literal a pattern can match by value (§16.2).
+/// Whether a token begins a literal a pattern can match by value (LR16.2).
 fn starts_literal(kind: TokenKind) -> bool {
     matches!(
         kind,

@@ -1,5 +1,5 @@
 --- expect: compile-ok
---- spec: §18
+--- spec: LR18
 export interface Display
     function display(self): string
 end

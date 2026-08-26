@@ -1,5 +1,5 @@
 --- expect: compile-ok
---- spec: §10.4
+--- spec: LR10.4
 export function main()
     for i in 0..<10 do
         print(i)

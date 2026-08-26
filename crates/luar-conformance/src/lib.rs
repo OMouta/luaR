@@ -5,7 +5,7 @@
 //! no mocked stages, no snapshots, and nothing it asserts about is internal to
 //! the compiler.
 //!
-//! A directory named `support` holds modules that tests import (§21.1). They
+//! A directory named `support` holds modules that tests import (LR21.1). They
 //! are read as part of the test that imports them, and are not tests.
 //!
 //! Expectations the compiler cannot answer yet are reported as skipped, never
@@ -166,7 +166,7 @@ fn check(path: &Path, source: String, directives: &Directives) -> Outcome {
 }
 
 /// Names diagnostics by code and position. Message prose is deliberately left
-/// out: it is not normative (§80), so a failure report that quoted it would
+/// out: it is not normative (LR80), so a failure report that quoted it would
 /// invite matching on it.
 fn describe(sources: &SourceMap, errors: &[&Diagnostic]) -> String {
     let listed: Vec<String> = errors

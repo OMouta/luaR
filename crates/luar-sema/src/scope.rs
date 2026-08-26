@@ -1,14 +1,14 @@
-//! Resolving names to what binds them (§54).
+//! Resolving names to what binds them (LR54).
 //!
 //! A name in value position must name something: a local, a parameter, a
 //! pattern binding, a declaration in this module, an import, or one of the
-//! predeclared names (§54.1). One that names nothing is reported here.
+//! predeclared names (LR54.1). One that names nothing is reported here.
 //!
 //! Scopes nest. Blocks, function bodies, loop bodies, and match arms each
 //! open one, and a binding is visible from where it is written to the end of
 //! the scope holding it. That is what makes `local value = 10` inside an `if`
 //! invisible after the `end`, and what lets an inner binding shadow an outer
-//! one (§53).
+//! one (LR53).
 //!
 //! Names in type position are not resolved here. Types are checked in their
 //! own stage, and resolving them twice, in two places, with two different
@@ -26,7 +26,7 @@ use crate::init::Use;
 use crate::modules::{Graph, ModuleId};
 use crate::names::{Names, Origin, bound};
 
-/// The names in scope in every module, with no import (§54.1).
+/// The names in scope in every module, with no import (LR54.1).
 ///
 /// A declaration or an import of the same name shadows one, which is why the
 /// module's own names are searched first.
@@ -43,7 +43,7 @@ pub static PREDECLARED: &[&str] = &[
 ///
 /// Returns what it reported, and every name a module reaches for another
 /// module's while running its own top-level code, which is what decides
-/// whether the modules can be ordered (§78).
+/// whether the modules can be ordered (LR78).
 #[must_use]
 pub fn resolve(graph: &Graph, names: &Names) -> (Vec<Diagnostic>, Vec<Use>) {
     let mut diagnostics = Vec::new();
@@ -68,11 +68,11 @@ struct Resolver<'a> {
     module: &'a Names,
     scope: ModuleId,
     /// Names bound inside the module, innermost last. The first frame holds
-    /// the module's own `local` and `const` bindings (§21.3), which are
+    /// the module's own `local` and `const` bindings (LR21.3), which are
     /// visible from where they are written onward, unlike declarations.
     frames: Vec<HashSet<String>>,
     /// Whether the walk is inside the module's top-level code, which runs
-    /// before `main` (§78). A function body runs later, so it is not.
+    /// before `main` (LR78). A function body runs later, so it is not.
     initializing: bool,
     diagnostics: &'a mut Vec<Diagnostic>,
     uses: &'a mut Vec<Use>,
@@ -83,9 +83,9 @@ enum Found {
     /// A local, a parameter, a pattern binding, or a module-level binding the
     /// walk has already passed.
     Binding,
-    /// A declaration of this module, or a predeclared name (§54.1).
+    /// A declaration of this module, or a predeclared name (LR54.1).
     Declaration,
-    /// A name another module owns, and the module that owns it (§21.1).
+    /// A name another module owns, and the module that owns it (LR21.1).
     Other(ModuleId),
     /// Nothing binds it.
     Nothing,
@@ -117,7 +117,7 @@ impl Resolver<'_> {
             // interface's signatures, and an alias are types.
             Item::Enum(_) | Item::Interface(_) | Item::TypeAlias(_) => {}
             Item::Conditional(conditional) => {
-                // §48 conditions test the target, not anything in scope here.
+                // LR48 conditions test the target, not anything in scope here.
                 for (_, items) in &conditional.branches {
                     for item in items {
                         self.item(item);
@@ -148,7 +148,7 @@ impl Resolver<'_> {
     }
 
     /// A property's accessors take no parameters and read `self`, unlike a
-    /// method, which declares it (§43, §65).
+    /// method, which declares it (LR43, LR65).
     fn property(&mut self, property: &Property) {
         let outer = std::mem::replace(&mut self.initializing, false);
 
@@ -172,7 +172,7 @@ impl Resolver<'_> {
         let Some(body) = &function.body else { return };
 
         // A declared body runs when it is called, which is after every
-        // module has initialized (§78). A closure written inside top-level
+        // module has initialized (LR78). A closure written inside top-level
         // code is left alone: it may run during initialization, and reading
         // it as if it does is what keeps the ordering sound.
         let outer = std::mem::replace(&mut self.initializing, false);
@@ -184,9 +184,9 @@ impl Resolver<'_> {
     }
 
     /// Parameters, in order. A default may use the parameters before it and
-    /// nothing after, which is the order they are written in (§9.4).
+    /// nothing after, which is the order they are written in (LR9.4).
     ///
-    /// One name may not be a parameter twice (§53). A `local` in the body
+    /// One name may not be a parameter twice (LR53). A `local` in the body
     /// shadowing a parameter is a different thing, and allowed, because the
     /// body opens a scope of its own.
     fn params(&mut self, params: &[Param]) {
@@ -205,7 +205,7 @@ impl Resolver<'_> {
                             param.span,
                             format!("`{name}` is already a parameter of this function"),
                         )
-                        .note("A binding in an inner scope may shadow one, but a parameter list names each parameter once (§53)."),
+                        .note("A binding in an inner scope may shadow one, but a parameter list names each parameter once (LR53)."),
                     );
                 }
                 self.bind(&name);
@@ -224,7 +224,7 @@ impl Resolver<'_> {
     fn stmt(&mut self, stmt: &Stmt) {
         match &stmt.kind {
             // The value is read where the binding is not yet in scope, so
-            // `local x = x` reads the outer `x` (§54).
+            // `local x = x` reads the outer `x` (LR54).
             StmtKind::Local { binding, value, .. } => {
                 if let Some(value) = value {
                     self.expr(value);
@@ -258,7 +258,7 @@ impl Resolver<'_> {
                 self.block(body);
             }
             // `until` reads the body's bindings, so it is inside the body's
-            // scope rather than after it (§10.3).
+            // scope rather than after it (LR10.3).
             StmtKind::Repeat { body, until, .. } => {
                 self.push();
                 for stmt in &body.stmts {
@@ -318,9 +318,9 @@ impl Resolver<'_> {
         }
     }
 
-    /// What an assignment writes to (§5.4).
+    /// What an assignment writes to (LR5.4).
     ///
-    /// Assigning to a name declares nothing: §52 forbids creating a variable
+    /// Assigning to a name declares nothing: LR52 forbids creating a variable
     /// by writing to it, so a name that is not already in scope is that rule
     /// rather than an unknown name. Everything else is an ordinary read of
     /// the thing being written into.
@@ -336,7 +336,7 @@ impl Resolver<'_> {
                                 "`{name}` is not declared, and assigning to it declares nothing"
                             ),
                         )
-                        .note("Module-level state is declared with `local` or `const` (§52)."),
+                        .note("Module-level state is declared with `local` or `const` (LR52)."),
                     );
                 }
             }
@@ -394,7 +394,7 @@ impl Resolver<'_> {
                 }
             }
             // The path names the type being built, which is resolved with the
-            // types (§12.2).
+            // types (LR12.2).
             ExprKind::Record { fields, .. } => {
                 for field in fields {
                     self.expr(&field.value);
@@ -446,7 +446,7 @@ impl Resolver<'_> {
     }
 
     /// Binds what a pattern binds, and reads the literals it matches against
-    /// (§16.2).
+    /// (LR16.2).
     ///
     /// A path names an enum variant, a struct, or a record type, and is
     /// resolved with the types.
@@ -496,7 +496,7 @@ impl Resolver<'_> {
         }
     }
 
-    /// Binds what a binding binds (§5.3).
+    /// Binds what a binding binds (LR5.3).
     fn binding(&mut self, binding: &Binding) {
         for name in bound(binding) {
             self.bind(&name);
@@ -530,7 +530,7 @@ impl Resolver<'_> {
     }
 
     /// Reads `name`, recording it where it reaches another module while this
-    /// one is initializing (§78).
+    /// one is initializing (LR78).
     fn read(&mut self, name: &str, span: Span) {
         match self.find(name) {
             Found::Binding | Found::Declaration => {}

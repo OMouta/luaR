@@ -1,5 +1,5 @@
 --- expect: compile-error
 --- code: LR0115
 --- span: 5:7
---- spec: §81
+--- spec: LR81
 local impl = 1

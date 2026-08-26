@@ -1,4 +1,4 @@
-//! Checks statements and control flow against §5 and §10.
+//! Checks statements and control flow against LR5 and LR10.
 
 use luar_ast::{Binding, Block, StmtKind};
 use luar_diagnostics::FileId;
@@ -37,7 +37,7 @@ fn only(source: &str) -> StmtKind {
     block.stmts.pop().expect("one statement").kind
 }
 
-/// §5.1, §5.2: a local may state a type, a value, or both, and a `const`
+/// LR5.1, LR5.2: a local may state a type, a value, or both, and a `const`
 /// always has a value.
 #[test]
 fn bindings_take_a_type_a_value_or_both() {
@@ -67,13 +67,13 @@ fn bindings_take_a_type_a_value_or_both() {
     ));
     assert!(matches!(only("const port = 8080"), StmtKind::Const { .. }));
 
-    // §5.1: with nothing to infer from, the type has to be written.
+    // LR5.1: with nothing to infer from, the type has to be written.
     assert_eq!(codes("local socket"), ["LR0126"]);
-    // §5.2: an immutable binding cannot be given a value later.
+    // LR5.2: an immutable binding cannot be given a value later.
     assert_eq!(codes("const port"), ["LR0123"]);
 }
 
-/// §5.3: records and tuples destructure, and `as` renames.
+/// LR5.3: records and tuples destructure, and `as` renames.
 #[test]
 fn records_and_tuples_destructure() {
     let StmtKind::Local { binding, .. } = only("local { name, age as years } = user") else {
@@ -92,11 +92,11 @@ fn records_and_tuples_destructure() {
     };
     assert!(matches!(binding, Binding::Tuple(members) if members.len() == 2));
 
-    // §5.3: a list has a runtime length, so matching one belongs in `match`.
+    // LR5.3: a list has a runtime length, so matching one belongs in `match`.
     assert_eq!(codes("local [a, b] = values").first().unwrap(), "LR0123");
 }
 
-/// §5.4: every compound assignment, and plain assignment.
+/// LR5.4: every compound assignment, and plain assignment.
 #[test]
 fn assignment_takes_every_compound_operator() {
     assert!(matches!(
@@ -124,7 +124,7 @@ fn assignment_takes_every_compound_operator() {
     assert_eq!(codes("f() = 1"), ["LR0127"]);
 }
 
-/// §5.4, §10.4: there is no `..=` compound assignment, because `..=` is the
+/// LR5.4, LR10.4: there is no `..=` compound assignment, because `..=` is the
 /// inclusive range, so concatenating in place is written out.
 #[test]
 fn there_is_no_concat_assignment() {
@@ -132,12 +132,12 @@ fn there_is_no_concat_assignment() {
         only("text = text .. suffix"),
         StmtKind::Assign { op: None, .. }
     ));
-    // §89.1: it parses as a range, and a range evaluated for nothing is not
+    // LR89.1: it parses as a range, and a range evaluated for nothing is not
     // a statement, so what is written gets reported rather than ignored.
     assert_eq!(codes("text ..= suffix"), ["LR0128"]);
 }
 
-/// §10.1, §10.2, §10.3, §10.5: the control flow statements.
+/// LR10.1, LR10.2, LR10.3, LR10.5: the control flow statements.
 #[test]
 fn control_flow_statements_parse() {
     assert!(matches!(
@@ -166,7 +166,7 @@ fn control_flow_statements_parse() {
     ));
 }
 
-/// §10.6, §10.7: `break` and `continue`, and the labels that name a loop.
+/// LR10.6, LR10.7: `break` and `continue`, and the labels that name a loop.
 #[test]
 fn loops_may_be_labeled_and_broken_out_of() {
     let block = parse("outer: for row in rows do break outer end");
@@ -188,7 +188,7 @@ fn loops_may_be_labeled_and_broken_out_of() {
     assert!(matches!(only("value:method()"), StmtKind::Expr(_)));
 }
 
-/// §3.4: semicolons separate statements and are optional.
+/// LR3.4: semicolons separate statements and are optional.
 #[test]
 fn semicolons_are_optional() {
     assert_eq!(parse("local a = 1 local b = 2").stmts.len(), 2);
@@ -196,7 +196,7 @@ fn semicolons_are_optional() {
     assert_eq!(parse("local a = 1;;; local b = 2").stmts.len(), 2);
 }
 
-/// §9.7: a return may carry a value, or nothing.
+/// LR9.7: a return may carry a value, or nothing.
 #[test]
 fn return_may_carry_a_value() {
     assert!(matches!(only("return"), StmtKind::Return(None)));
@@ -207,7 +207,7 @@ fn return_may_carry_a_value() {
     ));
 }
 
-/// §10.1: `if` is also an expression, and then every branch produces a value,
+/// LR10.1: `if` is also an expression, and then every branch produces a value,
 /// so it needs no `end` and does need an `else`.
 #[test]
 fn if_is_also_an_expression() {

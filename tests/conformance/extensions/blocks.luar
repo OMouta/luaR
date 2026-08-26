@@ -1,6 +1,6 @@
 --- expect: compile-ok
---- spec: §20
---- spec: §17.1
+--- spec: LR20
+--- spec: LR17.1
 struct Request
     path: string
 end

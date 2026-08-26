@@ -1,5 +1,5 @@
 --- expect: compile-ok
---- spec: §54.1
+--- spec: LR54.1
 export function main()
     assert(1 + 1 == 2)
     debugAssert(true)
