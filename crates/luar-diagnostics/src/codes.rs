@@ -153,6 +153,8 @@ registry! {
         "A named import must name a declaration the module exports.";
     active 138 => NAME_NOT_IN_SCOPE, "§54",
         "A name in value position must be declared, imported, or predeclared.";
+    active 139 => IMPLICIT_GLOBAL, "§52",
+        "Assignment declares nothing; the name must already be in scope.";
 }
 
 #[cfg(test)]

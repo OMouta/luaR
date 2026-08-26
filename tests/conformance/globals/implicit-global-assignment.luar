@@ -1,0 +1,8 @@
+--- expect: compile-error
+--- code: LR0139
+--- span: 6:5
+--- spec: §52
+export function main()
+    count = 10
+    print(count)
+end

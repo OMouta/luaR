@@ -262,13 +262,26 @@ impl Resolver<'_> {
 
     /// What an assignment writes to (§5.4).
     ///
-    /// A bare name is left alone: assigning to one that is not in scope is
-    /// §52's rule about implicit globals, not this one, and reporting it here
-    /// would give it the wrong code. Everything else is an ordinary read of
+    /// Assigning to a name declares nothing: §52 forbids creating a variable
+    /// by writing to it, so a name that is not already in scope is that rule
+    /// rather than an unknown name. Everything else is an ordinary read of
     /// the thing being written into.
     fn assigned(&mut self, target: &Expr) {
         match &target.kind {
-            ExprKind::Name(_) => {}
+            ExprKind::Name(name) => {
+                if !self.in_scope(name) {
+                    self.diagnostics.push(
+                        Diagnostic::error(
+                            codes::IMPLICIT_GLOBAL,
+                            target.span,
+                            format!(
+                                "`{name}` is not declared, and assigning to it declares nothing"
+                            ),
+                        )
+                        .note("Module-level state is declared with `local` or `const` (§52)."),
+                    );
+                }
+            }
             _ => self.expr(target),
         }
     }

@@ -1,0 +1,8 @@
+--- expect: compile-ok
+--- spec: §52
+local count = 0
+
+export function main()
+    count = 10
+    print(count)
+end
