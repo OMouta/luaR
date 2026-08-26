@@ -1,9 +1,9 @@
 //! Declarations, and the module that holds them (§9, §21.3, §44).
 
 use luar_ast::{
-    Block, Decorator, Enum, Extend, Field, Function, Interface, InterfaceMember, Item, Member,
-    Module, Param, Property, Semantics, Setter, Struct, Type, TypeAlias, Variant, VariantPayload,
-    Visibility,
+    Block, Conditional, Decorator, Enum, Extend, Field, Function, Interface, InterfaceMember, Item,
+    Member, Module, Param, Property, Semantics, Setter, Struct, Type, TypeAlias, Variant,
+    VariantPayload, Visibility,
 };
 use luar_diagnostics::{Span, codes};
 use luar_lexer::{Keyword, TokenKind};
@@ -52,6 +52,13 @@ pub(crate) fn module(cursor: &mut Cursor) -> Module {
 /// A declaration, if one starts here.
 fn item(cursor: &mut Cursor) -> Option<Item> {
     let start = cursor.span();
+
+    // §48: conditional compilation selects declarations, so it is read where
+    // one would be.
+    if cursor.at_directive(Keyword::If) {
+        return Some(Item::Conditional(conditional(cursor)));
+    }
+
     let decorators = decorators(cursor);
     let mark = cursor.mark();
     let exported = cursor.eat_keyword(Keyword::Export);
@@ -238,7 +245,7 @@ fn function(cursor: &mut Cursor, start: Span, modifiers: Modifiers, bodied: bool
 }
 
 /// `(a: int, b: int = 0, ...rest: string)` (§9.4, §9.6).
-fn parameters(cursor: &mut Cursor) -> Vec<Param> {
+pub(crate) fn parameters(cursor: &mut Cursor) -> Vec<Param> {
     let opened = cursor.span();
 
     if !cursor.eat(TokenKind::LeftParen) {
@@ -361,11 +368,21 @@ fn member(cursor: &mut Cursor) -> Member {
 fn field(cursor: &mut Cursor, start: Span, visibility: Option<Visibility>) -> Field {
     let name = cursor.name().0;
 
+    // Without the `:` there is no type to read, and reading one anyway would
+    // report the same mistake twice.
     if !cursor.eat(TokenKind::Colon) {
         let here = cursor.span();
         cursor
             .error(codes::EXPECTED_TYPE, here, "expected `:` and a field type")
             .note("A field is written `name: T`; `:` introduces a type (§89.1).");
+
+        return Field {
+            visibility,
+            name,
+            ty: Type::new(luar_ast::TypeKind::Error, here),
+            default: None,
+            span: start.to(cursor.previous_span()),
+        };
     }
 
     let ty = ty::ty(cursor);
@@ -763,4 +780,64 @@ fn decorators(cursor: &mut Cursor) -> Vec<Decorator> {
     }
 
     decorators
+}
+
+/// `#if ... #elseif ... #else ... #end`, around declarations (§48).
+///
+/// The directives are `#` followed by the ordinary keywords, so nothing new
+/// is reserved. §81 keeps `#if` for the compiler, and this is what it is for.
+fn conditional(cursor: &mut Cursor) -> Conditional {
+    let start = cursor.span();
+    cursor.advance();
+    cursor.advance();
+
+    let mut branches = vec![(expr::expression(cursor), items_until_directive(cursor))];
+    let mut otherwise = None;
+
+    loop {
+        if cursor.eat_directive(Keyword::Elseif) {
+            let condition = expr::expression(cursor);
+            branches.push((condition, items_until_directive(cursor)));
+            continue;
+        }
+        if cursor.eat_directive(Keyword::Else) {
+            otherwise = Some(items_until_directive(cursor));
+        }
+        break;
+    }
+
+    if !cursor.eat_directive(Keyword::End) {
+        let here = cursor.span();
+        cursor
+            .error(codes::UNCLOSED_DELIMITER, here, "expected `#end`")
+            .label(start, "this `#if` is still open");
+    }
+
+    Conditional {
+        branches,
+        otherwise,
+        span: start.to(cursor.previous_span()),
+    }
+}
+
+/// Declarations up to the next `#` directive, which the caller consumes.
+fn items_until_directive(cursor: &mut Cursor) -> Vec<Item> {
+    let mut items = Vec::new();
+
+    while !matches!(cursor.kind(), TokenKind::Hash | TokenKind::Eof) {
+        let before = cursor.mark();
+
+        items.push(match item(cursor) {
+            Some(item) => item,
+            None => Item::Stmt(stmt::statement(cursor)),
+        });
+
+        while cursor.eat(TokenKind::Semicolon) {}
+
+        if cursor.stalled(before) {
+            cursor.advance();
+        }
+    }
+
+    items
 }

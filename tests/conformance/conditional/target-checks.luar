@@ -1,0 +1,25 @@
+--- expect: compile-ok
+--- spec: §48
+#if target.os == "windows"
+    export function separator(): string
+        return "\\"
+    end
+#elseif target.os == "macos"
+    export function separator(): string
+        return "/"
+    end
+#else
+    export function separator(): string
+        return "/"
+    end
+#end
+
+export function main()
+    #if target.debug
+        print("debug")
+    #else
+        print("release")
+    #end
+
+    print(separator())
+end

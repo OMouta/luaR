@@ -101,6 +101,14 @@ pub enum ExprKind {
     /// `Map { key = value, [computed] = value }` (§13.2).
     Map(Vec<MapEntry>),
 
+    /// `function(x) ... end`, and `(x) => value` (§9.2, §9.8).
+    Function {
+        asynchronous: bool,
+        params: Vec<crate::decl::Param>,
+        result: Option<Type>,
+        body: Box<FunctionBody>,
+    },
+
     /// `match value ... end`, whose cases are `=> expression` (§16.1).
     Match {
         scrutinee: Box<Expr>,
@@ -203,4 +211,14 @@ pub enum MapKey {
     Name(String),
     /// `[expression] = value`, whose key is computed.
     Computed(Expr),
+}
+
+/// What an anonymous function runs (§9.2).
+///
+/// An arrow closure is one expression, and anything longer takes the ordinary
+/// body, which is the difference the two spellings carry.
+#[derive(Debug, Clone, PartialEq)]
+pub enum FunctionBody {
+    Block(crate::stmt::Block),
+    Expr(Expr),
 }

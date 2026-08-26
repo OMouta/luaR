@@ -141,6 +141,14 @@ fn render(expr: &Expr) -> String {
                 .join(" ")
         ),
         ExprKind::Map(entries) => format!("(map {})", entries.len()),
+        ExprKind::Function { params, body, .. } => format!(
+            "(fn {} {})",
+            params.len(),
+            match body.as_ref() {
+                luar_ast::FunctionBody::Expr(expr) => render(expr),
+                luar_ast::FunctionBody::Block(block) => format!("block {}", block.stmts.len()),
+            }
+        ),
         ExprKind::Error => "(error)".to_owned(),
     }
 }
@@ -328,4 +336,15 @@ fn braces_are_always_a_record_and_map_is_always_a_map() {
     // A path with no braces after it stays field access.
     assert_eq!(shape("shapes.Vec2"), "(shapes .Vec2)");
     assert_eq!(shape("a.b.c"), "((a .b) .c)");
+}
+
+/// §9.2, §14: a parenthesized list is a closure's parameters when `=>`
+/// follows it, and a tuple otherwise.
+#[test]
+fn a_parenthesized_list_is_a_closure_only_before_an_arrow() {
+    assert_eq!(shape("(value: int) => value * 2"), "(fn 1 (value * 2))");
+    assert_eq!(shape("() => 0"), "(fn 0 0)");
+    assert_eq!(shape("(a, b)"), "(tuple a b)");
+    assert_eq!(shape("(1 + 2) * 3"), "((1 + 2) * 3)");
+    assert_eq!(shape("((a, b)) => a"), "(fn 1 a)");
 }

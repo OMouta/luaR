@@ -10,11 +10,13 @@ pub mod stmt;
 pub mod ty;
 
 pub use decl::{
-    Decorator, Enum, Extend, Field, Function, Interface, InterfaceMember, Item, Member, Module,
-    Param, Property, Semantics, Setter, Struct, TypeAlias, Variant, VariantPayload, Visibility,
+    Conditional, Decorator, Enum, Extend, Field, Function, Interface, InterfaceMember, Item,
+    Member, Module, Param, Property, Semantics, Setter, Struct, TypeAlias, Variant, VariantPayload,
+    Visibility,
 };
 pub use expr::{
-    Argument, BinaryOp, Expr, ExprKind, FieldInit, InterpolationPart, MapEntry, MapKey, UnaryOp,
+    Argument, BinaryOp, Expr, ExprKind, FieldInit, FunctionBody, InterpolationPart, MapEntry,
+    MapKey, UnaryOp,
 };
 pub use pattern::{FieldPattern, Pattern, PatternKind, Payload};
 pub use stmt::{ArmBody, Binding, Block, Branch, FieldBinding, MatchArm, Stmt, StmtKind};

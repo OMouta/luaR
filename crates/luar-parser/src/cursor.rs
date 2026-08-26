@@ -135,6 +135,26 @@ impl<'src> Cursor<'src> {
         self.diagnostics.truncate(mark.diagnostics);
     }
 
+    /// Whether a conditional compilation directive starts here (§48).
+    ///
+    /// A directive is `#` and a keyword, written together, so `#if` reserves
+    /// nothing that `#` and `if` did not already spell.
+    pub(crate) fn at_directive(&self, keyword: Keyword) -> bool {
+        self.kind() == TokenKind::Hash
+            && self.peek_kind(1) == TokenKind::Keyword(keyword)
+            && self.adjacent(1)
+    }
+
+    /// Consumes a directive, if this is one.
+    pub(crate) fn eat_directive(&mut self, keyword: Keyword) -> bool {
+        if !self.at_directive(keyword) {
+            return false;
+        }
+        self.advance();
+        self.advance();
+        true
+    }
+
     /// Consumes a name spelled `text`, where the grammar gives a name meaning
     /// in one position without reserving it (§3.2). `get` and `set` in a
     /// property (§43) are the only ones today.

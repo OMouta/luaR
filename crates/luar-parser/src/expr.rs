@@ -1,8 +1,8 @@
 //! Expressions, by precedence climbing over the table in §11.7.
 
 use luar_ast::{
-    Argument, BinaryOp, Expr, ExprKind, FieldInit, InterpolationPart, MapEntry, MapKey, Type,
-    UnaryOp,
+    Argument, BinaryOp, Expr, ExprKind, FieldInit, FunctionBody, InterpolationPart, MapEntry,
+    MapKey, Type, UnaryOp,
 };
 use luar_diagnostics::{Span, codes};
 use luar_lexer::{Keyword, TokenKind};
@@ -115,6 +115,13 @@ fn binary(cursor: &mut Cursor, level: Level) -> Expr {
         let Some(op) = operator(cursor.kind(), level) else {
             return left;
         };
+
+        // The left operand was already reported as missing. Reading an
+        // operator onto it would report its right operand as missing too, and
+        // then the next, turning one mistake into a run of them.
+        if left.kind == ExprKind::Error {
+            return left;
+        }
 
         let op_span = cursor.span();
         cursor.advance();
@@ -526,6 +533,13 @@ pub(crate) fn primary(cursor: &mut Cursor) -> Expr {
         TokenKind::Ident => return path_or_literal(cursor),
         TokenKind::LeftBrace => return record(cursor, Vec::new(), span),
         TokenKind::Keyword(Keyword::If) => return conditional(cursor),
+        TokenKind::Keyword(Keyword::Function) => return anonymous(cursor, false),
+        TokenKind::Keyword(Keyword::Async)
+            if cursor.peek_kind(1) == TokenKind::Keyword(Keyword::Function) =>
+        {
+            cursor.advance();
+            return anonymous(cursor, true);
+        }
         TokenKind::Keyword(Keyword::Match) => return match_expression(cursor),
         TokenKind::InterpolationStart => return interpolation(cursor),
         TokenKind::LeftParen => return parenthesized(cursor),
@@ -543,8 +557,86 @@ pub(crate) fn primary(cursor: &mut Cursor) -> Expr {
     Expr::new(kind, span)
 }
 
+/// `function(x) ... end` (§9.2).
+fn anonymous(cursor: &mut Cursor, asynchronous: bool) -> Expr {
+    let start = cursor.span();
+    cursor.advance();
+
+    let params = crate::decl::parameters(cursor);
+    let result = cursor.eat(TokenKind::Colon).then(|| ty(cursor));
+    let body = crate::stmt::block(cursor);
+
+    if !cursor.eat_keyword(Keyword::End) {
+        let here = cursor.span();
+        cursor
+            .error(codes::UNCLOSED_DELIMITER, here, "expected `end`")
+            .label(start, "this function is still open");
+    }
+
+    Expr::new(
+        ExprKind::Function {
+            asynchronous,
+            params,
+            result,
+            body: Box::new(FunctionBody::Block(body)),
+        },
+        start.to(cursor.previous_span()),
+    )
+}
+
+/// `(value: int) => value * 2` (§9.2).
+fn arrow(cursor: &mut Cursor) -> Expr {
+    let start = cursor.span();
+
+    let params = crate::decl::parameters(cursor);
+    cursor.advance();
+
+    let body = expression(cursor);
+    let span = start.to(body.span);
+
+    Expr::new(
+        ExprKind::Function {
+            asynchronous: false,
+            params,
+            result: None,
+            body: Box::new(FunctionBody::Expr(body)),
+        },
+        span,
+    )
+}
+
+/// Whether the parenthesized list starting here is a closure's parameters.
+///
+/// A parenthesized list is a tuple unless `=>` follows it, which is the shape
+/// the type grammar settles with `->` (§14, §89.1). Which one it is decides
+/// how the contents are read, so the matching `)` is found first and the token
+/// after it answers the question.
+fn opens_a_closure(cursor: &Cursor) -> bool {
+    let mut depth = 0usize;
+    let mut ahead = 0;
+
+    loop {
+        match cursor.peek_kind(ahead) {
+            TokenKind::LeftParen => depth += 1,
+            TokenKind::RightParen => {
+                depth -= 1;
+                if depth == 0 {
+                    return cursor.peek_kind(ahead + 1) == TokenKind::FatArrow;
+                }
+            }
+            TokenKind::Eof => return false,
+            _ => {}
+        }
+        ahead += 1;
+    }
+}
+
 /// `()` is the empty tuple, `(a)` is `a`, and `(a, b)` is a tuple (§14).
 fn parenthesized(cursor: &mut Cursor) -> Expr {
+    if opens_a_closure(cursor) {
+        return arrow(cursor);
+    }
+
     let opened = cursor.span();
     cursor.advance();
 

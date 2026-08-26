@@ -1,0 +1,25 @@
+--- expect: compile-ok
+--- spec: §9.2
+--- spec: §9.8
+export function main()
+    local double = function(value: int): int
+        return value * 2
+    end
+
+    local triple = (value: int) => value * 3
+    local add = (a: int, b: int) => a + b
+    local nothing = () => 0
+
+    local counter = 0
+    local bump = () => counter + 1
+
+    local slow = async function(): int
+        return 1
+    end
+
+    -- A parenthesized list with no arrow after it stays a tuple (§14).
+    local pair = (1, 2)
+    local grouped = (1 + 2) * 3
+
+    print(double(1), triple(2), add(1, 2), nothing(), bump(), slow, pair, grouped)
+end

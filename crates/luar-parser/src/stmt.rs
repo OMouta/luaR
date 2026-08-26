@@ -39,6 +39,15 @@ pub(crate) fn block(cursor: &mut Cursor) -> Block {
 
 /// Whether the current token closes the block rather than opening a statement.
 fn at_block_end(cursor: &Cursor) -> bool {
+    // §48: the directives that close a branch end the run of statements in
+    // it. `#if` opens one, so it is a statement rather than a terminator.
+    if cursor.at_directive(Keyword::Elseif)
+        || cursor.at_directive(Keyword::Else)
+        || cursor.at_directive(Keyword::End)
+    {
+        return true;
+    }
+
     matches!(
         cursor.kind(),
         TokenKind::Eof
@@ -66,6 +75,9 @@ pub(crate) fn statement(cursor: &mut Cursor) -> Stmt {
         TokenKind::Keyword(Keyword::For) => for_loop(cursor, None),
         TokenKind::Keyword(Keyword::Match) => match_statement(cursor),
         TokenKind::Keyword(Keyword::Unsafe) => unsafe_block(cursor),
+        // §48: conditional compilation selects statements here, declarations
+        // where declarations go.
+        TokenKind::Hash if cursor.at_directive(Keyword::If) => conditional_compilation(cursor),
         TokenKind::Keyword(Keyword::Break) => {
             cursor.advance();
             StmtKind::Break(label_argument(cursor))
@@ -545,4 +557,38 @@ fn unsafe_block(cursor: &mut Cursor) -> StmtKind {
     let body = block(cursor);
     close(cursor, opened, "unsafe");
     StmtKind::Unsafe(body)
+}
+
+/// `#if ... #end` around statements (§48).
+fn conditional_compilation(cursor: &mut Cursor) -> StmtKind {
+    let start = cursor.span();
+    cursor.advance();
+    cursor.advance();
+
+    let mut branches = vec![(expr::expression(cursor), block(cursor))];
+    let mut otherwise = None;
+
+    loop {
+        if cursor.eat_directive(Keyword::Elseif) {
+            let condition = expr::expression(cursor);
+            branches.push((condition, block(cursor)));
+            continue;
+        }
+        if cursor.eat_directive(Keyword::Else) {
+            otherwise = Some(block(cursor));
+        }
+        break;
+    }
+
+    if !cursor.eat_directive(Keyword::End) {
+        let here = cursor.span();
+        cursor
+            .error(codes::UNCLOSED_DELIMITER, here, "expected `#end`")
+            .label(start, "this `#if` is still open");
+    }
+
+    StmtKind::Conditional {
+        branches,
+        otherwise,
+    }
 }
