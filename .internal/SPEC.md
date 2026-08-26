@@ -3719,8 +3719,12 @@ pattern         = or_pattern ;
 
 or_pattern      = primary_pattern { "|" primary_pattern } ;
 
-primary_pattern = "_"
-                | identifier [ "as" identifier ]
+primary_pattern = typed_pattern ;
+
+typed_pattern   = base_pattern [ "is" type ] ;   (* §16.2 type pattern *)
+
+base_pattern    = "_"
+                | identifier
                 | literal
                 | range_pattern
                 | path [ "(" pattern_list ")" | record_pattern ]
