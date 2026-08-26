@@ -63,10 +63,11 @@ them.
 | `lute luar lint` | `cargo clippy --workspace --all-targets -- -D warnings` |
 | `lute luar ci` | format, lint, unit tests, conformance |
 
-`check` reaches the syntax tree and stops, because that is where the compiler
-stops. It will reject more programs as name resolution and type checking land,
-so a file that passes today may not later. `run` exits 2, because there is no
-backend.
+`check` runs the frontend: it reads the modules the file imports, resolves
+names, orders module initialization, reads every declaration into a table, and
+checks the types it can work out. It rejects more programs as the rest of type
+checking lands, so a file that passes today may not later. `run` exits 2,
+because there is no backend.
 
 ## Writing a conformance test
 
@@ -123,4 +124,4 @@ to them.
 | `luar-conformance` | The suite runner and the coverage report |
 | `luarc` | The command line |
 
-Everything after `luar-parser` is empty.
+`luar-lir` and `luar-codegen` are empty.
