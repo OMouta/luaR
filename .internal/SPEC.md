@@ -977,6 +977,8 @@ end
 
 Methods use explicit `self`.
 
+A type declares each member once. Fields, properties, and methods share one namespace, and a method written outside the body (LR20) is the same member as one written inside it.
+
 Method-call syntax uses `:`.
 
 ```lua
