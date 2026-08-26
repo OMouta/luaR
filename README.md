@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="./assets/luaRWordmark.svg" width="300" />
+  <img src="./assets/luaRWordmark.svg" width="400" />
 
   <p>
     A compiled evolution of Lua, inspired by Luau and designed for general-purpose programming.
