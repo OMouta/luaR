@@ -119,6 +119,16 @@ fn render(expr: &Expr) -> String {
         ),
         ExprKind::Tuple(items) => format!("(tuple {})", rendered(items)),
         ExprKind::List(items) => format!("(list {})", rendered(items)),
+        ExprKind::If {
+            branches,
+            otherwise,
+        } => {
+            let branches: Vec<String> = branches
+                .iter()
+                .map(|(condition, value)| format!("{} => {}", render(condition), render(value)))
+                .collect();
+            format!("(if {} else {})", branches.join(" "), render(otherwise))
+        }
         ExprKind::Interpolation(_) => "(interpolation)".to_owned(),
         ExprKind::Error => "(error)".to_owned(),
     }

@@ -92,6 +92,14 @@ pub enum ExprKind {
     /// `[a, b]` (§13.1).
     List(Vec<Expr>),
 
+    /// `if c then a else b` (§10.1), which produces a value rather than
+    /// running a block. Every branch has to produce one, so the `else` is
+    /// not optional.
+    If {
+        branches: Vec<(Expr, Expr)>,
+        otherwise: Box<Expr>,
+    },
+
     /// Stands in for an expression that could not be parsed. The diagnostic
     /// has been reported; this keeps the tree shaped so that the rest of the
     /// file is still parsed and checked.

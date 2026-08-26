@@ -129,6 +129,10 @@ registry! {
         "Comparison and range operators do not chain.";
     active 126 => EXPECTED_TYPE, "§89",
         "A type is required here, and what is written is not one.";
+    active 127 => INVALID_ASSIGNMENT_TARGET, "§89",
+        "Assignment writes to a name, a field, or an element, and nothing else.";
+    active 128 => STATEMENT_WITHOUT_EFFECT, "§89.1",
+        "An expression used as a statement must be a call, so that it does something.";
 }
 
 #[cfg(test)]

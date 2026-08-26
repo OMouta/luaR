@@ -111,6 +111,14 @@ impl<'src> Cursor<'src> {
         }
     }
 
+    /// Whether nothing has been consumed since `mark`.
+    ///
+    /// A loop over statements has to know this: a statement that consumed no
+    /// token would be read again forever.
+    pub(crate) fn stalled(&self, mark: Mark) -> bool {
+        self.at == mark.at
+    }
+
     /// Whether anything was reported since `mark`, which is how a
     /// speculative reading knows it did not work out.
     pub(crate) fn reported_since(&self, mark: Mark) -> bool {

@@ -520,6 +520,7 @@ fn primary(cursor: &mut Cursor) -> Expr {
             cursor.advance();
             ExprKind::Name(text)
         }
+        TokenKind::Keyword(Keyword::If) => return conditional(cursor),
         TokenKind::InterpolationStart => return interpolation(cursor),
         TokenKind::LeftParen => return parenthesized(cursor),
         TokenKind::LeftBracket => return list(cursor),
@@ -568,6 +569,63 @@ fn parenthesized(cursor: &mut Cursor) -> Expr {
     let end = cursor.span();
     cursor.close(TokenKind::RightParen, opened, ")");
     Expr::new(ExprKind::Tuple(items), opened.to(end))
+}
+
+/// `if c then a else b` (§10.1).
+///
+/// In expression position `if` produces a value, so it takes expressions
+/// rather than blocks and needs no `end`. The `else` is required: without one
+/// there is nothing for the expression to be when no branch is taken.
+fn conditional(cursor: &mut Cursor) -> Expr {
+    let opened = cursor.span();
+    cursor.advance();
+
+    let mut branches = Vec::new();
+    loop {
+        let condition = expression(cursor);
+
+        if !cursor.eat_keyword(Keyword::Then) {
+            let here = cursor.span();
+            cursor.error(codes::EXPECTED_EXPRESSION, here, "expected `then`");
+        }
+
+        branches.push((condition, expression(cursor)));
+
+        if !cursor.eat_keyword(Keyword::Elseif) {
+            break;
+        }
+    }
+
+    if !cursor.eat_keyword(Keyword::Else) {
+        let here = cursor.span();
+        cursor
+            .error(
+                codes::EXPECTED_EXPRESSION,
+                here,
+                "an `if` used as a value needs an `else`",
+            )
+            .label(opened, "this `if` produces a value")
+            .note("Every branch has to produce one, including the one not written (§10.1).");
+
+        let span = opened.to(here);
+        return Expr::new(
+            ExprKind::If {
+                branches,
+                otherwise: Box::new(Expr::new(ExprKind::Error, here)),
+            },
+            span,
+        );
+    }
+
+    let otherwise = expression(cursor);
+    let span = opened.to(otherwise.span);
+    Expr::new(
+        ExprKind::If {
+            branches,
+            otherwise: Box::new(otherwise),
+        },
+        span,
+    )
 }
 
 /// `[a, b]` (§13.1).

@@ -10,9 +10,10 @@
 
 mod cursor;
 mod expr;
+mod stmt;
 mod ty;
 
-use luar_ast::Expr;
+use luar_ast::{Block, Expr};
 use luar_diagnostics::{Diagnostic, FileId};
 
 use crate::cursor::Cursor;
@@ -30,6 +31,18 @@ pub struct Parsed<T> {
 pub fn expression(source: &str, file: FileId) -> Parsed<Expr> {
     let mut cursor = Cursor::new(source, file);
     let tree = expr::expression(&mut cursor);
+    cursor.expect_end();
+    Parsed {
+        tree,
+        diagnostics: cursor.finish(),
+    }
+}
+
+/// Parses a run of statements, and reports anything left over.
+#[must_use]
+pub fn block(source: &str, file: FileId) -> Parsed<Block> {
+    let mut cursor = Cursor::new(source, file);
+    let tree = stmt::block(&mut cursor);
     cursor.expect_end();
     Parsed {
         tree,
