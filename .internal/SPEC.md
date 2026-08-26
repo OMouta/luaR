@@ -1648,7 +1648,7 @@ Arguments must be compile-time evaluable unless a decorator explicitly accepts s
 
 ```lua
 @route("/users/:id")
-@auth(role: "admin")
+@auth(role = "admin")
 async function getUser(id: string): Result<User, HttpError>
     ...
 end
