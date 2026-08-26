@@ -2663,6 +2663,19 @@ local print = collect
 
 Predeclared names are not a module. They cannot be imported from, renamed, or re-exported. Everything else the standard library provides is imported like any other module (§21.1, §60).
 
+Type names work the same way. The primitive types (§6) need no import, and neither do the collection types the language builds from its own literal syntax (§13, §59):
+
+```text
+List
+Map
+Set
+FrozenList
+FrozenMap
+FrozenSet
+```
+
+Every other name in a type is declared by the module or imported (§21.1). The standard protocols (§35) are library names and are imported like any other.
+
 The set is closed. A name belongs in it only because it cannot be written as an ordinary declaration, or because every program needs it to state a signature. `assert` and `debugAssert` depend on compilation mode (§49), `unreachable` has type `never` (§50), and `panic` does not return (§25.4). `Result` names the type of every fallible signature (§25.1). `print` is neither, and is predeclared so that writing a line of output does not require an import.
 
 ---
