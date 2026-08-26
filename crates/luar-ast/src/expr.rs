@@ -45,6 +45,9 @@ pub enum ExprKind {
     /// Any of the binary operators (LR11.7).
     Binary {
         op: BinaryOp,
+        /// Where the operator was written, which is what a diagnostic about
+        /// the operator points at.
+        op_span: Span,
         left: Box<Expr>,
         right: Box<Expr>,
     },

@@ -53,7 +53,9 @@ fn render(expr: &Expr) -> String {
             };
             format!("({op} {})", render(operand))
         }
-        ExprKind::Binary { op, left, right } => {
+        ExprKind::Binary {
+            op, left, right, ..
+        } => {
             format!("({} {} {})", render(left), spell(*op), render(right))
         }
         ExprKind::Range {

@@ -163,6 +163,10 @@ registry! {
         "Modules in a cycle must have an initialization order, and this pair has none.";
     active 143 => UNKNOWN_TYPE, "LR54",
         "A name in a type must be a primitive, a declaration, an import, or predeclared.";
+    active 144 => CONDITION_NOT_BOOL, "LR4.2",
+        "A condition and the operands of `and`, `or`, and `not` have type `bool`.";
+    active 145 => TYPE_MISMATCH, "LR5.1",
+        "A binding declared with a type takes values of that type.";
 }
 
 #[cfg(test)]

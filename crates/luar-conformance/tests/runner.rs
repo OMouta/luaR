@@ -16,7 +16,15 @@ fn discovery_finds_luar_files_in_subdirectories() {
         .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())
         .collect();
 
-    assert_eq!(found, ["accepted.luar", "rejected.luar", "runs.luar"]);
+    assert_eq!(
+        found,
+        [
+            "accepted.luar",
+            "not-enforced.luar",
+            "rejected.luar",
+            "runs.luar"
+        ]
+    );
 }
 
 #[test]
@@ -41,12 +49,21 @@ fn a_program_the_compiler_accepts_passes() {
     assert_eq!(run(&fixtures().join("accepted.luar")), Outcome::Passed);
 }
 
-/// A rule the compiler does not enforce yet fails rather than passing. The
-/// fixture expects LR0114, which needs type checking; until that lands, the
-/// program is accepted and the test that says it should not be says so.
 #[test]
-fn a_rule_that_is_not_enforced_yet_fails_loudly() {
-    let outcome = run(&fixtures().join("arithmetic/rejected.luar"));
+fn a_program_the_compiler_rejects_as_stated_passes() {
+    assert_eq!(
+        run(&fixtures().join("arithmetic/rejected.luar")),
+        Outcome::Passed
+    );
+}
+
+/// An expectation the compiler does not meet fails rather than passing. The
+/// fixture claims a rule its program does not break, so nothing is reported
+/// and the header is wrong about it. A suite that let this pass would report
+/// coverage it does not have.
+#[test]
+fn an_expectation_the_compiler_does_not_meet_fails_loudly() {
+    let outcome = run(&fixtures().join("arithmetic/not-enforced.luar"));
     assert!(outcome.is_failure(), "reported {outcome}");
 }
 

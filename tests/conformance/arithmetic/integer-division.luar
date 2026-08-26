@@ -1,0 +1,8 @@
+--- expect: compile-ok
+--- spec: LR11.1
+export function main()
+    local total: int = 10
+    local whole = total // 3
+    local ratio = total as f64 / 3.0
+    print(whole, ratio)
+end

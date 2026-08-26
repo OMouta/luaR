@@ -1,0 +1,8 @@
+--- expect: compile-ok
+--- spec: LR4.3
+export function main()
+    local counted: int = 1
+    local wide: i64 = counted
+    local back: int = wide
+    print(counted, wide, back)
+end

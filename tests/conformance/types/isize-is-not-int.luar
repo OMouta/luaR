@@ -1,0 +1,9 @@
+--- expect: compile-error
+--- code: LR0145
+--- span: 7:26
+--- spec: LR4.3
+export function main()
+    local size: usize = 1
+    local counted: int = size
+    print(counted)
+end

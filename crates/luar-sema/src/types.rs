@@ -1,21 +1,15 @@
-//! Types: what the spellings mean, and whether a written type names anything
-//! (LR4.3, LR6, LR54).
+//! The types a LuaR program is written in, and when one accepts another
+//! (LR6, LR4.3, LR39).
 //!
-//! A type annotation is checked here the way a name is checked in value
-//! position: every path in it must name a primitive, a collection the
-//! language builds itself, a type parameter of the enclosing declaration, a
-//! declaration of this module, or an import.
-//!
-//! What a type *is* comes later, with the checking that compares them. This
-//! is the part that decides whether the words were words at all.
+//! What is here is the shape of a type and the question every checked
+//! assignment asks: may a value of this type go where that type is wanted?
+//! Deciding it is deliberately one-sided. A type this stage does not model
+//! yet answers yes, so a program is reported only where the compiler is sure
+//! it is wrong.
 
-use std::collections::HashSet;
+use std::fmt;
 
-use luar_ast::{Function, Item, Member, Module, Param, Struct, Type, TypeKind};
-use luar_diagnostics::{Diagnostic, Span, codes};
-
-use crate::modules::{Graph, ModuleId};
-use crate::names::{Names, Origin};
+use crate::modules::ModuleId;
 
 /// A primitive type (LR6).
 ///
@@ -103,6 +97,54 @@ impl Primitive {
             Self::Unknown => "unknown",
         }
     }
+
+    /// Whether this is one of the integer types (LR4.3).
+    #[must_use]
+    pub fn is_integer(self) -> bool {
+        matches!(
+            self,
+            Self::I8
+                | Self::I16
+                | Self::I32
+                | Self::I64
+                | Self::U8
+                | Self::U16
+                | Self::U32
+                | Self::U64
+                | Self::Isize
+                | Self::Usize
+        )
+    }
+
+    /// Whether this is one of the floating-point types (LR4.4).
+    #[must_use]
+    pub fn is_float(self) -> bool {
+        matches!(self, Self::F32 | Self::F64)
+    }
+
+    /// Whether `value` is representable, which is what makes an integer
+    /// literal polymorphic (LR39).
+    #[must_use]
+    pub fn holds(self, value: u64) -> bool {
+        let limit = match self {
+            Self::I8 => i8::MAX as u64,
+            Self::I16 => i16::MAX as u64,
+            Self::I32 => i32::MAX as u64,
+            // `isize` is pointer-sized and never wider than 64 bits, so what
+            // fits `i64` is the most that can be promised for it.
+            Self::I64 | Self::Isize => i64::MAX as u64,
+            Self::U8 => u8::MAX as u64,
+            Self::U16 => u16::MAX as u64,
+            Self::U32 => u32::MAX as u64,
+            Self::U64 | Self::Usize => u64::MAX,
+            // In a floating-point position, a literal fits when it survives
+            // the round trip.
+            Self::F32 => return value as f32 as u64 == value,
+            Self::F64 => return value as f64 as u64 == value,
+            _ => return false,
+        };
+        value <= limit
+    }
 }
 
 /// A generic type the language names without an import (LR54.1).
@@ -135,458 +177,234 @@ impl Builtin {
         };
         Some(builtin)
     }
+
+    #[must_use]
+    pub fn spelling(self) -> &'static str {
+        match self {
+            Self::Result => "Result",
+            Self::List => "List",
+            Self::Map => "Map",
+            Self::Set => "Set",
+            Self::FrozenList => "FrozenList",
+            Self::FrozenMap => "FrozenMap",
+            Self::FrozenSet => "FrozenSet",
+        }
+    }
 }
 
-/// Checks every type written in every module of `graph`.
-#[must_use]
-pub fn check(graph: &Graph, names: &Names) -> Vec<Diagnostic> {
-    let mut diagnostics = Vec::new();
-
-    for (id, node) in graph.modules() {
-        let mut checker = Checker {
-            module: names,
-            scope: id,
-            parameters: Vec::new(),
-            diagnostics: &mut diagnostics,
-        };
-        checker.module(&node.ast);
-    }
-
-    diagnostics
+/// A type, as the checker holds it.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Type {
+    Primitive(Primitive),
+    /// `Result<T, E>` and the collections (LR54.1).
+    Builtin {
+        kind: Builtin,
+        args: Vec<Type>,
+    },
+    /// A struct, enum, interface, or alias, and the module declaring it.
+    Named {
+        module: ModuleId,
+        name: String,
+        args: Vec<Type>,
+    },
+    /// A type parameter of the enclosing declaration (LR19).
+    Parameter(String),
+    /// `T?` (LR8).
+    Optional(Box<Type>),
+    Union(Vec<Type>),
+    Intersection(Vec<Type>),
+    Tuple(Vec<Type>),
+    Function {
+        asynchronous: bool,
+        params: Vec<Type>,
+        result: Box<Type>,
+    },
+    /// `[T; N]` (LR71). The length is a constant expression, so comparing
+    /// lengths waits for `const` evaluation (LR24).
+    Array(Box<Type>),
+    Pointer {
+        mutable: bool,
+        target: Box<Type>,
+    },
+    /// A structural record, by field name (LR12.1).
+    Record(Vec<(String, Type)>),
+    /// An integer literal, before context gives it a type (LR39).
+    IntegerLiteral(u64),
+    /// A floating-point literal, before context gives it a type (LR39).
+    FloatLiteral,
+    /// A type this stage does not know: either it was reported already, or
+    /// working it out needs a stage that does not exist yet. It accepts
+    /// everything and everything accepts it, so it causes no diagnostic.
+    Unresolved,
 }
 
-struct Checker<'a> {
-    module: &'a Names,
-    scope: ModuleId,
-    /// The type parameters of the declarations being walked, innermost last
-    /// (LR19).
-    parameters: Vec<HashSet<String>>,
-    diagnostics: &'a mut Vec<Diagnostic>,
+impl Type {
+    pub const BOOL: Self = Self::Primitive(Primitive::Bool);
+    pub const STRING: Self = Self::Primitive(Primitive::String);
+
+    /// Whether a value of type `value` may be used where `self` is wanted.
+    ///
+    /// Answers yes wherever it is unsure, so that reporting `!accepts` reports
+    /// only what is definitely wrong.
+    #[must_use]
+    pub fn accepts(&self, value: &Self) -> bool {
+        // `unknown` is the top type and holds anything; what it does not do
+        // is go anywhere else without a check first (LR6.3).
+        if matches!(self, Self::Primitive(Primitive::Unknown)) {
+            return true;
+        }
+
+        // `any` opts out of checking (LR6.4), `never` reaches no use at all
+        // (LR6.2), and `Unresolved` is the compiler saying it does not know.
+        if matches!(self, Self::Unresolved | Self::Primitive(Primitive::Any))
+            || matches!(
+                value,
+                Self::Unresolved | Self::Primitive(Primitive::Any | Primitive::Never)
+            )
+        {
+            return true;
+        }
+
+        match (self, value) {
+            // A literal takes the type context asks for, where the value fits
+            // (LR39).
+            (Self::Primitive(target), Self::IntegerLiteral(literal)) => target.holds(*literal),
+            (Self::Primitive(target), Self::FloatLiteral) => target.is_float(),
+
+            // `nil` inhabits every optional, and nothing else (LR8).
+            (Self::Optional(_), Self::Primitive(Primitive::Nil)) => true,
+            (Self::Optional(inner), Self::Optional(held)) => inner.accepts(held),
+            (Self::Optional(inner), _) => inner.accepts(value),
+
+            // A union holds any of its members (LR17.2).
+            (Self::Union(members), _) => members.iter().any(|member| member.accepts(value)),
+            (_, Self::Union(members)) => members.iter().all(|member| self.accepts(member)),
+
+            (Self::Primitive(target), Self::Primitive(held)) => target == held,
+            (
+                Self::Builtin { kind, args },
+                Self::Builtin {
+                    kind: held_kind,
+                    args: held,
+                },
+            ) => kind == held_kind && args.len() == held.len(),
+            (
+                Self::Named { module, name, args },
+                Self::Named {
+                    module: held_module,
+                    name: held_name,
+                    args: held,
+                },
+            ) => module == held_module && name == held_name && args.len() == held.len(),
+            (Self::Parameter(name), Self::Parameter(held)) => name == held,
+            (Self::Tuple(members), Self::Tuple(held)) => {
+                members.len() == held.len() && members.iter().zip(held).all(|(m, h)| m.accepts(h))
+            }
+            (
+                Self::Pointer { mutable, target },
+                Self::Pointer {
+                    mutable: held_mutable,
+                    target: held,
+                },
+            ) => mutable == held_mutable && target.accepts(held),
+
+            // Anything else pairs shapes this stage does not compare yet:
+            // functions, records, arrays, intersections, and every mixture of
+            // kinds not named above.
+            _ => !compared(self) || !compared(value),
+        }
+    }
 }
 
-impl Checker<'_> {
-    fn module(&mut self, module: &Module) {
-        for item in &module.items {
-            self.item(item);
-        }
-    }
+/// Whether a type is one this stage compares. Anything else is left alone
+/// rather than reported, so the checker grows by learning shapes rather than
+/// by unlearning wrong answers.
+fn compared(ty: &Type) -> bool {
+    matches!(
+        ty,
+        Type::Primitive(_)
+            | Type::Builtin { .. }
+            | Type::Named { .. }
+            | Type::Parameter(_)
+            | Type::Optional(_)
+            | Type::Union(_)
+            | Type::Tuple(_)
+            | Type::Pointer { .. }
+            | Type::IntegerLiteral(_)
+            | Type::FloatLiteral
+    )
+}
 
-    fn item(&mut self, item: &Item) {
-        match item {
-            Item::Function(function) => self.function(function),
-            Item::Struct(structure) => self.structure(structure),
-            Item::Enum(enumeration) => {
-                self.push(&enumeration.type_params);
-                for variant in &enumeration.variants {
-                    match &variant.payload {
-                        None => {}
-                        Some(luar_ast::VariantPayload::Tuple(types)) => {
-                            for ty in types {
-                                self.ty(ty);
-                            }
-                        }
-                        Some(luar_ast::VariantPayload::Record(fields)) => {
-                            for field in fields {
-                                self.ty(&field.ty);
-                            }
-                        }
-                    }
-                }
-                self.pop();
+impl fmt::Display for Type {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Primitive(primitive) => f.write_str(primitive.spelling()),
+            Self::Builtin { kind, args } => {
+                f.write_str(kind.spelling())?;
+                arguments(f, args)
             }
-            Item::Interface(interface) => {
-                self.push(&interface.type_params);
-                for member in &interface.members {
-                    match member {
-                        luar_ast::InterfaceMember::Function(function) => self.function(function),
-                        luar_ast::InterfaceMember::Property { ty, .. } => self.ty(ty),
-                    }
-                }
-                self.pop();
+            Self::Named { name, args, .. } => {
+                f.write_str(name)?;
+                arguments(f, args)
             }
-            Item::Extend(extend) => {
-                self.ty(&extend.target);
-                for function in &extend.functions {
-                    self.function(function);
-                }
+            Self::Parameter(name) => f.write_str(name),
+            Self::Optional(inner) => write!(f, "{inner}?"),
+            Self::Union(members) => join(f, members, " | "),
+            Self::Intersection(members) => join(f, members, " & "),
+            Self::Tuple(members) => {
+                f.write_str("(")?;
+                join(f, members, ", ")?;
+                f.write_str(")")
             }
-            Item::TypeAlias(alias) => {
-                self.push(&alias.type_params);
-                self.ty(&alias.target);
-                self.pop();
-            }
-            Item::Conditional(conditional) => {
-                for (_, items) in &conditional.branches {
-                    for item in items {
-                        self.item(item);
-                    }
-                }
-                for item in conditional.otherwise.iter().flatten() {
-                    self.item(item);
-                }
-            }
-            Item::Import(_) => {}
-            Item::Stmt(stmt) => self.stmt(stmt),
-        }
-    }
-
-    fn structure(&mut self, structure: &Struct) {
-        self.push(&structure.type_params);
-
-        for implemented in &structure.implements {
-            self.ty(implemented);
-        }
-
-        for member in &structure.members {
-            match member {
-                Member::Field(field) => self.ty(&field.ty),
-                Member::Function(function) => self.function(function),
-                Member::Property(property) => self.ty(&property.ty),
-            }
-        }
-
-        self.pop();
-    }
-
-    fn function(&mut self, function: &Function) {
-        self.push(&function.type_params);
-
-        for param in &function.params {
-            self.param(param);
-        }
-        if let Some(result) = &function.result {
-            self.ty(result);
-        }
-        if let Some(body) = &function.body {
-            self.block(body);
-        }
-
-        self.pop();
-    }
-
-    fn param(&mut self, param: &Param) {
-        if let Some(ty) = &param.ty {
-            self.ty(ty);
-        }
-    }
-
-    fn block(&mut self, block: &luar_ast::Block) {
-        for stmt in &block.stmts {
-            self.stmt(stmt);
-        }
-    }
-
-    /// Types written inside a statement: the annotation on a binding, and the
-    /// ones a nested block or expression carries.
-    fn stmt(&mut self, stmt: &luar_ast::Stmt) {
-        use luar_ast::StmtKind;
-
-        match &stmt.kind {
-            StmtKind::Local { ty, value, .. } => {
-                if let Some(ty) = ty {
-                    self.ty(ty);
-                }
-                if let Some(value) = value {
-                    self.expr(value);
-                }
-            }
-            StmtKind::Const { ty, value, .. } => {
-                if let Some(ty) = ty {
-                    self.ty(ty);
-                }
-                self.expr(value);
-            }
-            StmtKind::Assign { target, value, .. } => {
-                self.expr(target);
-                self.expr(value);
-            }
-            StmtKind::If {
-                branches,
-                otherwise,
-            } => {
-                for branch in branches {
-                    self.expr(&branch.condition);
-                    self.block(&branch.body);
-                }
-                if let Some(otherwise) = otherwise {
-                    self.block(otherwise);
-                }
-            }
-            StmtKind::While {
-                condition, body, ..
-            } => {
-                self.expr(condition);
-                self.block(body);
-            }
-            StmtKind::Repeat { body, until, .. } => {
-                self.block(body);
-                self.expr(until);
-            }
-            StmtKind::For { iterable, body, .. } => {
-                self.expr(iterable);
-                self.block(body);
-            }
-            StmtKind::Conditional {
-                branches,
-                otherwise,
-            } => {
-                for (_, body) in branches {
-                    self.block(body);
-                }
-                if let Some(otherwise) = otherwise {
-                    self.block(otherwise);
-                }
-            }
-            StmtKind::Unsafe(body) => self.block(body),
-            StmtKind::Match { scrutinee, arms } => {
-                self.expr(scrutinee);
-                for arm in arms {
-                    self.arm(arm);
-                }
-            }
-            StmtKind::Return(value) => {
-                if let Some(value) = value {
-                    self.expr(value);
-                }
-            }
-            StmtKind::Expr(expr) => self.expr(expr),
-            StmtKind::Break(_) | StmtKind::Continue(_) | StmtKind::Error => {}
-        }
-    }
-
-    fn arm(&mut self, arm: &luar_ast::MatchArm) {
-        self.pattern(&arm.pattern);
-        if let Some(guard) = &arm.guard {
-            self.expr(guard);
-        }
-        match &arm.body {
-            luar_ast::ArmBody::Block(block) => self.block(block),
-            luar_ast::ArmBody::Expr(expr) => self.expr(expr),
-        }
-    }
-
-    /// `value is string` writes a type inside a pattern (LR57).
-    fn pattern(&mut self, pattern: &luar_ast::Pattern) {
-        use luar_ast::{PatternKind, Payload};
-
-        match &pattern.kind {
-            PatternKind::Typed { inner, ty } => {
-                self.ty(ty);
-                self.pattern(inner);
-            }
-            PatternKind::Path { payload, .. } => match payload {
-                None => {}
-                Some(Payload::Tuple(patterns)) => {
-                    for pattern in patterns {
-                        self.pattern(pattern);
-                    }
-                }
-                Some(Payload::Record { fields, .. }) => {
-                    for field in fields {
-                        if let Some(pattern) = &field.pattern {
-                            self.pattern(pattern);
-                        }
-                    }
-                }
-            },
-            PatternKind::Sequence { before, after, .. } => {
-                for pattern in before.iter().chain(after) {
-                    self.pattern(pattern);
-                }
-            }
-            PatternKind::Tuple(patterns) | PatternKind::Or(patterns) => {
-                for pattern in patterns {
-                    self.pattern(pattern);
-                }
-            }
-            PatternKind::Wildcard
-            | PatternKind::Binding(_)
-            | PatternKind::Literal(_)
-            | PatternKind::Range { .. }
-            | PatternKind::Error => {}
-        }
-    }
-
-    /// Types written inside an expression: `x as T`, `x is T`, a call's type
-    /// arguments, and the signature of a closure.
-    fn expr(&mut self, expr: &luar_ast::Expr) {
-        use luar_ast::{ExprKind, FunctionBody, InterpolationPart, MapKey};
-
-        match &expr.kind {
-            ExprKind::Cast { value, ty } | ExprKind::TypeTest { value, ty } => {
-                self.ty(ty);
-                self.expr(value);
-            }
-            ExprKind::Call {
-                callee,
-                type_args,
-                args,
-                ..
-            } => {
-                for ty in type_args {
-                    self.ty(ty);
-                }
-                self.expr(callee);
-                for arg in args {
-                    self.expr(&arg.value);
-                }
-            }
-            ExprKind::Function {
+            Self::Function {
+                asynchronous,
                 params,
                 result,
-                body,
-                ..
             } => {
-                for param in params {
-                    self.param(param);
+                if *asynchronous {
+                    f.write_str("async ")?;
                 }
-                if let Some(result) = result {
-                    self.ty(result);
-                }
-                match body.as_ref() {
-                    FunctionBody::Block(block) => self.block(block),
-                    FunctionBody::Expr(expr) => self.expr(expr),
-                }
+                f.write_str("(")?;
+                join(f, params, ", ")?;
+                write!(f, ") -> {result}")
             }
-            ExprKind::Unary { operand, .. } => self.expr(operand),
-            ExprKind::Binary { left, right, .. } => {
-                self.expr(left);
-                self.expr(right);
+            Self::Array(element) => write!(f, "[{element}; N]"),
+            Self::Pointer { mutable, target } => {
+                let qualifier = if *mutable { "mut" } else { "const" };
+                write!(f, "*{qualifier} {target}")
             }
-            ExprKind::Range { start, end, .. } => {
-                for bound in [start, end].into_iter().flatten() {
-                    self.expr(bound);
-                }
-            }
-            ExprKind::Field { receiver, .. } => self.expr(receiver),
-            ExprKind::Index {
-                receiver, index, ..
-            } => {
-                self.expr(receiver);
-                self.expr(index);
-            }
-            ExprKind::Try(inner) => self.expr(inner),
-            ExprKind::AddressOf { operand, .. } => self.expr(operand),
-            ExprKind::Tuple(items) | ExprKind::List(items) => {
-                for item in items {
-                    self.expr(item);
-                }
-            }
-            ExprKind::Record { fields, .. } => {
-                for field in fields {
-                    self.expr(&field.value);
-                }
-            }
-            ExprKind::Map(entries) => {
-                for entry in entries {
-                    if let MapKey::Computed(key) = &entry.key {
-                        self.expr(key);
+            Self::Record(fields) => {
+                f.write_str("{ ")?;
+                for (i, (name, ty)) in fields.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str(", ")?;
                     }
-                    self.expr(&entry.value);
+                    write!(f, "{name}: {ty}")?;
                 }
+                f.write_str(" }")
             }
-            ExprKind::Interpolation(parts) => {
-                for part in parts {
-                    if let InterpolationPart::Expr(expr) = part {
-                        self.expr(expr);
-                    }
-                }
-            }
-            ExprKind::Match { scrutinee, arms } => {
-                self.expr(scrutinee);
-                for arm in arms {
-                    self.arm(arm);
-                }
-            }
-            ExprKind::If {
-                branches,
-                otherwise,
-            } => {
-                for (condition, value) in branches {
-                    self.expr(condition);
-                    self.expr(value);
-                }
-                self.expr(otherwise);
-            }
-            ExprKind::Nil
-            | ExprKind::Bool(_)
-            | ExprKind::Integer(_)
-            | ExprKind::Float(_)
-            | ExprKind::String(_)
-            | ExprKind::ByteString(_)
-            | ExprKind::Char(_)
-            | ExprKind::Name(_)
-            | ExprKind::Error => {}
+            Self::IntegerLiteral(_) => f.write_str("an integer literal"),
+            Self::FloatLiteral => f.write_str("a float literal"),
+            Self::Unresolved => f.write_str("an unknown type"),
         }
     }
+}
 
-    /// One written type, and everything inside it.
-    fn ty(&mut self, ty: &Type) {
-        match &ty.kind {
-            TypeKind::Path { segments, args } => {
-                self.path(segments, ty.span);
-                for arg in args {
-                    self.ty(arg);
-                }
-            }
-            TypeKind::Optional(inner) | TypeKind::Pointer { target: inner, .. } => self.ty(inner),
-            TypeKind::Union(members)
-            | TypeKind::Intersection(members)
-            | TypeKind::Tuple(members) => {
-                for member in members {
-                    self.ty(member);
-                }
-            }
-            TypeKind::Function { params, result, .. } => {
-                for param in params {
-                    self.ty(param);
-                }
-                self.ty(result);
-            }
-            TypeKind::Array { element, .. } => self.ty(element),
-            TypeKind::Record(fields) => {
-                for field in fields {
-                    self.ty(&field.ty);
-                }
-            }
-            TypeKind::Error => {}
-        }
+fn arguments(f: &mut fmt::Formatter<'_>, args: &[Type]) -> fmt::Result {
+    if args.is_empty() {
+        return Ok(());
     }
+    f.write_str("<")?;
+    join(f, args, ", ")?;
+    f.write_str(">")
+}
 
-    /// Whether a path names a type.
-    ///
-    /// A qualified path reaches into another module, and only the module part
-    /// is checked here: which of its names are types is decided with the rest
-    /// of the type table.
-    fn path(&mut self, segments: &[String], span: Span) {
-        let Some(name) = segments.first() else { return };
-
-        if Primitive::from_name(name).is_some() || Builtin::from_name(name).is_some() {
-            return;
+fn join(f: &mut fmt::Formatter<'_>, types: &[Type], separator: &str) -> fmt::Result {
+    for (i, ty) in types.iter().enumerate() {
+        if i > 0 {
+            f.write_str(separator)?;
         }
-
-        if self.parameters.iter().any(|scope| scope.contains(name)) {
-            return;
-        }
-
-        match self.module.scope(self.scope).get(name).map(|b| &b.origin) {
-            Some(Origin::Declared { .. } | Origin::Imported { .. } | Origin::Namespace(_)) => {}
-            // A module-level value is a value, whatever it is called.
-            Some(Origin::Binding { .. }) | None => {
-                self.diagnostics.push(Diagnostic::error(
-                    codes::UNKNOWN_TYPE,
-                    span,
-                    format!("`{name}` does not name a type"),
-                ));
-            }
-        }
+        write!(f, "{ty}")?;
     }
-
-    fn push(&mut self, parameters: &[String]) {
-        self.parameters.push(parameters.iter().cloned().collect());
-    }
-
-    fn pop(&mut self) {
-        self.parameters.pop();
-    }
+    Ok(())
 }

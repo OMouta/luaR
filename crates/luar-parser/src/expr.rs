@@ -137,6 +137,7 @@ fn binary(cursor: &mut Cursor, level: Level) -> Expr {
         left = Expr::new(
             ExprKind::Binary {
                 op,
+                op_span,
                 left: Box::new(left),
                 right: Box::new(right),
             },
@@ -292,6 +293,7 @@ fn power(cursor: &mut Cursor) -> Expr {
     if !matches!(cursor.kind(), TokenKind::StarStar) {
         return base;
     }
+    let op_span = cursor.span();
     cursor.advance();
 
     // The right operand is a full unary expression, so `2 ** -1` reads, and
@@ -301,6 +303,7 @@ fn power(cursor: &mut Cursor) -> Expr {
     Expr::new(
         ExprKind::Binary {
             op: BinaryOp::Power,
+            op_span,
             left: Box::new(base),
             right: Box::new(exponent),
         },

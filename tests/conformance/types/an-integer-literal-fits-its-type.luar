@@ -1,0 +1,8 @@
+--- expect: compile-ok
+--- spec: LR39
+export function main()
+    local small: u8 = 255
+    local wide: i64 = 255
+    local size: usize = 0
+    print(small, wide, size)
+end
