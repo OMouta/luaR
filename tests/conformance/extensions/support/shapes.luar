@@ -1,0 +1,9 @@
+export struct Vec2
+    x: float
+end
+
+export extend Vec2Math for Vec2
+    function doubled(self): float
+        return self.x + self.x
+    end
+end

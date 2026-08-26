@@ -991,23 +991,114 @@ impl Checker<'_> {
         }
     }
 
-    /// The method `name` on a value of type `receiver` (LR76).
+    /// The method `name` on a value of type `receiver`, in the order LR76
+    /// states: the type's own methods, then an interface context, then the
+    /// extension blocks in scope.
     fn method(&mut self, receiver: &Type, name: &str, span: Span) -> Option<Signature> {
-        // LR76: a method the type itself declares wins over any extension
-        // offering the same name.
         if let Type::Named {
             module,
             name: declared,
             ..
         } = receiver
-            && let Some(structure) = self.table.structure(*module, declared)
-            && let Some(signature) = structure.methods.get(name).cloned()
         {
-            self.private(signature.visibility, *module, declared, name, span);
+            match self.table.get(*module, declared) {
+                // An inherent method wins over any extension offering the
+                // same name, so adding one shadows the extension rather than
+                // changing what a call already meant.
+                Some(Decl::Struct(structure)) => {
+                    if let Some(signature) = structure.methods.get(name).cloned() {
+                        self.private(signature.visibility, *module, declared, name, span);
+                        return Some(signature);
+                    }
+                }
+                // A value of interface type dispatches over what the
+                // interface requires (LR18.1).
+                Some(Decl::Interface(interface)) => {
+                    if let Some(signature) = interface.methods.get(name).cloned() {
+                        return Some(signature);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        if let Some(signature) = self.extension(receiver, name, span) {
             return Some(signature);
         }
 
-        self.extension(receiver, name, span)
+        self.no_such_method(receiver, name, span);
+        None
+    }
+
+    /// Reports a method nothing offers, where every place one could come from
+    /// is known (LR76).
+    ///
+    /// Most receivers are not. A primitive, a collection, and an enum have
+    /// method surfaces this stage does not model, and a decorated declaration
+    /// grows members when expansion lands (LR23.1), so a call on one is left
+    /// alone rather than reported against a surface the compiler cannot see.
+    fn no_such_method(&mut self, receiver: &Type, name: &str, span: Span) {
+        let Type::Named {
+            module,
+            name: declared,
+            ..
+        } = receiver
+        else {
+            return;
+        };
+
+        let known = match self.table.get(*module, declared) {
+            Some(Decl::Struct(structure)) => !structure.decorated,
+            Some(Decl::Interface(interface)) => !interface.decorated,
+            _ => false,
+        };
+        if !known {
+            return;
+        }
+
+        let mut reported = Diagnostic::error(
+            codes::NO_SUCH_METHOD,
+            span,
+            format!("`{declared}` has no method `{name}`"),
+        );
+
+        // LR89.1: `:` calls a method and `.` reaches everything else, so a
+        // field or a property spelled with `:` is worth saying out loud.
+        if let Some(Decl::Struct(structure)) = self.table.get(*module, declared)
+            && structure.has_member(name)
+        {
+            reported = reported.note(format!(
+                "`{name}` is a field or a property, and those are reached with `.` (LR12.2)."
+            ));
+        }
+
+        // LR20: a block that adds it is the fix, and naming it saves the
+        // reader working out which module to import.
+        for block in self.blocks_adding(receiver, name) {
+            reported = reported.note(format!(
+                "`{block}` adds `{name}` to this type. Import it to use it (LR20)."
+            ));
+        }
+
+        self.diagnostics.push(reported);
+    }
+
+    /// The extension blocks anywhere in the program that add `name` to
+    /// `receiver` and that this module could import (LR20, LR21.1).
+    fn blocks_adding(&self, receiver: &Type, name: &str) -> Vec<String> {
+        self.table
+            .decls()
+            .filter_map(|(module, block, decl)| match decl {
+                Decl::Extension { target, methods }
+                    if target == receiver
+                        && methods.contains_key(name)
+                        && self.names.scope(module).exports(block) =>
+                {
+                    Some(block.to_owned())
+                }
+                _ => None,
+            })
+            .collect()
     }
 
     /// The signature a plain name calls, where the table holds one.

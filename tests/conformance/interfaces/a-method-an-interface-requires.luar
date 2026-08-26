@@ -1,0 +1,10 @@
+--- expect: compile-ok
+--- spec: LR18.1
+--- spec: LR76
+interface Display
+    function display(self): string
+end
+
+export function show(value: Display)
+    print(value:display())
+end

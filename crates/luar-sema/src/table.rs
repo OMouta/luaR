@@ -107,6 +107,10 @@ pub struct StructType {
     pub methods: BTreeMap<String, Signature>,
     /// The interfaces it claims to implement (LR18).
     pub implements: Vec<Type>,
+    /// Whether a decorator is written on it (LR23). Expansion can add members
+    /// (LR23.1, LR75) and does not happen yet, so the members recorded here
+    /// are all of them only when this is false.
+    pub decorated: bool,
 }
 
 impl StructType {
@@ -140,6 +144,8 @@ pub struct InterfaceType {
     pub type_params: Vec<String>,
     pub methods: BTreeMap<String, Signature>,
     pub properties: Vec<Field>,
+    /// Whether a decorator is written on it. See [`StructType::decorated`].
+    pub decorated: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -192,6 +198,13 @@ impl Table {
     #[must_use]
     pub fn kinds(&self) -> &Kinds {
         &self.kinds
+    }
+
+    /// Every declaration in the program, with the module declaring it.
+    pub fn decls(&self) -> impl Iterator<Item = (ModuleId, &str, &Decl)> {
+        self.decls
+            .iter()
+            .map(|((module, name), decl)| (*module, name.as_str(), decl))
     }
 }
 
@@ -350,6 +363,7 @@ fn declare(
                         properties,
                         methods,
                         implements,
+                        decorated: !structure.decorators.is_empty(),
                     }),
                 )
             }
@@ -427,6 +441,7 @@ fn declare(
                         type_params: interface.type_params.clone(),
                         methods,
                         properties,
+                        decorated: !interface.decorators.is_empty(),
                     }),
                 )
             }

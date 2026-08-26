@@ -187,6 +187,8 @@ registry! {
         "A struct literal names only fields the struct declares.";
     active 155 => DUPLICATE_MEMBER, "LR12.2",
         "A type declares each member once, whether written in its body or attached outside it.";
+    active 156 => NO_SUCH_METHOD, "LR76",
+        "A method called on a value is one the type declares or an extension block in scope adds.";
 }
 
 #[cfg(test)]

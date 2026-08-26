@@ -1,0 +1,12 @@
+--- expect: compile-error
+--- code: LR0156
+--- span: 11:11
+--- spec: LR18.1
+--- spec: LR76
+interface Display
+    function display(self): string
+end
+
+export function show(value: Display)
+    print(value:render())
+end
