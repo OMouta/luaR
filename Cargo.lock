@@ -78,5 +78,7 @@ dependencies = [
 name = "luarc"
 version = "0.0.0"
 dependencies = [
+ "luar-conformance",
+ "luar-diagnostics",
  "luar-driver",
 ]

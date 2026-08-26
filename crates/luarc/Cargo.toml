@@ -8,6 +8,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+luar-diagnostics = { workspace = true }
+luar-conformance = { workspace = true }
 luar-driver = { workspace = true }
 
 [lints]
