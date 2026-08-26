@@ -4,13 +4,17 @@
 @extern("c")
 unsafe function native_clock(out: *mut CTime): i32
 
+struct ClockError
+    message: string
+end
+
 @repr("C")
 struct CTime
     seconds: i64
     nanos: i64
 end
 
-export function currentNativeTime(): Result<CTime, Error>
+export function currentNativeTime(): Result<CTime, ClockError>
     local value = CTime {
         seconds = 0,
         nanos = 0,
@@ -20,7 +24,7 @@ export function currentNativeTime(): Result<CTime, Error>
         -- `value` is an addressable local, so &mut is valid for the
         -- duration of this block (§72).
         if native_clock(&mut value) ~= 0 then
-            return Result.Err(Error("native_clock failed"))
+            return Result.Err(ClockError { message = "native_clock failed" })
         end
     end
 

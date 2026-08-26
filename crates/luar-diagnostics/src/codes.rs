@@ -151,6 +151,8 @@ registry! {
         "An import path must name a module the compiler can read.";
     active 137 => NAME_NOT_EXPORTED, "§21.1",
         "A named import must name a declaration the module exports.";
+    active 138 => NAME_NOT_IN_SCOPE, "§54",
+        "A name in value position must be declared, imported, or predeclared.";
 }
 
 #[cfg(test)]

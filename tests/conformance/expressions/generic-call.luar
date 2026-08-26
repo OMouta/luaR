@@ -1,7 +1,28 @@
 --- expect: compile-ok
 --- spec: §89.1
+struct User
+    id: u64
+end
+
+struct Decoder
+    static function decode<T>(text: string): T
+        return unreachable()
+    end
+end
+
+function into<T>(value: int): T
+    return unreachable()
+end
+
 export function main()
-    local user = json.decode<User>(text)
+    local text = "{}"
+    local value = 0
+    local a = 1
+    local b = 2
+    local c = 3
+    local d = 4
+
+    local user = Decoder.decode<User>(text)
     local nested = into<Map<string, List<int>>>(value)
     print(user, nested, a < b, c > d)
 end

@@ -22,17 +22,17 @@ export enum Either<T, E>
 end
 
 export function main()
-    local result = Either.Ok(user)
+    local result = Either.Ok(42)
     local message = Message.Move { x = 10, y = 20 }
     local quit = Message.Quit
 
     match message
         case Message.Move { x, y }
-            moveTo(x, y)
+            print(x, y)
         case Message.Write(text)
             print(text)
         case Message.Quit
-            exit()
+            print("quit")
     end
 
     print(result, quit)

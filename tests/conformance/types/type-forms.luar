@@ -4,6 +4,22 @@
 --- spec: §17.2
 --- spec: §17.3
 --- spec: §71
+function make(): Named & Identified
+    return unreachable()
+end
+
+function respond(request: Request): Response
+    return unreachable()
+end
+
+async function respondLater(request: Request): Response
+    return unreachable()
+end
+
+function record(): { id: u64, email: string? }
+    return unreachable()
+end
+
 export function main()
     local id: string | u64 = "abc"
     local entity: Named & Identified = make()

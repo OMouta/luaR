@@ -32,7 +32,8 @@ pub enum Check {
 #[must_use]
 pub fn check(sources: &mut SourceMap, root: FileId) -> Check {
     let (graph, mut diagnostics) = graph::build(sources, root);
-    let (_names, reported) = luar_sema::names::resolve(&graph);
+    let (names, reported) = luar_sema::names::resolve(&graph);
     diagnostics.extend(reported);
+    diagnostics.extend(luar_sema::scope::resolve(&graph, &names));
     Check::Ran(diagnostics)
 }

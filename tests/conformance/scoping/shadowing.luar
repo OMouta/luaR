@@ -1,0 +1,13 @@
+--- expect: compile-ok
+--- spec: §53
+--- spec: §54
+export function main()
+    local value = 1
+
+    if value > 0 then
+        local value = "shadowed"
+        print(value)
+    end
+
+    print(value)
+end

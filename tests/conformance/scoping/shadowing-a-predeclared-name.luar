@@ -1,0 +1,9 @@
+--- expect: compile-ok
+--- spec: §54.1
+function collect(text: string)
+end
+
+export function main()
+    local print = collect
+    print("shadowed")
+end

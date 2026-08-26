@@ -2,28 +2,42 @@
 --- spec: §16.1
 --- spec: §16.2
 --- spec: §16.3
+enum Message
+    Quit
+    Move { x: int, y: int }
+    Write(string)
+end
+
+enum Direction
+    North
+    South
+end
+
 export function main()
+    local message = Message.Quit
+    local result = Result.Ok(1)
+
     match message
         case Message.Move { x, y }
-            moveTo(x, y)
+            print(x, y)
 
         case Message.Write(text) if text ~= ""
             print(text)
 
         case [command, ...rest]
-            run(command, rest)
+            print(command, rest)
 
         case 0..<10
-            small()
+            print("small")
 
         case Direction.North | Direction.South
-            vertical()
+            print("vertical")
 
         case value is string
             print(value)
 
         case _
-            other()
+            print("other")
     end
 
     local text = match result

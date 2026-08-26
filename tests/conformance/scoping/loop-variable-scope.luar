@@ -1,0 +1,11 @@
+--- expect: compile-error
+--- code: LR0138
+--- span: 10:11
+--- spec: §54
+export function main()
+    for i in 0..<10 do
+        print(i)
+    end
+
+    print(i)
+end

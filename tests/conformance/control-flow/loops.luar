@@ -28,6 +28,9 @@ export function main()
         total += 1
     until total >= 3
 
+    local rows = [[1, 2], [3, 4]]
+    local target = 3
+
     outer: for row in rows do
         for value in row do
             if value == target then
@@ -35,6 +38,9 @@ export function main()
             end
         end
     end
+
+    local user = { name = "ada", age = 36 }
+    local point = (1, 2)
 
     local { name, age as years } = user
     local (x, y) = point

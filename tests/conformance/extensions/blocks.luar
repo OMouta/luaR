@@ -23,6 +23,7 @@ function Vec2.scaled(self, factor: float): Vec2
 end
 
 export function main()
+    local title = "Hello World"
     local path = title:slug()
     print(path, StringSlug.slug(title))
 end

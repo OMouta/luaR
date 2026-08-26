@@ -28,6 +28,10 @@ end
 function oldApi()
 end
 
+function fetch(id: string): Result<User, HttpError>
+    return Result.Ok(User { id = 1, name = id })
+end
+
 @route("/users/:id")
 @auth(role = "admin")
 async function getUser(id: string): Result<User, HttpError>

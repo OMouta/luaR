@@ -13,7 +13,7 @@ export struct Vec2 implements Display
     private scratch: float = 0.0
 
     function length(self): float
-        return math.sqrt(self.x * self.x + self.y * self.y)
+        return (self.x * self.x + self.y * self.y) ** 0.5
     end
 
     static function zero(): Vec2

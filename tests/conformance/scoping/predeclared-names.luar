@@ -1,0 +1,12 @@
+--- expect: compile-ok
+--- spec: §54.1
+export function main()
+    assert(1 + 1 == 2)
+    debugAssert(true)
+    print(Result.Ok(1))
+end
+
+function stop(): never
+    panic("stop")
+    return unreachable()
+end

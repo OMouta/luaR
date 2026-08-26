@@ -121,8 +121,17 @@ pub fn resolve(graph: &Graph) -> (Names, Vec<Diagnostic>) {
 /// The names a module declares, and whether each is exported.
 fn declared(node: &Node) -> Scope {
     let mut scope = Scope::default();
+    declarations(&node.ast.items, &mut scope);
+    scope
+}
 
-    for item in &node.ast.items {
+/// Collects declarations, including the ones inside `#if` (§48).
+///
+/// Every branch contributes. Which one the target selects is decided later,
+/// and a name that only one branch declares is still a name this module can
+/// declare, so leaving the others out would report uses of them as unknown.
+fn declarations(items: &[Item], scope: &mut Scope) {
+    for item in items {
         let (name, exported, span) = match item {
             // A qualified name declares a member of a type (§20, §42), not a
             // name of its own.
@@ -132,6 +141,15 @@ fn declared(node: &Node) -> Scope {
             Item::Interface(i) => (&i.name, i.exported, i.span),
             Item::Extend(e) => (&e.name, e.exported, e.span),
             Item::TypeAlias(a) => (&a.name, a.exported, a.span),
+            Item::Conditional(conditional) => {
+                for (_, items) in &conditional.branches {
+                    declarations(items, scope);
+                }
+                if let Some(items) = &conditional.otherwise {
+                    declarations(items, scope);
+                }
+                continue;
+            }
             _ => continue,
         };
 
@@ -143,8 +161,6 @@ fn declared(node: &Node) -> Scope {
             },
         );
     }
-
-    scope
 }
 
 /// The names a module's imports bring in, reporting the ones the other module

@@ -24,6 +24,9 @@ function divide(a: int, b: int): (int, int)
     return (a // b, a % b)
 end
 
+function connect(host: string, port: int, secure: bool)
+end
+
 export function main()
     connect(host = "localhost", port = 5432, secure = true)
     local (quotient, remainder) = divide(10, 3)
