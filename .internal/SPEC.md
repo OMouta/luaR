@@ -1356,7 +1356,9 @@ An unreachable case, one whose patterns are fully covered by earlier cases, is a
 type UserId = u64
 ```
 
-A type alias is not nominally distinct from its target type.
+A type alias is not nominally distinct from its target type. It stands for its target everywhere: a value of the target goes wherever the alias is written, and every member the target has, it has.
+
+An alias that stands for itself, directly or around a ring of other aliases, names no type and is an error.
 
 ### 17.2 Union Types
 
