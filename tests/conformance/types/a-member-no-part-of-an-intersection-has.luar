@@ -1,0 +1,15 @@
+--- expect: compile-error
+--- code: LR0146
+--- span: 14:12
+--- spec: LR17.3
+interface Named
+    name: string
+end
+
+interface Identified
+    id: u64
+end
+
+function label(entity: Named & Identified): string
+    return entity.nickname
+end

@@ -1,0 +1,15 @@
+--- expect: compile-ok
+--- spec: LR17.3
+--- spec: LR18
+interface Named
+    name: string
+end
+
+interface Identified
+    id: u64
+end
+
+export function label(entity: Named & Identified): string
+    print(entity.id)
+    return entity.name
+end

@@ -1,0 +1,13 @@
+--- expect: compile-ok
+--- spec: LR57
+--- spec: LR17.2
+struct User
+    name: string
+end
+
+export function label(id: string | User): string
+    if id is User then
+        return id.name
+    end
+    return "an id"
+end

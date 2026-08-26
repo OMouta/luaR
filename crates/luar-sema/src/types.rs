@@ -247,6 +247,76 @@ impl Type {
 
     /// Whether a value of type `value` may be used where `self` is wanted.
     ///
+    /// This type with `nil` taken out of it, which is what a value has once
+    /// a nil check has held (LR8, LR57).
+    #[must_use]
+    pub fn without_nil(&self) -> Self {
+        match self {
+            Self::Optional(inner) => inner.as_ref().clone(),
+            Self::Union(members) => {
+                let kept: Vec<Self> = members
+                    .iter()
+                    .filter(|member| !matches!(member, Self::Primitive(Primitive::Nil)))
+                    .cloned()
+                    .collect();
+
+                match kept.len() {
+                    1 => kept.into_iter().next().expect("one member"),
+                    _ => Self::Union(kept),
+                }
+            }
+            other => other.clone(),
+        }
+    }
+
+    /// This type with `taken` removed from it, which is what a value has
+    /// where an `is` test did not hold (LR17.2, LR57).
+    ///
+    /// Only a union has parts to remove. Anything else keeps what it was,
+    /// because a failed test says what the value is not, and that is not a
+    /// type this stage can write down.
+    #[must_use]
+    pub fn without(&self, taken: &Self) -> Self {
+        let Self::Union(members) = self else {
+            return self.clone();
+        };
+
+        let kept: Vec<Self> = members
+            .iter()
+            .filter(|member| *member != taken)
+            .cloned()
+            .collect();
+
+        match kept.len() {
+            1 => kept.into_iter().next().expect("one member"),
+            _ => Self::Union(kept),
+        }
+    }
+
+    /// This type made optional, unless it already is. An optional chain gives
+    /// one absent value however long the chain is, not one per link (LR8).
+    #[must_use]
+    pub fn optional(self) -> Self {
+        if self.is_optional() {
+            self
+        } else {
+            Self::Optional(Box::new(self))
+        }
+    }
+
+    /// Whether `nil` inhabits this type, which is what makes it optional
+    /// however it is written (LR8).
+    #[must_use]
+    pub fn is_optional(&self) -> bool {
+        match self {
+            Self::Optional(_) => true,
+            Self::Union(members) => members
+                .iter()
+                .any(|member| matches!(member, Self::Primitive(Primitive::Nil))),
+            _ => false,
+        }
+    }
+
     /// Answers yes wherever it is unsure, so that reporting `!accepts` reports
     /// only what is definitely wrong.
     #[must_use]

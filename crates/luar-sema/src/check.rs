@@ -39,6 +39,7 @@ pub fn check(graph: &Graph, names: &Names, table: &Table) -> Vec<Diagnostic> {
             scope: id,
             values: vec![HashMap::new()],
             extensions: extensions(names, table, id),
+            narrowed: Vec::new(),
             diagnostics: &mut diagnostics,
         };
         checker.module(&node.ast);
@@ -61,7 +62,27 @@ struct Checker<'a> {
     values: Vec<HashMap<String, Type>>,
     /// The extension blocks this module may reach (LR20).
     extensions: Vec<Extension<'a>>,
+    /// What conditions have proved about names in scope, innermost last
+    /// (LR57). Kept apart from `values` so that a name declared again inside
+    /// a branch is a new name rather than the narrowed one.
+    narrowed: Vec<HashMap<String, Type>>,
     diagnostics: &'a mut Vec<Diagnostic>,
+}
+
+/// A field or property found on a type, and the declaration it came from.
+struct Found {
+    module: ModuleId,
+    owner: String,
+    visibility: Option<Visibility>,
+    ty: Type,
+}
+
+/// What a condition proves about one name where it holds, and where it does
+/// not (LR57).
+struct Narrowing {
+    name: String,
+    when_true: Type,
+    when_false: Type,
 }
 
 /// What a call resolved to.
@@ -447,27 +468,58 @@ impl Checker<'_> {
                 self.declare(binding, held);
             }
             StmtKind::Assign { target, value, .. } => {
-                let wanted = self.expr(target);
+                // LR57: what a branch proved narrows what the name reads as,
+                // and never what may be written to it. The declaration says
+                // that, and the declaration has not changed.
+                let wanted = match &target.kind {
+                    ExprKind::Name(name) => self.unnarrowed(name),
+                    _ => self.expr(target),
+                };
                 let held = self.expr(value);
                 self.expect(&wanted, &held, value.span);
+
+                // LR57: what was proved held for the value that was there,
+                // and the value that is there now was never checked.
+                if let ExprKind::Name(name) = &target.kind {
+                    self.forget(name);
+                }
             }
             StmtKind::If {
                 branches,
                 otherwise,
             } => {
+                // LR57: a later branch is reached only where every earlier
+                // condition failed, and so is the `else`.
+                let mut failed: Vec<Narrowing> = Vec::new();
+
                 for branch in branches {
+                    self.narrow(&failed, false);
                     self.condition(&branch.condition);
+                    let facts = self.facts(&branch.condition);
+
+                    self.narrow(&facts, true);
                     self.block(&branch.body);
+                    self.widen();
+
+                    self.widen();
+                    failed.extend(facts);
                 }
+
                 if let Some(otherwise) = otherwise {
+                    self.narrow(&failed, false);
                     self.block(otherwise);
+                    self.widen();
                 }
             }
             StmtKind::While {
                 condition, body, ..
             } => {
                 self.condition(condition);
+                let facts = self.facts(condition);
+
+                self.narrow(&facts, true);
                 self.block(body);
+                self.widen();
             }
             StmtKind::Repeat { body, until, .. } => {
                 // `until` reads the body's bindings, so it is checked inside
@@ -664,14 +716,15 @@ impl Checker<'_> {
                 optional,
             } => {
                 let held = self.expr(receiver);
-                let member = self.member(&held, name, expr.span);
 
-                // Reaching through `?.` gives nothing where the receiver is
-                // absent, so the result is optional too (LR8).
+                // LR8: `?.` is what reaches through an optional, so it reads
+                // the member off what the optional holds.
                 if *optional {
-                    Type::Optional(Box::new(member))
+                    let member = self.member(&held.without_nil(), name, expr.span);
+                    // The chain gives nothing where the receiver is absent.
+                    member.optional()
                 } else {
-                    member
+                    self.member(&held, name, expr.span)
                 }
             }
             ExprKind::Index {
@@ -817,35 +870,27 @@ impl Checker<'_> {
     /// members need a stage that does not exist yet, and reporting a member
     /// of one as missing would be reporting what the compiler cannot see.
     fn member(&mut self, held: &Type, name: &str, span: Span) -> Type {
-        let Type::Named {
-            module,
-            name: declared,
-            ..
-        } = held
-        else {
+        if !self.settled(held, name, span) {
             return Type::Unresolved;
-        };
-        let Some(structure) = self.table.structure(*module, declared) else {
-            return Type::Unresolved;
-        };
+        }
 
-        if let Some(field) = structure.fields.iter().find(|field| field.name == name) {
-            self.private(field.visibility, *module, declared, name, span);
-            return field.ty.clone();
+        if let Some(found) = self.stored(held, name) {
+            self.private(found.visibility, found.module, &found.owner, name, span);
+            return found.ty;
         }
-        if let Some(property) = structure.properties.iter().find(|field| field.name == name) {
-            self.private(property.visibility, *module, declared, name, span);
-            return property.ty.clone();
-        }
+
+        let Some(owner) = self.known(held) else {
+            return Type::Unresolved;
+        };
 
         // LR89.1: `:` calls a method and `.` reaches fields, and neither
         // spelling is a fallback for the other.
         let mut reported = Diagnostic::error(
             codes::NO_SUCH_MEMBER,
             span,
-            format!("`{declared}` has no member `{name}`"),
+            format!("`{owner}` has no member `{name}`"),
         );
-        if structure.methods.contains_key(name) {
+        if self.has_method(held, name) {
             reported = reported.note(format!(
                 "`{name}` is a method, and a method is called with `:` (LR12.2)."
             ));
@@ -853,6 +898,90 @@ impl Checker<'_> {
         self.diagnostics.push(reported);
 
         Type::Unresolved
+    }
+
+    /// How a diagnostic names `held`, where the compiler knows every member
+    /// it has.
+    ///
+    /// A decorated declaration grows members when expansion lands (LR23.1),
+    /// and everything else is a shape this stage does not model, so a member
+    /// of one is not reported as missing from a surface it cannot see.
+    fn known(&self, held: &Type) -> Option<String> {
+        match held {
+            Type::Intersection(parts) => {
+                let named: Option<Vec<String>> =
+                    parts.iter().map(|part| self.known(part)).collect();
+                Some(named?.join(" & "))
+            }
+            Type::Named {
+                module,
+                name: declared,
+                ..
+            } => match self.table.get(*module, declared)? {
+                Decl::Struct(structure) if !structure.decorated => Some(declared.clone()),
+                Decl::Interface(interface) if !interface.decorated => Some(declared.clone()),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// Whether `name` is a method of `held`, which `.` does not reach
+    /// (LR89.1).
+    fn has_method(&self, held: &Type, name: &str) -> bool {
+        match held {
+            Type::Intersection(parts) => parts.iter().any(|part| self.has_method(part, name)),
+            Type::Named {
+                module,
+                name: declared,
+                ..
+            } => match self.table.get(*module, declared) {
+                Some(Decl::Struct(structure)) => structure.methods.contains_key(name),
+                Some(Decl::Interface(interface)) => interface.methods.contains_key(name),
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+
+    /// The field or property `name` read off `held`, without reporting.
+    ///
+    /// An intersection holds every one of its parts at once (LR17.3), so a
+    /// member of any part is a member of it.
+    fn stored(&self, held: &Type, name: &str) -> Option<Found> {
+        if let Type::Intersection(parts) = held {
+            return parts.iter().find_map(|part| self.stored(part, name));
+        }
+
+        let Type::Named {
+            module,
+            name: declared,
+            ..
+        } = held
+        else {
+            return None;
+        };
+
+        let field = match self.table.get(*module, declared)? {
+            Decl::Struct(structure) => structure
+                .fields
+                .iter()
+                .chain(&structure.properties)
+                .find(|field| field.name == name),
+            // An interface requires properties of its own (LR18).
+            Decl::Interface(interface) => interface
+                .properties
+                .iter()
+                .find(|property| property.name == name),
+            _ => None,
+        }?;
+
+        Some(Found {
+            module: *module,
+            owner: declared.clone(),
+            visibility: field.visibility,
+            ty: field.ty.clone(),
+        })
     }
 
     /// LR20: an extension adds members to a type, and never replaces one the
@@ -998,6 +1127,44 @@ impl Checker<'_> {
             )
             .note("A member written `private` is reachable only in that module (LR44)."),
         );
+    }
+
+    /// Whether it is settled what `held` holds, which is what a member of it
+    /// can be read from (LR8, LR17.2).
+    ///
+    /// An optional might hold nothing, and a union holds one of several
+    /// things with members of its own. Neither answers what `name` is until a
+    /// check has settled which it is (LR57).
+    fn settled(&mut self, held: &Type, name: &str, span: Span) -> bool {
+        if held.is_optional() {
+            self.diagnostics.push(
+                Diagnostic::error(
+                    codes::MEMBER_THROUGH_OPTIONAL,
+                    span,
+                    format!("`{held}` may hold nothing, and `{name}` is read from what it holds"),
+                )
+                .note("Check it with `~= nil` first, or reach through it with `?.` (LR8)."),
+            );
+            return false;
+        }
+
+        if let Type::Union(members) = held {
+            let spellings: Vec<String> = members.iter().map(ToString::to_string).collect();
+            self.diagnostics.push(
+                Diagnostic::error(
+                    codes::MEMBER_THROUGH_UNION,
+                    span,
+                    format!(
+                        "`{held}` holds {}, and each has members of its own",
+                        spellings.join(" or ")
+                    ),
+                )
+                .note("Settle which it is with `is`, or with `match` (LR17.2, LR57)."),
+            );
+            return false;
+        }
+
+        true
     }
 
     /// Checks a call against what it calls, and gives back what it returns.
@@ -1163,6 +1330,10 @@ impl Checker<'_> {
     /// states: the type's own methods, then an interface context, then the
     /// extension blocks in scope.
     fn method(&mut self, receiver: &Type, name: &str, span: Span) -> Option<Overloads> {
+        if !self.settled(receiver, name, span) {
+            return None;
+        }
+
         if let Type::Named {
             module,
             name: declared,
@@ -1410,6 +1581,20 @@ impl Checker<'_> {
     }
 
     fn name(&mut self, name: &str) -> Type {
+        // What a condition proved wins over what the declaration said, for
+        // as long as the branch that proved it lasts (LR57).
+        for scope in self.narrowed.iter().rev() {
+            if let Some(ty) = scope.get(name) {
+                return ty.clone();
+            }
+        }
+
+        self.unnarrowed(name)
+    }
+
+    /// The type `name` was declared with, with nothing a condition proved
+    /// laid over it.
+    fn unnarrowed(&self, name: &str) -> Type {
         for scope in self.values.iter().rev() {
             if let Some(ty) = scope.get(name) {
                 return ty.clone();
@@ -1442,7 +1627,18 @@ impl Checker<'_> {
 
     fn binary(&mut self, op: BinaryOp, op_span: Span, left: &Expr, right: &Expr) -> Type {
         let held_left = self.expr(left);
-        let held_right = self.expr(right);
+
+        // LR11.4, LR57: the right side of `and` runs only where the left
+        // held, so it is checked knowing what the left proved.
+        let held_right = if matches!(op, BinaryOp::And) {
+            let facts = self.facts(left);
+            self.narrow(&facts, true);
+            let held = self.expr(right);
+            self.widen();
+            held
+        } else {
+            self.expr(right)
+        };
 
         match op {
             // LR11.1: `/` is floating-point division, and on two integers it
@@ -1538,6 +1734,9 @@ impl Checker<'_> {
     }
 
     fn bind(&mut self, name: &str, held: Type) {
+        // A name declared again is not the one a condition proved something
+        // about (LR53, LR57).
+        self.forget(name);
         self.values
             .last_mut()
             .expect("a scope is open")
@@ -1550,6 +1749,130 @@ impl Checker<'_> {
 
     fn pop(&mut self) {
         self.values.pop();
+    }
+
+    /// What `condition` proves about the names it tests (LR57).
+    ///
+    /// Only a plain name is narrowed. A field or an element can be changed by
+    /// anything that reaches the value it sits in, so what a check proved
+    /// about one does not survive the next statement.
+    fn facts(&mut self, condition: &Expr) -> Vec<Narrowing> {
+        match &condition.kind {
+            // LR57: a nil check settles whether an optional holds anything.
+            ExprKind::Binary {
+                op: op @ (BinaryOp::Equal | BinaryOp::NotEqual),
+                left,
+                right,
+                ..
+            } => {
+                let Some(name) = tested_against_nil(left, right) else {
+                    return Vec::new();
+                };
+
+                let held = self.name(name);
+                if !held.is_optional() {
+                    return Vec::new();
+                }
+
+                let (present, absent) = (held.without_nil(), Type::Primitive(Primitive::Nil));
+                let (when_true, when_false) = match op {
+                    BinaryOp::NotEqual => (present, absent),
+                    _ => (absent, present),
+                };
+
+                vec![Narrowing {
+                    name: name.to_owned(),
+                    when_true,
+                    when_false,
+                }]
+            }
+            // LR57: `is` settles which member of a union a value holds.
+            ExprKind::TypeTest { value, ty } => {
+                let ExprKind::Name(name) = &value.kind else {
+                    return Vec::new();
+                };
+
+                let held = self.name(name);
+                if matches!(held, Type::Unresolved) {
+                    return Vec::new();
+                }
+
+                // The walk resolved this type already, and reporting it twice
+                // would report one mistake twice.
+                let mut reported = Vec::new();
+                let tested = self.types.resolve(ty, &mut reported);
+
+                vec![Narrowing {
+                    name: name.clone(),
+                    when_true: tested.clone(),
+                    when_false: held.without(&tested),
+                }]
+            }
+            // Both sides hold where `and` does, and the left is what makes
+            // the right safe to write (LR11.4).
+            ExprKind::Binary {
+                op: BinaryOp::And,
+                left,
+                right,
+                ..
+            } => {
+                let mut facts = self.facts(left);
+                self.narrow(&facts, true);
+                let rest = self.facts(right);
+                self.widen();
+
+                facts.extend(rest);
+                facts
+            }
+            ExprKind::Unary {
+                op: UnaryOp::Not,
+                operand,
+            } => self
+                .facts(operand)
+                .into_iter()
+                .map(|fact| Narrowing {
+                    name: fact.name,
+                    when_true: fact.when_false,
+                    when_false: fact.when_true,
+                })
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// Opens a scope where `facts` hold, or where they do not.
+    fn narrow(&mut self, facts: &[Narrowing], when_true: bool) {
+        let mut scope = HashMap::new();
+        for fact in facts {
+            let held = if when_true {
+                &fact.when_true
+            } else {
+                &fact.when_false
+            };
+            scope.insert(fact.name.clone(), held.clone());
+        }
+        self.narrowed.push(scope);
+    }
+
+    fn widen(&mut self) {
+        self.narrowed.pop();
+    }
+
+    /// Drops what was proved about `name`, because the value it holds is no
+    /// longer the one that was checked (LR57).
+    fn forget(&mut self, name: &str) {
+        for scope in &mut self.narrowed {
+            scope.remove(name);
+        }
+    }
+}
+
+/// The name a `x == nil` or `x ~= nil` test is about, whichever side the
+/// `nil` is written on (LR57).
+fn tested_against_nil<'a>(left: &'a Expr, right: &'a Expr) -> Option<&'a str> {
+    match (&left.kind, &right.kind) {
+        (ExprKind::Name(name), ExprKind::Nil) | (ExprKind::Nil, ExprKind::Name(name)) => Some(name),
+        _ => None,
     }
 }
 

@@ -1,0 +1,13 @@
+--- expect: compile-ok
+--- spec: LR57
+--- spec: LR11.4
+struct User
+    name: string
+end
+
+export function greet(user: User?): string
+    if user ~= nil and user.name ~= "" then
+        return user.name
+    end
+    return "nobody"
+end

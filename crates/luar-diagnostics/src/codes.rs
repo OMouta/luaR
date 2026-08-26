@@ -195,6 +195,10 @@ registry! {
         "A call matches one of the overloads its name has.";
     active 159 => AMBIGUOUS_OVERLOAD, "LR40",
         "A call matching more than one overload has no one meaning.";
+    active 160 => MEMBER_THROUGH_OPTIONAL, "LR8",
+        "An optional is narrowed, or reached through `?.`, before a member of it is read.";
+    active 161 => MEMBER_THROUGH_UNION, "LR17.2",
+        "A union is narrowed to one member type before anything only that type has is used.";
 }
 
 #[cfg(test)]
