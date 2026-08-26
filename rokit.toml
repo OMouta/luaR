@@ -1,0 +1,7 @@
+# Tools this repository uses. Install them with `rokit install`.
+#
+# The compiler itself needs only a Rust toolchain. Lute runs `luar.luau`, the
+# task runner, so that the everyday commands are short.
+
+[tools]
+lute = "luau-lang/lute@1.0.0"

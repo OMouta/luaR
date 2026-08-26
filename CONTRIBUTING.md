@@ -6,13 +6,18 @@ changes it, and changing it is its own commit.
 
 ## Setup
 
-Rust 1.85 or newer. That is the only dependency.
+Rust 1.85 or newer builds everything.
 
 ```sh
 git clone https://github.com/OMouta/luaR
 cd luaR
 cargo build
 ```
+
+If you have [Rokit](https://github.com/rojo-rbx/rokit), `rokit install` adds
+[Lute](https://github.com/luau-lang/lute), which runs the task runner in
+`luar.luau`. It only shortens the cargo commands, so skip it if you would
+rather type them out.
 
 ## Tests
 
@@ -23,36 +28,45 @@ carrying the behavior it expects and the spec section it enforces. It runs in
 about 80ms, so run it constantly.
 
 ```sh
-cargo run -p luarc -- test
-cargo run -p luarc -- test strings     # only paths containing "strings"
+lute luar test                          # cargo run -q -p luarc -- test
+lute luar test strings                  # only paths containing "strings"
 ```
 
 The Rust tests cover the compiler's internals: the precedence table, maximal
 munch in the lexer, error recovery, the conformance runner itself.
 
 ```sh
-cargo test --workspace
+lute luar unit                          # cargo test --workspace
 ```
 
-CI runs both, plus format and lint. Clippy warnings fail the build.
+CI runs both, plus format and lint. Clippy warnings fail the build. One command
+runs the lot in the same order, which is what to do before pushing.
 
 ```sh
-cargo fmt --all --check
-cargo clippy --workspace --all-targets -- -D warnings
+lute luar ci
 ```
 
-## luarc
+## Commands
 
-```sh
-cargo run -p luarc -- check file.luar   # lex, parse, print diagnostics
-cargo run -p luarc -- test [filter]     # the conformance suite
-cargo run -p luarc -- coverage          # spec sections no test cites
-cargo run -p luarc -- run file.luar     # exits 2, there is no backend
-```
+Each one is a cargo command underneath. `lute luar` with no argument lists
+them.
+
+| Task | Cargo |
+| --- | --- |
+| `lute luar check file.luar` | `cargo run -q -p luarc -- check file.luar` |
+| `lute luar test [filter]` | `cargo run -q -p luarc -- test [filter]` |
+| `lute luar coverage` | `cargo run -q -p luarc -- coverage` |
+| `lute luar run file.luar` | `cargo run -q -p luarc -- run file.luar` |
+| `lute luar build` | `cargo build --workspace` |
+| `lute luar unit` | `cargo test --workspace` |
+| `lute luar fmt` | `cargo fmt --all` |
+| `lute luar lint` | `cargo clippy --workspace --all-targets -- -D warnings` |
+| `lute luar ci` | format, lint, unit tests, conformance |
 
 `check` reaches the syntax tree and stops, because that is where the compiler
 stops. It will reject more programs as name resolution and type checking land,
-so a file that passes today may not later.
+so a file that passes today may not later. `run` exits 2, because there is no
+backend.
 
 ## Writing a conformance test
 
