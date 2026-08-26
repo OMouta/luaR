@@ -167,6 +167,8 @@ registry! {
         "A condition and the operands of `and`, `or`, and `not` have type `bool`.";
     active 145 => TYPE_MISMATCH, "LR5.1",
         "A binding declared with a type takes values of that type.";
+    active 146 => NO_SUCH_MEMBER, "LR12.2",
+        "A field read from a value must be one the type declares.";
 }
 
 #[cfg(test)]

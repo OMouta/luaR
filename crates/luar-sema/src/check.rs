@@ -11,29 +11,32 @@
 //! stages that answer them exist, and an unresolved type never causes a
 //! diagnostic. What is reported is what the compiler can be sure of today.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use luar_ast::{
     ArmBody, BinaryOp, Binding, Block, Expr, ExprKind, Function, FunctionBody, InterpolationPart,
     Item, MapKey, MatchArm, Member, Module, Param, Pattern, PatternKind, Payload, Property, Stmt,
-    StmtKind, Struct, TypeKind, UnaryOp,
+    StmtKind, Struct, UnaryOp,
 };
 use luar_diagnostics::{Diagnostic, Span, codes};
 
+use crate::annotations::Resolver;
 use crate::modules::{Graph, ModuleId};
 use crate::names::{Names, Origin, bound};
+use crate::table::{Decl, Field, Signature, Table};
 use crate::types::{Builtin, Primitive, Type};
 
 /// Checks the types of every module in `graph`.
 #[must_use]
-pub fn check(graph: &Graph, names: &Names) -> Vec<Diagnostic> {
+pub fn check(graph: &Graph, names: &Names, table: &Table) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
     for (id, node) in graph.modules() {
         let mut checker = Checker {
-            module: names,
+            names,
+            table,
+            types: Resolver::new(names, table.kinds(), id),
             scope: id,
-            parameters: Vec::new(),
             values: vec![HashMap::new()],
             diagnostics: &mut diagnostics,
         };
@@ -44,10 +47,15 @@ pub fn check(graph: &Graph, names: &Names) -> Vec<Diagnostic> {
 }
 
 struct Checker<'a> {
-    module: &'a Names,
+    names: &'a Names,
+    /// What every declaration is. A type written in a declaration was
+    /// resolved when the table was built, so the checker reads it from there
+    /// rather than resolving it a second time.
+    table: &'a Table,
+    /// Resolves the types written inside a body, which the table does not
+    /// hold.
+    types: Resolver<'a>,
     scope: ModuleId,
-    /// The type parameters of the declarations being walked (LR19).
-    parameters: Vec<HashSet<String>>,
     /// What each name in scope holds, innermost last.
     values: Vec<HashMap<String, Type>>,
     diagnostics: &'a mut Vec<Diagnostic>,
@@ -62,50 +70,29 @@ impl Checker<'_> {
 
     fn item(&mut self, item: &Item) {
         match item {
-            Item::Function(function) => self.function(function),
+            // A declaration the table holds was resolved when the table was
+            // built, so its body is checked against what is recorded there.
+            Item::Function(function) => {
+                let signature = match function.name.as_slice() {
+                    [name] => self.table.signature(self.scope, name).cloned(),
+                    _ => None,
+                };
+                self.body(function, signature.as_ref(), None);
+            }
             Item::Struct(structure) => self.structure(structure),
-            Item::Enum(enumeration) => {
-                self.enter(&enumeration.type_params);
-                for variant in &enumeration.variants {
-                    match &variant.payload {
-                        None => {}
-                        Some(luar_ast::VariantPayload::Tuple(types)) => {
-                            for ty in types {
-                                self.resolve(ty);
-                            }
-                        }
-                        Some(luar_ast::VariantPayload::Record(fields)) => {
-                            for field in fields {
-                                self.resolve(&field.ty);
-                            }
-                        }
-                    }
-                }
-                self.leave();
-            }
-            Item::Interface(interface) => {
-                self.enter(&interface.type_params);
-                for member in &interface.members {
-                    match member {
-                        luar_ast::InterfaceMember::Function(function) => self.function(function),
-                        luar_ast::InterfaceMember::Property { ty, .. } => {
-                            self.resolve(ty);
-                        }
-                    }
-                }
-                self.leave();
-            }
             Item::Extend(extend) => {
-                self.resolve(&extend.target);
+                let methods = match self.table.get(self.scope, &extend.name) {
+                    Some(Decl::Extension { methods, .. }) => methods.clone(),
+                    _ => Default::default(),
+                };
                 for function in &extend.functions {
-                    self.function(function);
+                    let signature = function.name.last().and_then(|name| methods.get(name));
+                    self.body(function, signature, None);
                 }
             }
-            Item::TypeAlias(alias) => {
-                self.enter(&alias.type_params);
-                self.resolve(&alias.target);
-                self.leave();
-            }
+            // Nothing of these is written outside their own types, which the
+            // table already read.
+            Item::Enum(_) | Item::Interface(_) | Item::TypeAlias(_) => {}
             Item::Conditional(conditional) => {
                 for (_, items) in &conditional.branches {
                     for item in items {
@@ -122,56 +109,101 @@ impl Checker<'_> {
     }
 
     fn structure(&mut self, structure: &Struct) {
-        self.enter(&structure.type_params);
+        let Some(declared) = self.table.structure(self.scope, &structure.name).cloned() else {
+            return;
+        };
 
-        for implemented in &structure.implements {
-            self.resolve(implemented);
-        }
+        // LR65: `self` in a member is the type the member is declared in.
+        let receiver = Type::Named {
+            module: self.scope,
+            name: structure.name.clone(),
+            args: structure
+                .type_params
+                .iter()
+                .map(|param| Type::Parameter(param.clone()))
+                .collect(),
+        };
+
+        self.types.enter(&structure.type_params);
 
         for member in &structure.members {
             match member {
                 Member::Field(field) => {
-                    let declared = self.resolve(&field.ty);
                     if let Some(default) = &field.default {
                         let value = self.expr(default);
-                        self.expect(&declared, &value, default.span);
+                        let wanted = field_type(&declared.fields, &field.name);
+                        self.expect(&wanted, &value, default.span);
                     }
                 }
-                Member::Function(function) => self.function(function),
-                Member::Property(property) => self.property(property),
+                Member::Function(function) => {
+                    let signature = function
+                        .name
+                        .last()
+                        .and_then(|name| declared.methods.get(name))
+                        .cloned();
+                    self.body(function, signature.as_ref(), Some(receiver.clone()));
+                }
+                Member::Property(property) => {
+                    let held = field_type(&declared.properties, &property.name);
+                    self.property(property, held, receiver.clone());
+                }
             }
         }
 
-        self.leave();
+        self.types.leave();
     }
 
-    fn property(&mut self, property: &Property) {
-        let declared = self.resolve(&property.ty);
-
+    /// A property reads and writes one type, and its accessors take no
+    /// parameters of their own (LR43, LR65).
+    fn property(&mut self, property: &Property, held: Type, receiver: Type) {
         self.push();
-        self.bind("self", Type::Unresolved);
+        self.bind("self", receiver.clone());
         self.block(&property.get);
         self.pop();
 
         if let Some(setter) = &property.set {
             self.push();
-            self.bind("self", Type::Unresolved);
-            self.bind(&setter.param, declared);
+            self.bind("self", receiver);
+            self.bind(&setter.param, held);
             self.block(&setter.body);
             self.pop();
         }
     }
 
-    fn function(&mut self, function: &Function) {
-        self.enter(&function.type_params);
+    /// Checks a function body against its signature.
+    ///
+    /// A signature the table holds was resolved once, when the table was
+    /// built. One it does not hold, such as a method written outside the type
+    /// it belongs to, is resolved here instead, and so is resolved once too.
+    fn body(&mut self, function: &Function, signature: Option<&Signature>, receiver: Option<Type>) {
+        self.types.enter(&function.type_params);
         self.push();
 
-        for param in &function.params {
-            self.param(param);
+        if let Some(receiver) = receiver {
+            self.bind("self", receiver);
         }
-        if let Some(result) = &function.result {
-            self.resolve(result);
+
+        let offset = usize::from(signature.is_some_and(|signature| signature.takes_self));
+        for (index, param) in function.params.iter().enumerate() {
+            let declared = match signature {
+                Some(signature) => index
+                    .checked_sub(offset)
+                    .and_then(|index| signature.params.get(index))
+                    .map_or(Type::Unresolved, |param| param.ty.clone()),
+                None => match &param.ty {
+                    Some(ty) => self.resolve(ty),
+                    None => Type::Unresolved,
+                },
+            };
+            self.param(param, declared);
         }
+
+        if signature.is_none() {
+            if let Some(result) = &function.result {
+                self.resolve(result);
+            }
+        }
+
         if let Some(body) = &function.body {
             for stmt in &body.stmts {
                 self.stmt(stmt);
@@ -179,18 +211,13 @@ impl Checker<'_> {
         }
 
         self.pop();
-        self.leave();
+        self.types.leave();
     }
 
-    /// Binds a parameter to its declared type. One without an annotation is
-    /// inferred from the call site, which needs a stage that does not exist
-    /// yet, so it holds an unresolved type rather than a wrong one (LR7).
-    fn param(&mut self, param: &Param) {
-        let declared = match &param.ty {
-            Some(ty) => self.resolve(ty),
-            None => Type::Unresolved,
-        };
-
+    /// Binds a parameter. One without an annotation is inferred from the call
+    /// site, which needs a stage that does not exist yet, so it holds an
+    /// unresolved type rather than a wrong one (LR7).
+    fn param(&mut self, param: &Param, declared: Type) {
         if let Some(default) = &param.default {
             let value = self.expr(default);
             self.expect(&declared, &value, default.span);
@@ -451,24 +478,34 @@ impl Checker<'_> {
             }
             ExprKind::Call {
                 callee,
+                method,
                 type_args,
                 args,
-                ..
             } => {
                 for ty in type_args {
                     self.resolve(ty);
                 }
-                self.expr(callee);
+                let receiver = self.expr(callee);
                 for arg in args {
                     self.expr(&arg.value);
                 }
-                // What a call returns needs the signatures of every callable,
-                // which is the table the next stage builds.
-                Type::Unresolved
+                self.returns(callee, method.as_deref(), &receiver)
             }
-            ExprKind::Field { receiver, .. } => {
-                self.expr(receiver);
-                Type::Unresolved
+            ExprKind::Field {
+                receiver,
+                name,
+                optional,
+            } => {
+                let held = self.expr(receiver);
+                let member = self.member(&held, name, expr.span);
+
+                // Reaching through `?.` gives nothing where the receiver is
+                // absent, so the result is optional too (LR8).
+                if *optional {
+                    Type::Optional(Box::new(member))
+                } else {
+                    member
+                }
             }
             ExprKind::Index {
                 receiver, index, ..
@@ -518,12 +555,14 @@ impl Checker<'_> {
                     members.push((field.name.clone(), value));
                 }
 
-                // A path names the type being built, and what that type holds
-                // is the next stage's table.
+                // LR12.2: a path names the type being built. Without one the
+                // literal is a structural record (LR12.1).
                 if path.is_empty() {
                     Type::Record(members)
                 } else {
-                    Type::Unresolved
+                    self.types
+                        .named(path, Vec::new())
+                        .unwrap_or(Type::Unresolved)
                 }
             }
             ExprKind::Map(entries) => {
@@ -544,11 +583,12 @@ impl Checker<'_> {
                 self.push();
                 let mut types = Vec::with_capacity(params.len());
                 for param in params {
-                    self.param(param);
-                    types.push(match &param.ty {
+                    let declared = match &param.ty {
                         Some(ty) => self.resolve(ty),
                         None => Type::Unresolved,
-                    });
+                    };
+                    self.param(param, declared.clone());
+                    types.push(declared);
                 }
 
                 let returns = match result {
@@ -593,6 +633,95 @@ impl Checker<'_> {
                 Type::Unresolved
             }
             ExprKind::Error => Type::Unresolved,
+        }
+    }
+
+    /// The type of `name` read from a value of type `held`.
+    ///
+    /// Only a struct is taken apart here. Everything else is a shape whose
+    /// members need a stage that does not exist yet, and reporting a member
+    /// of one as missing would be reporting what the compiler cannot see.
+    fn member(&mut self, held: &Type, name: &str, span: Span) -> Type {
+        let Type::Named {
+            module,
+            name: declared,
+            ..
+        } = held
+        else {
+            return Type::Unresolved;
+        };
+        let Some(structure) = self.table.structure(*module, declared) else {
+            return Type::Unresolved;
+        };
+
+        if let Some(field) = structure.fields.iter().find(|field| field.name == name) {
+            return field.ty.clone();
+        }
+        if let Some(property) = structure.properties.iter().find(|field| field.name == name) {
+            return property.ty.clone();
+        }
+
+        // LR89.1: `:` calls a method and `.` reaches fields, and neither
+        // spelling is a fallback for the other.
+        let mut reported = Diagnostic::error(
+            codes::NO_SUCH_MEMBER,
+            span,
+            format!("`{declared}` has no member `{name}`"),
+        );
+        if structure.methods.contains_key(name) {
+            reported = reported.note(format!(
+                "`{name}` is a method, and a method is called with `:` (LR12.2)."
+            ));
+        }
+        self.diagnostics.push(reported);
+
+        Type::Unresolved
+    }
+
+    /// What a call gives back: the result of the method being called, or of
+    /// the function the callee names.
+    fn returns(&mut self, callee: &Expr, method: Option<&str>, receiver: &Type) -> Type {
+        if let Some(method) = method {
+            let Type::Named { module, name, .. } = receiver else {
+                return Type::Unresolved;
+            };
+            return match self.table.structure(*module, name) {
+                Some(structure) => structure
+                    .methods
+                    .get(method)
+                    .map_or(Type::Unresolved, |signature| signature.result.clone()),
+                None => Type::Unresolved,
+            };
+        }
+
+        // A call through anything but a plain name reaches a value whose type
+        // this stage does not follow yet.
+        let ExprKind::Name(name) = &callee.kind else {
+            return Type::Unresolved;
+        };
+
+        // A local holding a function shadows a declaration of the same name.
+        if self
+            .values
+            .iter()
+            .rev()
+            .any(|scope| scope.contains_key(name))
+        {
+            return Type::Unresolved;
+        }
+
+        let declared = match self.names.scope(self.scope).get(name).map(|b| &b.origin) {
+            Some(Origin::Declared { .. }) => Some((self.scope, name.clone())),
+            Some(Origin::Imported { module, name }) => Some((*module, name.clone())),
+            _ => None,
+        };
+
+        match declared {
+            Some((module, name)) => self
+                .table
+                .signature(module, &name)
+                .map_or(Type::Unresolved, |signature| signature.result.clone()),
+            None => Type::Unresolved,
         }
     }
 
@@ -694,88 +823,9 @@ impl Checker<'_> {
         }
     }
 
-    /// Resolves a written type, reporting a path that names no type (LR54).
+    /// Resolves a type written inside a body.
     fn resolve(&mut self, ty: &luar_ast::Type) -> Type {
-        match &ty.kind {
-            TypeKind::Path { segments, args } => {
-                let args: Vec<Type> = args.iter().map(|arg| self.resolve(arg)).collect();
-                self.path(segments, args, ty.span)
-            }
-            TypeKind::Optional(inner) => Type::Optional(Box::new(self.resolve(inner))),
-            TypeKind::Union(members) => {
-                Type::Union(members.iter().map(|m| self.resolve(m)).collect())
-            }
-            TypeKind::Intersection(members) => {
-                Type::Intersection(members.iter().map(|m| self.resolve(m)).collect())
-            }
-            TypeKind::Tuple(members) => {
-                Type::Tuple(members.iter().map(|m| self.resolve(m)).collect())
-            }
-            TypeKind::Function {
-                asynchronous,
-                params,
-                result,
-            } => Type::Function {
-                asynchronous: *asynchronous,
-                params: params.iter().map(|p| self.resolve(p)).collect(),
-                result: Box::new(self.resolve(result)),
-            },
-            TypeKind::Array { element, .. } => Type::Array(Box::new(self.resolve(element))),
-            TypeKind::Pointer { mutable, target } => Type::Pointer {
-                mutable: *mutable,
-                target: Box::new(self.resolve(target)),
-            },
-            TypeKind::Record(fields) => Type::Record(
-                fields
-                    .iter()
-                    .map(|field| (field.name.clone(), self.resolve(&field.ty)))
-                    .collect(),
-            ),
-            TypeKind::Error => Type::Unresolved,
-        }
-    }
-
-    /// What a path in a type names.
-    ///
-    /// A qualified path reaches into another module, and only the module part
-    /// is checked: which of its names are types is decided with the table the
-    /// next stage builds.
-    fn path(&mut self, segments: &[String], args: Vec<Type>, span: Span) -> Type {
-        let Some(name) = segments.first() else {
-            return Type::Unresolved;
-        };
-
-        if segments.len() == 1 {
-            if let Some(primitive) = Primitive::from_name(name) {
-                return Type::Primitive(primitive);
-            }
-            if let Some(kind) = Builtin::from_name(name) {
-                return Type::Builtin { kind, args };
-            }
-            if self.parameters.iter().any(|scope| scope.contains(name)) {
-                return Type::Parameter(name.clone());
-            }
-        }
-
-        match self.module.scope(self.scope).get(name).map(|b| &b.origin) {
-            Some(Origin::Declared { .. }) if segments.len() == 1 => Type::Named {
-                module: self.scope,
-                name: name.clone(),
-                args,
-            },
-            Some(Origin::Declared { .. } | Origin::Imported { .. } | Origin::Namespace(_)) => {
-                Type::Unresolved
-            }
-            // A module-level value is a value, whatever it is called.
-            Some(Origin::Binding { .. }) | None => {
-                self.diagnostics.push(Diagnostic::error(
-                    codes::UNKNOWN_TYPE,
-                    span,
-                    format!("`{name}` does not name a type"),
-                ));
-                Type::Unresolved
-            }
-        }
+        self.types.resolve(ty, self.diagnostics)
     }
 
     /// Reports a value that cannot be what it is declared to be (LR5.1).
@@ -816,14 +866,6 @@ impl Checker<'_> {
 
     fn pop(&mut self) {
         self.values.pop();
-    }
-
-    fn enter(&mut self, parameters: &[String]) {
-        self.parameters.push(parameters.iter().cloned().collect());
-    }
-
-    fn leave(&mut self) {
-        self.parameters.pop();
     }
 }
 
@@ -868,4 +910,13 @@ fn article(ty: &Type) -> String {
         Type::IntegerLiteral(_) | Type::FloatLiteral | Type::Unresolved => ty.to_string(),
         other => format!("`{other}`"),
     }
+}
+
+/// The type of the member called `name`, or unresolved where the type has no
+/// such member. A missing member is reported where it is read, not here.
+fn field_type(fields: &[Field], name: &str) -> Type {
+    fields
+        .iter()
+        .find(|field| field.name == name)
+        .map_or(Type::Unresolved, |field| field.ty.clone())
 }
