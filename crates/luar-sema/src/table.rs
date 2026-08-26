@@ -73,7 +73,13 @@ pub struct Signature {
     /// `private` narrows a method to its module (LR44). Only a member has
     /// one; a free function is reached through its module surface instead.
     pub visibility: Option<Visibility>,
+    /// The declaration this came from, which is what tells two overloads of
+    /// one name apart (LR40).
+    pub span: Span,
 }
+
+/// Every signature one name has (LR40). One is the ordinary case.
+pub type Overloads = Vec<Signature>;
 
 #[derive(Debug, Clone)]
 pub struct Param {
@@ -104,7 +110,7 @@ pub struct StructType {
     pub fields: Vec<Field>,
     /// Computed members, which read like fields (LR43).
     pub properties: Vec<Field>,
-    pub methods: BTreeMap<String, Signature>,
+    pub methods: BTreeMap<String, Overloads>,
     /// The interfaces it claims to implement (LR18).
     pub implements: Vec<Type>,
     /// Whether a decorator is written on it (LR23). Expansion can add members
@@ -142,7 +148,7 @@ pub enum Variant {
 pub struct InterfaceType {
     pub structural: bool,
     pub type_params: Vec<String>,
-    pub methods: BTreeMap<String, Signature>,
+    pub methods: BTreeMap<String, Overloads>,
     pub properties: Vec<Field>,
     /// Whether a decorator is written on it. See [`StructType::decorated`].
     pub decorated: bool,
@@ -158,11 +164,11 @@ pub enum Decl {
         type_params: Vec<String>,
         target: Type,
     },
-    Function(Signature),
+    Function(Overloads),
     /// The methods an extension adds, and what it adds them to (LR20).
     Extension {
         target: Type,
-        methods: BTreeMap<String, Signature>,
+        methods: BTreeMap<String, Overloads>,
     },
 }
 
@@ -187,10 +193,11 @@ impl Table {
         }
     }
 
+    /// Every signature the free function `name` has (LR40).
     #[must_use]
-    pub fn signature(&self, module: ModuleId, name: &str) -> Option<&Signature> {
+    pub fn overloads(&self, module: ModuleId, name: &str) -> Option<&Overloads> {
         match self.get(module, name)? {
-            Decl::Function(signature) => Some(signature),
+            Decl::Function(overloads) => Some(overloads),
             _ => None,
         }
     }
@@ -220,6 +227,7 @@ pub fn build(graph: &Graph, names: &Names) -> (Table, Vec<Diagnostic>) {
         declare(
             &node.ast.items,
             module,
+            false,
             &mut resolver,
             &mut decls,
             &mut diagnostics,
@@ -233,6 +241,7 @@ pub fn build(graph: &Graph, names: &Names) -> (Table, Vec<Diagnostic>) {
         attach(
             &node.ast.items,
             module,
+            false,
             names,
             &mut resolver,
             &mut decls,
@@ -282,16 +291,30 @@ fn kinds_of(items: &[Item], module: ModuleId, kinds: &mut Kinds) {
 fn declare(
     items: &[Item],
     module: ModuleId,
+    branching: bool,
     resolver: &mut Resolver,
     decls: &mut BTreeMap<(ModuleId, String), Decl>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     for item in items {
+        // LR40: a name may have several signatures, so a function adds to
+        // the set the name already has rather than replacing it.
+        if let Item::Function(function) = item
+            && function.name.len() == 1
+        {
+            let name = &function.name[0];
+            let signature = signature(function, None, resolver, diagnostics);
+            let entry = decls
+                .entry((module, name.clone()))
+                .or_insert_with(|| Decl::Function(Overloads::new()));
+
+            if let Decl::Function(overloads) = entry {
+                overload(overloads, name, signature, branching, diagnostics);
+            }
+            continue;
+        }
+
         let (name, decl) = match item {
-            Item::Function(function) if function.name.len() == 1 => (
-                function.name[0].clone(),
-                Decl::Function(signature(function, None, resolver, diagnostics)),
-            ),
             Item::Struct(structure) => {
                 resolver.enter(&structure.type_params);
 
@@ -310,14 +333,27 @@ fn declare(
                         },
                     };
 
-                    // LR12.2: one namespace over fields, properties, and
-                    // methods, and the first declaration is the one every
-                    // later stage sees.
-                    if let Some(first) = seen.get(name.as_str()) {
-                        diagnostics.push(duplicate(&structure.name, name, span, Some(*first)));
+                    // LR12.2: fields, properties, and methods share one
+                    // namespace. Only two methods may share a name, and only
+                    // as overloads of one member (LR40).
+                    let held = match member {
+                        Member::Function { .. } => seen.get(name.as_str()).copied(),
+                        _ => seen.get(name.as_str()).copied().or_else(|| {
+                            methods
+                                .get(name.as_str())
+                                .and_then(|overloads: &Overloads| overloads.first())
+                                .map(|signature| signature.span)
+                        }),
+                    };
+
+                    if let Some(first) = held {
+                        diagnostics.push(duplicate(&structure.name, name, span, Some(first)));
                         continue;
                     }
-                    seen.insert(name, span);
+
+                    if !matches!(member, Member::Function { .. }) {
+                        seen.insert(name, span);
+                    }
 
                     match member {
                         Member::Field(field) => fields.push(Field {
@@ -337,9 +373,12 @@ fn declare(
                             function,
                         } => {
                             if let Some(name) = function.name.last() {
-                                methods.insert(
-                                    name.clone(),
+                                overload(
+                                    methods.entry(name.clone()).or_default(),
+                                    name,
                                     signature(function, *visibility, resolver, diagnostics),
+                                    false,
+                                    diagnostics,
                                 );
                             }
                         }
@@ -415,9 +454,12 @@ fn declare(
                     match member {
                         luar_ast::InterfaceMember::Function(function) => {
                             if let Some(name) = function.name.last() {
-                                methods.insert(
-                                    name.clone(),
+                                overload(
+                                    methods.entry(name.clone()).or_default(),
+                                    name,
                                     signature(function, None, resolver, diagnostics),
+                                    false,
+                                    diagnostics,
                                 );
                             }
                         }
@@ -460,12 +502,15 @@ fn declare(
             }
             Item::Extend(extend) => {
                 let target = resolver.resolve(&extend.target, diagnostics);
-                let mut methods = BTreeMap::new();
+                let mut methods: BTreeMap<String, Overloads> = BTreeMap::new();
                 for function in &extend.functions {
                     if let Some(name) = function.name.last() {
-                        methods.insert(
-                            name.clone(),
+                        overload(
+                            methods.entry(name.clone()).or_default(),
+                            name,
                             signature(function, None, resolver, diagnostics),
+                            false,
+                            diagnostics,
                         );
                     }
                 }
@@ -474,10 +519,10 @@ fn declare(
             }
             Item::Conditional(conditional) => {
                 for (_, items) in &conditional.branches {
-                    declare(items, module, resolver, decls, diagnostics);
+                    declare(items, module, true, resolver, decls, diagnostics);
                 }
                 if let Some(items) = &conditional.otherwise {
-                    declare(items, module, resolver, decls, diagnostics);
+                    declare(items, module, true, resolver, decls, diagnostics);
                 }
                 continue;
             }
@@ -486,6 +531,53 @@ fn declare(
 
         decls.entry((module, name)).or_insert(decl);
     }
+}
+
+/// Adds `signature` to the set `name` already has, unless one already there
+/// cannot be told apart from it (LR40).
+/// `branching` says the declaration sits inside `#if` (LR48), where every
+/// branch is read but one is selected. Two branches writing one declaration
+/// are the same declaration twice over, not two overloads, so the first is
+/// kept and nothing is reported.
+fn overload(
+    overloads: &mut Overloads,
+    name: &str,
+    signature: Signature,
+    branching: bool,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    if let Some(first) = overloads
+        .iter()
+        .find(|held| indistinguishable(held, &signature))
+    {
+        if branching {
+            return;
+        }
+
+        diagnostics.push(
+            Diagnostic::error(
+                codes::INDISTINGUISHABLE_OVERLOADS,
+                signature.span,
+                format!("`{name}` already has an overload taking these parameters"),
+            )
+            .label(first.span, "the one it cannot be told apart from")
+            .note("Overloads differ in their parameters, and a result tells two apart (LR40)."),
+        );
+        return;
+    }
+
+    overloads.push(signature);
+}
+
+/// LR40: two signatures are told apart by their parameters, and by nothing
+/// else. A result is not a parameter.
+fn indistinguishable(left: &Signature, right: &Signature) -> bool {
+    left.params.len() == right.params.len()
+        && left
+            .params
+            .iter()
+            .zip(&right.params)
+            .all(|(left, right)| left.ty == right.ty)
 }
 
 /// A member declared twice (LR12.2). The first one is the one that stands.
@@ -506,6 +598,7 @@ fn duplicate(owner: &str, name: &str, span: Span, first: Option<Span>) -> Diagno
 fn attach(
     items: &[Item],
     module: ModuleId,
+    branching: bool,
     names: &Names,
     resolver: &mut Resolver,
     decls: &mut BTreeMap<(ModuleId, String), Decl>,
@@ -516,10 +609,10 @@ fn attach(
             Item::Function(function) if function.name.len() == 2 => function,
             Item::Conditional(conditional) => {
                 for (_, items) in &conditional.branches {
-                    attach(items, module, names, resolver, decls, diagnostics);
+                    attach(items, module, true, names, resolver, decls, diagnostics);
                 }
                 if let Some(items) = &conditional.otherwise {
-                    attach(items, module, names, resolver, decls, diagnostics);
+                    attach(items, module, true, names, resolver, decls, diagnostics);
                 }
                 continue;
             }
@@ -554,14 +647,27 @@ fn attach(
 
         // LR12.2: attaching a method the type already has declares one member
         // twice, however far apart the two are written.
-        // The body's span is not kept in the table, so the second one is
-        // where this points; the type it names is right there in the name.
-        if structure.has_member(name) {
+        // A field or a property is not a method, so the two cannot overload
+        // (LR12.2). Their spans are not kept in the table, so this points at
+        // the attachment, which names the type it clashes with.
+        let stored = structure.fields.iter().any(|field| field.name == *name)
+            || structure
+                .properties
+                .iter()
+                .any(|property| property.name == *name);
+
+        if stored {
             diagnostics.push(duplicate(owner, name, function.span, None));
             continue;
         }
 
-        structure.methods.insert(name.clone(), signature);
+        overload(
+            structure.methods.entry(name.clone()).or_default(),
+            name,
+            signature,
+            branching,
+            diagnostics,
+        );
     }
 }
 
@@ -614,5 +720,6 @@ fn signature(
         result,
         takes_self,
         visibility,
+        span: function.span,
     }
 }

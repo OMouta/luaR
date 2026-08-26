@@ -1,0 +1,17 @@
+--- expect: compile-ok
+--- spec: LR40
+function render(value: string): int
+    return 1
+end
+
+function render(value: bool): int
+    return 2
+end
+
+function render(value: string, times: int): int
+    return times
+end
+
+export function main()
+    print(render("x"), render(true), render("x", 3))
+end

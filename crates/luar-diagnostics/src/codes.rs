@@ -189,6 +189,12 @@ registry! {
         "A type declares each member once, whether written in its body or attached outside it.";
     active 156 => NO_SUCH_METHOD, "LR76",
         "A method called on a value is one the type declares or an extension block in scope adds.";
+    active 157 => INDISTINGUISHABLE_OVERLOADS, "LR40",
+        "Overloads of one name differ in their parameters; a result does not tell two apart.";
+    active 158 => NO_MATCHING_OVERLOAD, "LR40",
+        "A call matches one of the overloads its name has.";
+    active 159 => AMBIGUOUS_OVERLOAD, "LR40",
+        "A call matching more than one overload has no one meaning.";
 }
 
 #[cfg(test)]

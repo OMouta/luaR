@@ -1,0 +1,15 @@
+--- expect: compile-error
+--- code: LR0158
+--- span: 14:12
+--- spec: LR40
+function render(value: string): int
+    return 1
+end
+
+function render(value: bool): int
+    return 2
+end
+
+function use(): int
+    return render(1.5)
+end

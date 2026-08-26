@@ -23,7 +23,7 @@ use luar_diagnostics::{Diagnostic, Span, codes};
 use crate::annotations::Resolver;
 use crate::modules::{Graph, ModuleId};
 use crate::names::{Names, Origin, bound};
-use crate::table::{Decl, Field, Signature, Table};
+use crate::table::{Decl, Field, Overloads, Signature, Table};
 use crate::types::{Builtin, Primitive, Type};
 
 /// Checks the types of every module in `graph`.
@@ -66,11 +66,96 @@ struct Checker<'a> {
 
 /// What a call resolved to.
 struct Callee {
-    signature: Signature,
+    /// What the call writes, for a diagnostic to name.
+    name: String,
+    /// Every signature that name has (LR40).
+    overloads: Overloads,
     /// Where the call names the type or the block, the type the receiver
     /// takes as the first argument (LR12.2). `point:length()` is
     /// `Vec2.length(point)` written out, and both are checked the same way.
     receiver: Option<Type>,
+}
+
+/// How a call lines up with one signature (LR9.1, LR9.4, LR9.5, LR9.6).
+struct Fit {
+    /// The parameter each argument fills, where it fills one.
+    slots: Vec<Option<usize>>,
+    /// Whether every parameter needing an argument got one, and none spilled.
+    counted: bool,
+}
+
+impl Fit {
+    /// Whether every argument may be what the parameter it fills declares,
+    /// which is what makes a signature a candidate (LR40).
+    fn accepts(&self, signature: &Signature, held: &[Type]) -> bool {
+        self.counted
+            && self.slots.iter().zip(held).all(|(slot, held)| match slot {
+                Some(index) => signature.params[*index].ty.accepts(held),
+                None => false,
+            })
+    }
+}
+
+/// Lines a call up with one signature, without reporting anything.
+fn fit(signature: &Signature, args: &[Argument]) -> Fit {
+    let params = &signature.params;
+    let variadic = params.last().is_some_and(|param| param.variadic);
+    let mut filled = vec![false; params.len()];
+    let mut slots = Vec::with_capacity(args.len());
+    let mut position = 0;
+
+    for argument in args {
+        let index = match &argument.name {
+            // LR9.5: a named argument names a parameter.
+            Some(name) => params.iter().position(|param| &param.name == name),
+            None => {
+                let index = position;
+                position += 1;
+                // Everything from a variadic onward goes to it (LR9.6).
+                Some(index.min(params.len().saturating_sub(1)))
+                    .filter(|_| index < params.len() || (variadic && !params.is_empty()))
+            }
+        };
+
+        if let Some(index) = index {
+            filled[index] = true;
+        }
+        slots.push(index);
+    }
+
+    let missing = params
+        .iter()
+        .zip(&filled)
+        .any(|(param, filled)| !param.optional && !filled);
+
+    Fit {
+        slots,
+        counted: variadic || (!missing && position <= params.len()),
+    }
+}
+
+/// Whether the overloads of one method take `self`, which every overload of
+/// one method does or none does (LR65).
+fn takes_self(overloads: &Overloads) -> bool {
+    overloads
+        .first()
+        .is_some_and(|signature| signature.takes_self)
+}
+
+/// Types as a diagnostic writes them, comma separated.
+fn list(types: &[Type]) -> String {
+    types
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// The signature the declaration at `span` produced, out of the overloads its
+/// name has (LR40). A body is checked against its own signature, not against
+/// whichever one happens to be first.
+fn written(overloads: Option<&Overloads>, span: Span) -> Option<&Signature> {
+    overloads?.iter().find(|signature| signature.span == span)
 }
 
 /// An extension block a module can use, under the name that module knows it
@@ -78,7 +163,7 @@ struct Callee {
 struct Extension<'a> {
     name: &'a str,
     target: &'a Type,
-    methods: &'a BTreeMap<String, Signature>,
+    methods: &'a BTreeMap<String, Overloads>,
 }
 
 /// The extension blocks in scope in `module`: the ones it declares and the
@@ -123,17 +208,18 @@ impl Checker<'_> {
             Item::Function(function) => {
                 // LR20: a qualified name writes a member of the type it
                 // names, so its body reads `self` as that type.
-                let (signature, receiver) = match function.name.as_slice() {
-                    [name] => (self.table.signature(self.scope, name).cloned(), None),
+                let (overloads, receiver) = match function.name.as_slice() {
+                    [name] => (self.table.overloads(self.scope, name), None),
                     [owner, name] => match self.table.structure(self.scope, owner) {
-                        Some(structure) => (
-                            structure.methods.get(name).cloned(),
-                            Some(self.receiver(owner)),
-                        ),
+                        Some(structure) => {
+                            (structure.methods.get(name), Some(self.receiver(owner)))
+                        }
                         None => (None, None),
                     },
                     _ => (None, None),
                 };
+
+                let signature = written(overloads, function.span).cloned();
                 self.body(function, signature.as_ref(), receiver);
             }
             Item::Struct(structure) => self.structure(structure),
@@ -152,7 +238,8 @@ impl Checker<'_> {
                         Type::Unresolved => None,
                         target => Some(target.clone()),
                     };
-                    self.body(function, name.and_then(|name| methods.get(name)), receiver);
+                    let signature = written(name.and_then(|name| methods.get(name)), function.span);
+                    self.body(function, signature, receiver);
                 }
             }
             // Nothing of these is written outside their own types, which the
@@ -212,11 +299,11 @@ impl Checker<'_> {
                     }
                 }
                 Member::Function { function, .. } => {
-                    let signature = function
+                    let overloads = function
                         .name
                         .last()
-                        .and_then(|name| declared.methods.get(name))
-                        .cloned();
+                        .and_then(|name| declared.methods.get(name));
+                    let signature = written(overloads, function.span).cloned();
                     self.body(function, signature.as_ref(), Some(receiver.clone()));
                 }
                 Member::Property(property) => {
@@ -803,19 +890,19 @@ impl Checker<'_> {
     ///
     /// Two of them offering it is reported here rather than at either block,
     /// because each block is fine on its own and only this call has to pick.
-    fn extension(&mut self, receiver: &Type, name: &str, span: Span) -> Option<Signature> {
-        let mut found: Vec<(&str, Signature)> = self
+    fn extension(&mut self, receiver: &Type, name: &str, span: Span) -> Option<Overloads> {
+        let mut found: Vec<(&str, Overloads)> = self
             .extensions
             .iter()
             .filter(|extension| extension.target == receiver)
             .filter_map(|extension| {
-                let signature = extension.methods.get(name)?;
-                Some((extension.name, signature.clone()))
+                let overloads = extension.methods.get(name)?;
+                Some((extension.name, overloads.clone()))
             })
             .collect();
 
         if found.len() < 2 {
-            return found.pop().map(|(_, signature)| signature);
+            return found.pop().map(|(_, overloads)| overloads);
         }
 
         let blocks: Vec<String> = found
@@ -926,32 +1013,112 @@ impl Checker<'_> {
         args: &[Argument],
         span: Span,
     ) -> Type {
-        let Some(resolved) = self.signature_of(callee, method, receiver, span) else {
-            // The arguments are still expressions, and whatever is wrong
-            // inside them is wrong whoever is being called.
-            for argument in args {
-                self.expr(&argument.value);
-            }
+        let resolved = self.signature_of(callee, method, receiver, span);
+
+        // The arguments are expressions whoever is being called, and whatever
+        // is wrong inside one is wrong before any overload is picked.
+        let held: Vec<Type> = args
+            .iter()
+            .map(|argument| self.expr(&argument.value))
+            .collect();
+
+        let Some(resolved) = resolved else {
             return Type::Unresolved;
         };
 
         // LR12.2: naming the type writes the call out in full, so `self` is
         // an ordinary first argument and is counted and checked as one.
-        let mut signature = resolved.signature;
+        let mut overloads = resolved.overloads;
         if let Some(receiver) = resolved.receiver {
-            signature.params.insert(
-                0,
-                crate::table::Param {
-                    name: "self".to_owned(),
-                    ty: receiver,
-                    optional: false,
-                    variadic: false,
-                },
-            );
+            for signature in &mut overloads {
+                signature.params.insert(
+                    0,
+                    crate::table::Param {
+                        name: "self".to_owned(),
+                        ty: receiver.clone(),
+                        optional: false,
+                        variadic: false,
+                    },
+                );
+            }
         }
 
-        self.arguments(&signature, args, span);
+        // One signature reports against itself, which says more about what is
+        // wrong than a list of candidates ever could.
+        let signature = match overloads.len() {
+            0 => None,
+            1 => overloads.into_iter().next(),
+            _ => self.overload(&resolved.name, &overloads, args, &held, span),
+        };
+
+        let Some(signature) = signature else {
+            return Type::Unresolved;
+        };
+
+        self.arguments(&signature, args, &held, span);
         signature.result
+    }
+
+    /// LR40: a call resolves to exactly one overload.
+    ///
+    /// An argument whose type this stage does not know would fit every
+    /// candidate, so a call holding one is left alone rather than reported as
+    /// ambiguous against a surface the compiler cannot see.
+    fn overload(
+        &mut self,
+        name: &str,
+        overloads: &[Signature],
+        args: &[Argument],
+        held: &[Type],
+        span: Span,
+    ) -> Option<Signature> {
+        let matching: Vec<&Signature> = overloads
+            .iter()
+            .filter(|signature| fit(signature, args).accepts(signature, held))
+            .collect();
+
+        if let [only] = matching.as_slice() {
+            return Some((*only).clone());
+        }
+
+        if held.iter().any(|held| matches!(held, Type::Unresolved)) {
+            return None;
+        }
+
+        let (code, message) = if matching.is_empty() {
+            (
+                codes::NO_MATCHING_OVERLOAD,
+                format!("no overload of `{name}` takes ({})", list(held)),
+            )
+        } else {
+            (
+                codes::AMBIGUOUS_OVERLOAD,
+                format!("({}) fits more than one overload of `{name}`", list(held)),
+            )
+        };
+
+        // Nothing matching means every overload is worth naming; more than
+        // one means only the ones that fit are.
+        let candidates: Vec<&Signature> = if matching.is_empty() {
+            overloads.iter().collect()
+        } else {
+            matching
+        };
+
+        let mut reported = Diagnostic::error(code, span, message);
+        for signature in candidates {
+            let params: Vec<Type> = signature
+                .params
+                .iter()
+                .map(|param| param.ty.clone())
+                .collect();
+            reported = reported.label(signature.span, format!("takes ({})", list(&params)));
+        }
+
+        self.diagnostics
+            .push(reported.note("Overloads are told apart by their parameters (LR40)."));
+
+        None
     }
 
     /// The signature of what is being called, where the table holds one.
@@ -963,16 +1130,17 @@ impl Checker<'_> {
         span: Span,
     ) -> Option<Callee> {
         if let Some(method) = method {
-            let signature = self.method(receiver, method, span)?;
             return Some(Callee {
-                signature,
+                name: method.to_owned(),
+                overloads: self.method(receiver, method, span)?,
                 receiver: None,
             });
         }
 
         match &callee.kind {
             ExprKind::Name(name) => Some(Callee {
-                signature: self.declared(name)?,
+                name: name.clone(),
+                overloads: self.declared(name)?,
                 receiver: None,
             }),
             // LR12.2, LR42, LR76: `Owner.name(...)` is a method call written
@@ -994,7 +1162,7 @@ impl Checker<'_> {
     /// The method `name` on a value of type `receiver`, in the order LR76
     /// states: the type's own methods, then an interface context, then the
     /// extension blocks in scope.
-    fn method(&mut self, receiver: &Type, name: &str, span: Span) -> Option<Signature> {
+    fn method(&mut self, receiver: &Type, name: &str, span: Span) -> Option<Overloads> {
         if let Type::Named {
             module,
             name: declared,
@@ -1006,24 +1174,31 @@ impl Checker<'_> {
                 // same name, so adding one shadows the extension rather than
                 // changing what a call already meant.
                 Some(Decl::Struct(structure)) => {
-                    if let Some(signature) = structure.methods.get(name).cloned() {
-                        self.private(signature.visibility, *module, declared, name, span);
-                        return Some(signature);
+                    if let Some(overloads) = structure.methods.get(name).cloned() {
+                        // Where every overload is private, no call from
+                        // outside can reach any of them (LR44).
+                        let hidden = overloads
+                            .iter()
+                            .all(|signature| signature.visibility == Some(Visibility::Private));
+                        if hidden {
+                            self.private(Some(Visibility::Private), *module, declared, name, span);
+                        }
+                        return Some(overloads);
                     }
                 }
                 // A value of interface type dispatches over what the
                 // interface requires (LR18.1).
                 Some(Decl::Interface(interface)) => {
-                    if let Some(signature) = interface.methods.get(name).cloned() {
-                        return Some(signature);
+                    if let Some(overloads) = interface.methods.get(name).cloned() {
+                        return Some(overloads);
                     }
                 }
                 _ => {}
             }
         }
 
-        if let Some(signature) = self.extension(receiver, name, span) {
-            return Some(signature);
+        if let Some(overloads) = self.extension(receiver, name, span) {
+            return Some(overloads);
         }
 
         self.no_such_method(receiver, name, span);
@@ -1105,7 +1280,7 @@ impl Checker<'_> {
     ///
     /// A callee this stage cannot name a signature for is left alone: a
     /// closure held in a local, or a predeclared name.
-    fn declared(&self, name: &str) -> Option<Signature> {
+    fn declared(&self, name: &str) -> Option<Overloads> {
         // A local holding a function shadows a declaration of the same name.
         if self.shadowed(name) {
             return None;
@@ -1117,7 +1292,7 @@ impl Checker<'_> {
             _ => return None,
         };
 
-        self.table.signature(module, &name).cloned()
+        self.table.overloads(module, &name).cloned()
     }
 
     /// What `Owner.name(...)` calls: a member of the type `Owner` names, or a
@@ -1136,10 +1311,11 @@ impl Checker<'_> {
             .iter()
             .find(|extension| extension.name == owner)
         {
-            let signature = extension.methods.get(name)?.clone();
-            let receiver = signature.takes_self.then(|| extension.target.clone());
+            let overloads = extension.methods.get(name)?.clone();
+            let receiver = takes_self(&overloads).then(|| extension.target.clone());
             return Some(Callee {
-                signature,
+                name: name.to_owned(),
+                overloads,
                 receiver,
             });
         }
@@ -1150,22 +1326,29 @@ impl Checker<'_> {
             _ => return None,
         };
 
-        let signature = self
+        let overloads = self
             .table
             .structure(module, &owner)?
             .methods
             .get(name)?
             .clone();
-        self.private(signature.visibility, module, &owner, name, span);
 
-        let receiver = signature.takes_self.then(|| Type::Named {
+        let hidden = overloads
+            .iter()
+            .all(|signature| signature.visibility == Some(Visibility::Private));
+        if hidden {
+            self.private(Some(Visibility::Private), module, &owner, name, span);
+        }
+
+        let receiver = takes_self(&overloads).then(|| Type::Named {
             module,
-            name: owner,
+            name: owner.clone(),
             args: Vec::new(),
         });
 
         Some(Callee {
-            signature,
+            name: name.to_owned(),
+            overloads,
             receiver,
         })
     }
@@ -1181,60 +1364,37 @@ impl Checker<'_> {
 
     /// LR9.1: every parameter without a default takes an argument, and every
     /// argument has its parameter's type.
-    fn arguments(&mut self, signature: &Signature, args: &[Argument], span: Span) {
+    fn arguments(&mut self, signature: &Signature, args: &[Argument], held: &[Type], span: Span) {
         let params = &signature.params;
-        let variadic = params.last().is_some_and(|param| param.variadic);
-        let mut filled = vec![false; params.len()];
-        let mut position = 0;
+        let lined_up = fit(signature, args);
 
-        for argument in args {
-            let held = self.expr(&argument.value);
-
-            let index = match &argument.name {
-                // LR9.5: a named argument names a parameter.
-                Some(name) => params.iter().position(|param| &param.name == name),
-                None => {
-                    let index = position;
-                    position += 1;
-                    // Everything from a variadic onward goes to it (LR9.6).
-                    Some(index.min(params.len().saturating_sub(1)))
-                        .filter(|_| index < params.len() || (variadic && !params.is_empty()))
-                }
-            };
-
-            if let Some(index) = index {
-                filled[index] = true;
-                self.expect_argument(&params[index].ty, &held, argument.value.span);
+        for ((argument, slot), held) in args.iter().zip(&lined_up.slots).zip(held) {
+            if let Some(index) = slot {
+                self.expect_argument(&params[*index].ty, held, argument.value.span);
             }
         }
 
-        if variadic {
+        if lined_up.counted {
             return;
         }
 
         let wanted = params.iter().filter(|param| !param.optional).count();
-        let missing = params
-            .iter()
-            .zip(&filled)
-            .any(|(param, filled)| !param.optional && !filled);
+        let given = args.len();
 
-        if missing || position > params.len() {
-            let given = args.len();
-            self.diagnostics.push(Diagnostic::error(
-                codes::ARGUMENT_COUNT,
-                span,
-                format!(
-                    "this call passes {given} {}, and {} {wanted} {}",
-                    plural(given, "argument"),
-                    if params.len() == wanted {
-                        "takes"
-                    } else {
-                        "needs at least"
-                    },
-                    plural(wanted, "argument"),
-                ),
-            ));
-        }
+        self.diagnostics.push(Diagnostic::error(
+            codes::ARGUMENT_COUNT,
+            span,
+            format!(
+                "this call passes {given} {}, and {} {wanted} {}",
+                plural(given, "argument"),
+                if params.len() == wanted {
+                    "takes"
+                } else {
+                    "needs at least"
+                },
+                plural(wanted, "argument"),
+            ),
+        ));
     }
 
     fn expect_argument(&mut self, wanted: &Type, held: &Type, span: Span) {

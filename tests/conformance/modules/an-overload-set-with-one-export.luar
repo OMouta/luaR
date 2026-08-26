@@ -1,0 +1,8 @@
+--- expect: compile-ok
+--- spec: LR40
+--- spec: LR21.1
+import { render } from "./support/formats"
+
+export function main()
+    print(render("x"))
+end

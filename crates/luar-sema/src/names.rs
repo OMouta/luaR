@@ -11,6 +11,7 @@
 //! scoping (LR54).
 
 use std::collections::BTreeMap;
+use std::collections::btree_map::Entry;
 
 use luar_ast::{Binding as Bound, Import, ImportNames, Item, StmtKind};
 use luar_diagnostics::{Diagnostic, Span, codes};
@@ -43,6 +44,14 @@ pub enum Origin {
     Namespace(ModuleId),
 }
 
+/// Whether an origin puts its name on the module surface (LR21).
+fn exported(origin: &Origin) -> bool {
+    matches!(
+        origin,
+        Origin::Declared { exported: true } | Origin::Binding { exported: true }
+    )
+}
+
 /// The top-level names of one module.
 #[derive(Debug, Default)]
 pub struct Scope {
@@ -64,10 +73,8 @@ impl Scope {
     /// Whether an importing module may name `name` (LR21).
     #[must_use]
     pub fn exports(&self, name: &str) -> bool {
-        matches!(
-            self.get(name).map(|binding| &binding.origin),
-            Some(Origin::Declared { exported: true } | Origin::Binding { exported: true })
-        )
+        self.get(name)
+            .is_some_and(|binding| exported(&binding.origin))
     }
 
     /// Binds `name`, unless it is already bound.
@@ -75,8 +82,21 @@ impl Scope {
     /// Two declarations of one name at module level is not a rule stated yet,
     /// and keeping the first is what makes the later stages see one binding
     /// rather than the last one written.
+    ///
+    /// Exporting is the exception. A name may be declared more than once
+    /// legitimately, because overloads share one (LR40), and exporting any of
+    /// them puts the name on the module's surface.
     fn bind(&mut self, name: String, binding: Binding) {
-        self.names.entry(name).or_insert(binding);
+        match self.names.entry(name) {
+            Entry::Vacant(slot) => {
+                slot.insert(binding);
+            }
+            Entry::Occupied(mut slot) => {
+                if exported(&binding.origin) && !exported(&slot.get().origin) {
+                    slot.insert(binding);
+                }
+            }
+        }
     }
 }
 

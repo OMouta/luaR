@@ -1,0 +1,7 @@
+function render(value: bool): string
+    return "bool"
+end
+
+export function render(value: string): string
+    return value
+end
