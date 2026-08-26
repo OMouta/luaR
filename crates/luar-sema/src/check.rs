@@ -105,6 +105,58 @@ struct Fit {
     counted: bool,
 }
 
+/// What one case of a match covers (LR16.4).
+enum Covers {
+    /// Every value, which is what a wildcard and a bare binding match.
+    Anything,
+    /// One case of a closed type, named as a pattern writes it.
+    Case(String),
+}
+
+/// What `pattern` covers, where that is something this stage can name.
+///
+/// A pattern that only sometimes matches, such as a literal or a variant
+/// whose payload is itself matched, covers nothing that can be counted.
+fn covers(pattern: &Pattern) -> Option<Covers> {
+    match &pattern.kind {
+        PatternKind::Wildcard | PatternKind::Binding(_) => Some(Covers::Anything),
+        PatternKind::Path { segments, payload } => {
+            let bound = match payload {
+                None => true,
+                Some(Payload::Tuple(patterns)) => patterns.iter().all(irrefutable),
+                // `...` is what lets the unlisted fields be anything, and
+                // every listed one still has to match nothing in particular.
+                Some(Payload::Record { fields, rest }) => {
+                    *rest
+                        && fields.iter().all(|field| match &field.pattern {
+                            Some(pattern) => irrefutable(pattern),
+                            None => true,
+                        })
+                }
+            };
+
+            bound.then(|| Covers::Case(segments.join(".")))
+        }
+        // `true` and `false` are the cases of `bool`, and are written as
+        // literals rather than as a path.
+        PatternKind::Literal(literal) => match &literal.kind {
+            ExprKind::Bool(value) => Some(Covers::Case(value.to_string())),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Whether `pattern` matches whatever it is given, so that it rules nothing
+/// out (LR16.2).
+fn irrefutable(pattern: &Pattern) -> bool {
+    match &pattern.kind {
+        PatternKind::Wildcard | PatternKind::Binding(_) => true,
+        PatternKind::Tuple(patterns) => patterns.iter().all(irrefutable),
+        _ => false,
+    }
+}
+
 /// Whether two signatures are the same to a caller: same parameters, same
 /// result, and the same about `self` and `async` (LR18, LR40).
 fn same_signature(left: &Signature, right: &Signature) -> bool {
@@ -574,10 +626,11 @@ impl Checker<'_> {
             }
             StmtKind::Unsafe(body) => self.block(body),
             StmtKind::Match { scrutinee, arms } => {
-                self.expr(scrutinee);
+                let held = self.expr(scrutinee);
                 for arm in arms {
                     self.arm(arm);
                 }
+                self.exhaustive(&held, arms, scrutinee.span);
             }
             StmtKind::Return(value) => {
                 if let Some(value) = value {
@@ -589,6 +642,122 @@ impl Checker<'_> {
             }
             StmtKind::Break(_) | StmtKind::Continue(_) | StmtKind::Error => {}
         }
+    }
+
+    /// LR16.4: a match over a closed type covers every value it can hold, and
+    /// a case an earlier one already covers never runs.
+    ///
+    /// A guard can fail, so a guarded case covers nothing. Coverage of the
+    /// payload of a variant is not worked out here, so a variant counts as
+    /// covered only where its payload is matched by names and wildcards.
+    fn exhaustive(&mut self, scrutinee: &Type, arms: &[MatchArm], span: Span) {
+        let mut covered: BTreeMap<String, Span> = BTreeMap::new();
+        let mut anything: Option<Span> = None;
+
+        for arm in arms {
+            if let Some(first) = anything {
+                self.diagnostics.push(
+                    Diagnostic::error(
+                        codes::UNREACHABLE_CASE,
+                        arm.pattern.span,
+                        "this case never runs",
+                    )
+                    .label(first, "everything is already covered here")
+                    .note("A case an earlier one covers is an error, not a warning (LR16.4)."),
+                );
+                continue;
+            }
+
+            if arm.guard.is_some() {
+                continue;
+            }
+
+            match covers(&arm.pattern) {
+                Some(Covers::Anything) => anything = Some(arm.pattern.span),
+                Some(Covers::Case(name)) => {
+                    if let Some(first) = covered.get(&name) {
+                        self.diagnostics.push(
+                            Diagnostic::error(
+                                codes::UNREACHABLE_CASE,
+                                arm.pattern.span,
+                                format!("`{name}` is covered already"),
+                            )
+                            .label(*first, "covered here")
+                            .note(
+                                "A case an earlier one covers is an error, not a warning (LR16.4).",
+                            ),
+                        );
+                    } else {
+                        covered.insert(name, arm.pattern.span);
+                    }
+                }
+                None => {}
+            }
+        }
+
+        // A scrutinee this stage cannot type could hold anything, so what a
+        // match over it leaves out is not knowable here.
+        if anything.is_some() || matches!(scrutinee, Type::Unresolved) {
+            return;
+        }
+
+        let Some(closed) = self.closed(scrutinee) else {
+            // LR16.4: what is not closed cannot be covered case by case.
+            self.diagnostics.push(
+                Diagnostic::error(
+                    codes::MATCH_NOT_EXHAUSTIVE,
+                    span,
+                    format!("`{scrutinee}` holds more than this match covers"),
+                )
+                .note("A value that is not one of a fixed set needs `case _` (LR16.4)."),
+            );
+            return;
+        };
+
+        let missing: Vec<String> = closed
+            .into_iter()
+            .filter(|case| !covered.contains_key(case))
+            .collect();
+
+        if missing.is_empty() {
+            return;
+        }
+
+        let spellings: Vec<String> = missing.iter().map(|case| format!("`{case}`")).collect();
+        self.diagnostics.push(
+            Diagnostic::error(
+                codes::MATCH_NOT_EXHAUSTIVE,
+                span,
+                format!("this match does not cover {}", spellings.join(", ")),
+            )
+            .note("A match over a closed type covers every value of it (LR16.4)."),
+        );
+    }
+
+    /// Every case a closed type has, spelled as a pattern writes it (LR16.4).
+    ///
+    /// Enums and `bool` are the closed types this stage can list. An integer,
+    /// a string, and a list are not closed at all, and the rest wait for the
+    /// coverage rules over tuples and records.
+    fn closed(&self, scrutinee: &Type) -> Option<Vec<String>> {
+        if *scrutinee == Type::BOOL {
+            return Some(vec!["true".to_owned(), "false".to_owned()]);
+        }
+
+        let Type::Named { module, name, .. } = scrutinee else {
+            return None;
+        };
+        let Decl::Enum(enumeration) = self.table.get(*module, name)? else {
+            return None;
+        };
+
+        Some(
+            enumeration
+                .variants
+                .keys()
+                .map(|variant| format!("{name}.{variant}"))
+                .collect(),
+        )
     }
 
     fn arm(&mut self, arm: &MatchArm) {
@@ -856,10 +1025,11 @@ impl Checker<'_> {
                 }
             }
             ExprKind::Match { scrutinee, arms } => {
-                self.expr(scrutinee);
+                let held = self.expr(scrutinee);
                 for arm in arms {
                     self.arm(arm);
                 }
+                self.exhaustive(&held, arms, scrutinee.span);
                 Type::Unresolved
             }
             ExprKind::If {

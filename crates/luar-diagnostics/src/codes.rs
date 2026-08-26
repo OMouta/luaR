@@ -203,6 +203,10 @@ registry! {
         "A type saying it implements an interface has every member that interface requires.";
     active 163 => STRUCTURAL_PROPERTY, "LR18",
         "A structural interface states behavior, and claims nothing about stored layout.";
+    active 164 => MATCH_NOT_EXHAUSTIVE, "LR16.4",
+        "A match covers every value its scrutinee can hold.";
+    active 165 => UNREACHABLE_CASE, "LR16.4",
+        "A case an earlier one already covers never runs.";
 }
 
 #[cfg(test)]

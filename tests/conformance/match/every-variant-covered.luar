@@ -1,0 +1,19 @@
+--- expect: compile-ok
+--- spec: LR16.4
+enum Message
+    Quit
+    Write(string)
+    Move { x: int, y: int }
+end
+
+export function handle(message: Message): string
+    match message
+        case Message.Quit
+            return "quit"
+        case Message.Write(text)
+            return text
+        case Message.Move { x, y, ... }
+            return "move"
+    end
+    return "?"
+end
