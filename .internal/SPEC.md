@@ -2368,7 +2368,7 @@ Properties are part of the core language rather than a library pattern for one r
 
 To keep that from becoming a license for hidden work, a property:
 
-- must not be observably fallible, and should not panic;
+- must not be observably fallible, which means its type is not a `Result` (LR25.1), and should not panic;
 - must be cheap enough that callers can treat it as field access;
 - must be idempotent, returning the same value for unchanged inputs;
 - must not be `async`.
