@@ -12,7 +12,7 @@
 
 use std::collections::BTreeMap;
 
-use luar_ast::{Import, ImportNames, Item};
+use luar_ast::{Binding as Bound, Import, ImportNames, Item, StmtKind};
 use luar_diagnostics::{Diagnostic, Span, codes};
 
 use crate::modules::{Graph, ModuleId, Node};
@@ -28,7 +28,14 @@ pub struct Binding {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Origin {
     /// Declared in this module. Private to it unless exported (§21).
+    ///
+    /// A declaration is in scope throughout the module, which is what lets
+    /// two functions call each other.
     Declared { exported: bool },
+    /// A module-level `local` or `const` (§21.3), in scope from where it is
+    /// written onward rather than throughout. Only a `const` is exportable
+    /// (§52).
+    Binding { exported: bool },
     /// One name from another module, under the name it has here, which `as`
     /// may have changed (§21.1).
     Imported { module: ModuleId, name: String },
@@ -59,7 +66,7 @@ impl Scope {
     pub fn exports(&self, name: &str) -> bool {
         matches!(
             self.get(name).map(|binding| &binding.origin),
-            Some(Origin::Declared { exported: true })
+            Some(Origin::Declared { exported: true } | Origin::Binding { exported: true })
         )
     }
 
@@ -147,6 +154,28 @@ fn declarations(items: &[Item], scope: &mut Scope) {
                 }
                 if let Some(items) = &conditional.otherwise {
                     declarations(items, scope);
+                }
+                continue;
+            }
+            // A module-level binding is a name of the module too (§21.3), and
+            // a `const` may be exported (§52).
+            Item::Stmt(stmt) => {
+                let (binding, exported) = match &stmt.kind {
+                    StmtKind::Local { binding, .. } => (binding, false),
+                    StmtKind::Const {
+                        binding, exported, ..
+                    } => (binding, *exported),
+                    _ => continue,
+                };
+
+                for name in bound(binding) {
+                    scope.bind(
+                        name,
+                        Binding {
+                            origin: Origin::Binding { exported },
+                            span: stmt.span,
+                        },
+                    );
                 }
                 continue;
             }
@@ -247,4 +276,22 @@ fn imports(node: &Node) -> impl Iterator<Item = &Import> {
         Item::Import(import) => Some(import),
         _ => None,
     })
+}
+
+/// The names a binding binds, in the order written (§5.3).
+pub(crate) fn bound(binding: &Bound) -> Vec<String> {
+    match binding {
+        Bound::Name(name) => vec![name.clone()],
+        Bound::Record(fields) => fields
+            .iter()
+            .map(|field| {
+                field
+                    .bound_as
+                    .clone()
+                    .unwrap_or_else(|| field.field.clone())
+            })
+            .collect(),
+        Bound::Tuple(bindings) => bindings.iter().flat_map(bound).collect(),
+        Bound::Error => Vec::new(),
+    }
 }

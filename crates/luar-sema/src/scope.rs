@@ -23,7 +23,7 @@ use luar_ast::{
 use luar_diagnostics::{Diagnostic, Span, codes};
 
 use crate::modules::Graph;
-use crate::names::Names;
+use crate::names::{Names, Origin, bound};
 
 /// The names in scope in every module, with no import (§54.1).
 ///
@@ -468,10 +468,23 @@ impl Resolver<'_> {
         }
     }
 
+    /// Whether `name` is bound where it is being read.
+    ///
+    /// A declaration and an import are in scope throughout the module. A
+    /// module-level `local` or `const` is in scope from where it is written
+    /// onward, so it is found in the first frame, once the walk has passed it.
     fn in_scope(&self, name: &str) -> bool {
-        self.frames.iter().any(|frame| frame.contains(name))
-            || self.module.scope(self.scope).get(name).is_some()
-            || PREDECLARED.contains(&name)
+        if self.frames.iter().any(|frame| frame.contains(name)) {
+            return true;
+        }
+
+        let module = self
+            .module
+            .scope(self.scope)
+            .get(name)
+            .is_some_and(|binding| !matches!(binding.origin, Origin::Binding { .. }));
+
+        module || PREDECLARED.contains(&name)
     }
 
     fn bind(&mut self, name: &str) {
@@ -495,23 +508,5 @@ impl Resolver<'_> {
             span,
             format!("`{name}` is not in scope"),
         ));
-    }
-}
-
-/// The names a binding binds, in the order written (§5.3).
-fn bound(binding: &Binding) -> Vec<String> {
-    match binding {
-        Binding::Name(name) => vec![name.clone()],
-        Binding::Record(fields) => fields
-            .iter()
-            .map(|field| {
-                field
-                    .bound_as
-                    .clone()
-                    .unwrap_or_else(|| field.field.clone())
-            })
-            .collect(),
-        Binding::Tuple(bindings) => bindings.iter().flat_map(bound).collect(),
-        Binding::Error => Vec::new(),
     }
 }

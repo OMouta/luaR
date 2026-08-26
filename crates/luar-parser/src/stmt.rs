@@ -182,6 +182,7 @@ fn constant(cursor: &mut Cursor) -> StmtKind {
         binding,
         ty,
         value: expr::expression(cursor),
+        exported: false,
     }
 }
 

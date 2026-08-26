@@ -66,6 +66,7 @@ fn item(cursor: &mut Cursor) -> Option<Item> {
 
     let decorators = decorators(cursor);
     let mark = cursor.mark();
+    let export_span = cursor.span();
     let exported = cursor.eat_keyword(Keyword::Export);
 
     // §12.4, §31: `const` and `ref` say how a struct is copied, and
@@ -106,6 +107,17 @@ fn item(cursor: &mut Cursor) -> Option<Item> {
         return Some(Item::Interface(interface(
             cursor, start, decorators, exported, structural,
         )));
+    }
+
+    // §52: `export` reaches a `const` value, and mutable module state stays
+    // in the module that owns it.
+    if exported
+        && matches!(
+            cursor.kind(),
+            TokenKind::Keyword(Keyword::Const | Keyword::Local)
+        )
+    {
+        return Some(Item::Stmt(exported_binding(cursor, export_span)));
     }
 
     cursor.rewind(mark);
@@ -196,6 +208,33 @@ fn import_names(cursor: &mut Cursor, opened: Span) -> Vec<ImportName> {
 
     cursor.close(TokenKind::RightBrace, opened, "}");
     names
+}
+
+/// A module-level binding written after `export` (§52).
+///
+/// A `const` is exported. A `local` is mutable module state, which is
+/// reported and then read anyway, so the rest of the module still parses.
+fn exported_binding(cursor: &mut Cursor, export_span: Span) -> luar_ast::Stmt {
+    if cursor.kind() == TokenKind::Keyword(Keyword::Local) {
+        let here = cursor.span();
+        cursor
+            .error(
+                codes::EXPORTED_MUTABLE_STATE,
+                here,
+                "mutable module state cannot be exported",
+            )
+            .label(export_span, "this is what exports it")
+            .note(
+                "A module exposes state it owns through functions, which gives it \
+                 somewhere to put validation and synchronization (§52).",
+            );
+    }
+
+    let mut stmt = stmt::statement(cursor);
+    if let luar_ast::StmtKind::Const { exported, .. } = &mut stmt.kind {
+        *exported = true;
+    }
+    stmt
 }
 
 /// A function declaration, if one starts here.

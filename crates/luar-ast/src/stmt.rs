@@ -43,6 +43,9 @@ pub enum StmtKind {
         binding: Binding,
         ty: Option<Type>,
         value: Expr,
+        /// `export const` at module level. Mutable state is not exportable,
+        /// so a `const` is the only binding this can be true of (§52).
+        exported: bool,
     },
     /// `x = 1`, and the compound forms (§5.4). `op` is the operator a
     /// compound assignment applies, and is absent for a plain `=`.

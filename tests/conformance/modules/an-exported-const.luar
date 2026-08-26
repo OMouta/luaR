@@ -1,0 +1,10 @@
+--- expect: compile-ok
+--- spec: §21.1
+--- spec: §52
+import { version } from "./support/config"
+
+const fallback = version
+
+export function main()
+    print(version, fallback)
+end

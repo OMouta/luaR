@@ -157,6 +157,8 @@ registry! {
         "Assignment declares nothing; the name must already be in scope.";
     active 140 => PARAMETER_REDECLARED, "§53",
         "A parameter list names each parameter once.";
+    active 141 => EXPORTED_MUTABLE_STATE, "§52",
+        "`export` reaches declarations and `const` values, and not mutable state.";
 }
 
 #[cfg(test)]
