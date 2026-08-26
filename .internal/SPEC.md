@@ -3679,6 +3679,12 @@ binding         = identifier
 
 assignment      = lvalue assign_op expression ;
 
+lvalue          = identifier
+                | postfix_expr "." identifier
+                | postfix_expr "[" expression "]" ;
+
+expression_stmt = expression ;       (* whose outermost operation is a call *)
+
 assign_op       = "=" | "+=" | "-=" | "*=" | "/=" | "//=" | "%="
                 | "**=" | "&=" | "|=" | "^=" | "<<=" | ">>=" ;
 
@@ -3806,6 +3812,8 @@ The rule cannot take a comparison away from a program that has one. `a < b > (c)
 **Ranges versus concatenation and float literals.** `..`, `..<`, and `..=` are three distinct tokens (§10.4). Bare `..` is always concatenation and no range is spelled with it. `0..<10` cannot lex as a float because `0.` requires a following digit.
 
 **Tuple types versus function types.** A parenthesized type list is a tuple unless `->` follows it (§14).
+
+**Expression statements.** A statement that is an expression must be one whose outermost operation is a call: `f(x)`, `x:method()`, `await f(x)`, and either of those with `?`. Anything else computes a value and discards it, which is a mistake rather than a program, and the most common one is a compound assignment that does not exist: `text ..= suffix` is a range (§10.4) evaluated for nothing, not a concatenation (§5.4).
 
 **Match arm extent.** A `match` uses block arms or `=>` arms throughout, never both (§16.1), so a block arm ends unambiguously at the next `case` or at `end`.
 
