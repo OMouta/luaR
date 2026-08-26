@@ -82,6 +82,8 @@ pub struct Signature {
     /// The declaration this came from, which is what tells two overloads of
     /// one name apart (LR40).
     pub span: Span,
+    /// Whether the result was left for the compiler to work out (LR7).
+    pub inferred: bool,
 }
 
 /// Every signature one name has (LR40). One is the ordinary case.
@@ -220,12 +222,74 @@ impl Table {
         &self.aliases
     }
 
+    /// Where every function whose result is left to be worked out was
+    /// written (LR7).
+    #[must_use]
+    pub fn inferred(&self) -> Vec<Span> {
+        let mut spans: Vec<Span> = Vec::new();
+
+        for decl in self.decls.values() {
+            let sets: Vec<&Overloads> = match decl {
+                Decl::Function(overloads) => vec![overloads],
+                Decl::Struct(structure) => structure.methods.values().collect(),
+                Decl::Interface(interface) => interface.methods.values().collect(),
+                Decl::Extension { methods, .. } => methods.values().collect(),
+                Decl::Enum(_) | Decl::Alias { .. } => Vec::new(),
+            };
+
+            for signature in sets.into_iter().flatten() {
+                if signature.inferred && !spans.contains(&signature.span) {
+                    spans.push(signature.span);
+                }
+            }
+        }
+
+        spans
+    }
+
+    /// Writes the result worked out for the declaration at `span`, and says
+    /// whether that changed anything (LR7).
+    ///
+    /// A function that wrote its result down keeps it. What is worked out is
+    /// only ever what was left out.
+    pub fn infer_result(&mut self, span: Span, result: &Type) -> bool {
+        let mut changed = false;
+
+        for signature in signatures_mut(&mut self.decls) {
+            if signature.span != span || !signature.inferred || signature.result == *result {
+                continue;
+            }
+
+            signature.result = result.clone();
+            changed = true;
+        }
+
+        changed
+    }
+
     /// Every declaration in the program, with the module declaring it.
     pub fn decls(&self) -> impl Iterator<Item = (ModuleId, &str, &Decl)> {
         self.decls
             .iter()
             .map(|((module, name), decl)| (*module, name.as_str(), decl))
     }
+}
+
+/// Every signature the table holds, in no particular order.
+fn signatures_mut(
+    decls: &mut BTreeMap<(ModuleId, String), Decl>,
+) -> impl Iterator<Item = &mut Signature> {
+    decls.values_mut().flat_map(|decl| {
+        let sets: Vec<&mut Overloads> = match decl {
+            Decl::Function(overloads) => vec![overloads],
+            Decl::Struct(structure) => structure.methods.values_mut().collect(),
+            Decl::Interface(interface) => interface.methods.values_mut().collect(),
+            Decl::Extension { methods, .. } => methods.values_mut().collect(),
+            Decl::Enum(_) | Decl::Alias { .. } => Vec::new(),
+        };
+
+        sets.into_iter().flatten()
+    })
 }
 
 /// Reads every declaration in `graph`.
@@ -869,9 +933,12 @@ fn signature(
         });
     }
 
+    // LR7: a function that writes no result has one worked out from what it
+    // returns, which is a pass of its own. Until then it is unknown rather
+    // than nothing, so nothing is reported against a guess.
     let result = match &function.result {
         Some(result) => resolver.resolve(result, diagnostics),
-        None => Type::Tuple(Vec::new()),
+        None => Type::Unresolved,
     };
 
     let constraints = function
@@ -896,5 +963,6 @@ fn signature(
         takes_self,
         visibility,
         span: function.span,
+        inferred: function.result.is_none(),
     }
 }

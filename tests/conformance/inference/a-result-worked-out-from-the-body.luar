@@ -1,0 +1,19 @@
+--- expect: compile-ok
+--- spec: LR7
+function add(a: int, b: int)
+    return a + b
+end
+
+function chained()
+    return add(1, 2)
+end
+
+function label(text: string)
+    return text
+end
+
+export function main()
+    local sum: int = chained()
+    local name: string = label("ada")
+    print(sum, name)
+end

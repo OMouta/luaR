@@ -39,8 +39,11 @@ pub fn check(sources: &mut SourceMap, root: FileId) -> Check {
     diagnostics.extend(reported);
     diagnostics.extend(luar_sema::init::check(&graph, &uses));
 
-    let (table, reported) = luar_sema::table::build(&graph, &names);
+    let (mut table, reported) = luar_sema::table::build(&graph, &names);
     diagnostics.extend(reported);
+    // LR7: a function that writes no result gets one worked out before
+    // anything is reported, because the calls to it read what it gives back.
+    luar_sema::check::infer_results(&graph, &names, &mut table);
     diagnostics.extend(luar_sema::check::check(&graph, &names, &table));
     Check::Ran(diagnostics)
 }

@@ -31,6 +31,58 @@ use crate::types::{Builtin, Primitive, Type};
 #[must_use]
 pub fn check(graph: &Graph, names: &Names, table: &Table) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
+    walk(graph, names, table, &mut diagnostics);
+    diagnostics
+}
+
+/// Works out the result of every function that writes none down (LR7).
+///
+/// The walk is run again after each round, because a result worked out for
+/// one function is what the calls to it read. Rounds stop as soon as nothing
+/// moves, which is what leaves a function that returns a call to itself
+/// unresolved rather than looping.
+pub fn infer_results(graph: &Graph, names: &Names, table: &mut Table) {
+    /// Enough rounds for a chain of functions each returning the next, and
+    /// few enough that a cycle costs nothing.
+    const ROUNDS: usize = 8;
+
+    for _ in 0..ROUNDS {
+        let mut ignored = Vec::new();
+        let collected = walk(graph, names, table, &mut ignored);
+
+        let mut changed = false;
+        for span in table.inferred() {
+            // LR7: several returns agreeing is what the result is. Returns
+            // that disagree need the union rules of LR17.2 to say what they
+            // have in common, so they are left unknown instead. A body that
+            // returns nothing anywhere returns nothing.
+            let result = collected
+                .get(&span)
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .map(settle)
+                .reduce(unify)
+                .unwrap_or_else(|| Type::Tuple(Vec::new()));
+
+            changed |= table.infer_result(span, &result);
+        }
+
+        if !changed {
+            return;
+        }
+    }
+}
+
+/// One walk of every module, reporting into `diagnostics` and giving back
+/// what each body returns.
+fn walk(
+    graph: &Graph,
+    names: &Names,
+    table: &Table,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> HashMap<Span, Vec<Type>> {
+    let mut collected = HashMap::new();
 
     for (id, node) in graph.modules() {
         let mut checker = Checker {
@@ -40,15 +92,18 @@ pub fn check(graph: &Graph, names: &Names, table: &Table) -> Vec<Diagnostic> {
             scope: id,
             values: vec![HashMap::new()],
             extensions: extensions(names, table, id),
+            bodies: Vec::new(),
+            collected: HashMap::new(),
             constraints: Vec::new(),
             returns: Vec::new(),
             narrowed: Vec::new(),
-            diagnostics: &mut diagnostics,
+            diagnostics,
         };
         checker.module(&node.ast);
+        collected.extend(checker.collected);
     }
 
-    diagnostics
+    collected
 }
 
 struct Checker<'a> {
@@ -65,6 +120,11 @@ struct Checker<'a> {
     values: Vec<HashMap<String, Type>>,
     /// The extension blocks this module may reach (LR20).
     extensions: Vec<Extension<'a>>,
+    /// The declaration each body being walked belongs to, innermost last. A
+    /// closure pushes nothing, because what it returns is its own (LR7).
+    bodies: Vec<Option<Span>>,
+    /// What each body returns, by the declaration it belongs to (LR7).
+    collected: HashMap<Span, Vec<Type>>,
     /// What `where` requires of the type parameters in scope, innermost last
     /// (LR19). It is what gives `T` any members at all inside the body.
     constraints: Vec<HashMap<String, Type>>,
@@ -595,11 +655,13 @@ impl Checker<'_> {
 
         self.constraints.push(constraints);
         self.returns.push(returns);
+        self.bodies.push(Some(function.span));
         if let Some(body) = &function.body {
             for stmt in &body.stmts {
                 self.stmt(stmt);
             }
         }
+        self.bodies.pop();
         self.returns.pop();
         self.constraints.pop();
 
@@ -770,22 +832,21 @@ impl Checker<'_> {
                 self.exhaustive(&held, arms, scrutinee.span);
             }
             StmtKind::Return(value) => {
-                let wanted = self.returns.last().cloned().flatten();
+                // LR9.1: a bare `return` leaves nothing behind.
+                let held = match value {
+                    Some(value) => self.expr(value),
+                    None => Type::Tuple(Vec::new()),
+                };
 
-                match (value, wanted) {
-                    (Some(value), Some(wanted)) => {
-                        let held = self.expr(value);
-                        self.expect_return(&wanted, &held, value.span);
-                    }
-                    (Some(value), None) => {
-                        self.expr(value);
-                    }
-                    // LR9.1: a bare `return` leaves a function that declares
-                    // no result, and leaves nothing behind for one that does.
-                    (None, Some(wanted)) => {
-                        self.expect_return(&wanted, &Type::Tuple(Vec::new()), stmt.span);
-                    }
-                    (None, None) => {}
+                // LR7: where no result was written down, what the body
+                // returns is what it is worked out from.
+                if let Some(Some(owner)) = self.bodies.last() {
+                    self.collected.entry(*owner).or_default().push(held.clone());
+                }
+
+                if let Some(wanted) = self.returns.last().cloned().flatten() {
+                    let span = value.as_ref().map_or(stmt.span, |value| value.span);
+                    self.expect_return(&wanted, &held, span);
                 }
             }
             StmtKind::Expr(expr) => {
@@ -1177,6 +1238,7 @@ impl Checker<'_> {
                 };
 
                 self.returns.push(result.as_ref().map(|_| returns.clone()));
+                self.bodies.push(None);
 
                 match body.as_ref() {
                     FunctionBody::Block(block) => {
@@ -1189,6 +1251,7 @@ impl Checker<'_> {
                     }
                 }
 
+                self.bodies.pop();
                 self.returns.pop();
                 self.pop();
 
@@ -2332,6 +2395,7 @@ impl Checker<'_> {
                     takes_self: false,
                     visibility: None,
                     span,
+                    inferred: false,
                 }],
                 receiver: None,
             });
