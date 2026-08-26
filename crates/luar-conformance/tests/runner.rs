@@ -16,7 +16,7 @@ fn discovery_finds_luar_files_in_subdirectories() {
         .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())
         .collect();
 
-    assert_eq!(found, ["accepted.luar", "rejected.luar"]);
+    assert_eq!(found, ["accepted.luar", "runs.luar", "rejected.luar"]);
 }
 
 #[test]
@@ -27,15 +27,27 @@ fn a_missing_suite_is_empty_rather_than_an_error() {
     );
 }
 
+/// A `run` expectation needs a backend, and there is none, so it is skipped.
+/// Skipped is not passed: the suite says how much of the language actually
+/// works, and a test nothing can answer must not count toward it.
 #[test]
 fn expectations_the_compiler_cannot_answer_are_skipped_not_passed() {
-    for name in ["arithmetic/rejected.luar", "accepted.luar"] {
-        let outcome = run(&fixtures().join(name));
-        assert!(
-            matches!(outcome, Outcome::Skipped(_)),
-            "{name} reported {outcome}"
-        );
-    }
+    let outcome = run(&fixtures().join("runs.luar"));
+    assert!(matches!(outcome, Outcome::Skipped(_)), "reported {outcome}");
+}
+
+#[test]
+fn a_program_the_compiler_accepts_passes() {
+    assert_eq!(run(&fixtures().join("accepted.luar")), Outcome::Passed);
+}
+
+/// A rule the compiler does not enforce yet fails rather than passing. The
+/// fixture expects LR0114, which needs type checking; until that lands, the
+/// program is accepted and the test that says it should not be says so.
+#[test]
+fn a_rule_that_is_not_enforced_yet_fails_loudly() {
+    let outcome = run(&fixtures().join("arithmetic/rejected.luar"));
+    assert!(outcome.is_failure(), "reported {outcome}");
 }
 
 #[test]
