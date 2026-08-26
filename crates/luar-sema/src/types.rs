@@ -371,7 +371,7 @@ impl Type {
                     kind: held_kind,
                     args: held,
                 },
-            ) => kind == held_kind && args.len() == held.len(),
+            ) => kind == held_kind && invariant(args, held),
             (
                 Self::Named { module, name, args },
                 Self::Named {
@@ -379,7 +379,7 @@ impl Type {
                     name: held_name,
                     args: held,
                 },
-            ) => module == held_module && name == held_name && args.len() == held.len(),
+            ) => module == held_module && name == held_name && invariant(args, held),
             (Self::Parameter(name), Self::Parameter(held)) => name == held,
             (Self::Tuple(members), Self::Tuple(held)) => {
                 members.len() == held.len() && members.iter().zip(held).all(|(m, h)| m.accepts(h))
@@ -403,6 +403,16 @@ impl Type {
 /// Whether a type is one this stage compares. Anything else is left alone
 /// rather than reported, so the checker grows by learning shapes rather than
 /// by unlearning wrong answers.
+/// LR19: type arguments are invariant, so `Box<int>` is not a `Box<Display>`
+/// however `int` and `Display` relate. Each pair has to go both ways.
+fn invariant(wanted: &[Type], held: &[Type]) -> bool {
+    wanted.len() == held.len()
+        && wanted
+            .iter()
+            .zip(held)
+            .all(|(wanted, held)| wanted.accepts(held) && held.accepts(wanted))
+}
+
 fn compared(ty: &Type) -> bool {
     matches!(
         ty,

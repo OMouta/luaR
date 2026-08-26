@@ -1,9 +1,9 @@
 //! Declarations, and the module that holds them (LR9, LR21.3, LR44).
 
 use luar_ast::{
-    Block, Conditional, Decorator, Enum, Extend, Field, Function, Import, ImportName, ImportNames,
-    Interface, InterfaceMember, Item, Member, Module, Param, Property, Semantics, Setter, Struct,
-    Type, TypeAlias, Variant, VariantPayload, Visibility,
+    Block, Conditional, Constraint, Decorator, Enum, Extend, Field, Function, Import, ImportName,
+    ImportNames, Interface, InterfaceMember, Item, Member, Module, Param, Property, Semantics,
+    Setter, Struct, Type, TypeAlias, Variant, VariantPayload, Visibility,
 };
 use luar_diagnostics::{Span, codes};
 use luar_lexer::{Keyword, TokenKind};
@@ -336,6 +336,7 @@ fn function(cursor: &mut Cursor, start: Span, modifiers: Modifiers, bodied: bool
     let type_params = type_parameters(cursor);
     let params = parameters(cursor);
     let result = cursor.eat(TokenKind::Colon).then(|| ty::ty(cursor));
+    let constraints = where_clause(cursor);
 
     let body = bodied.then(|| {
         let body = stmt::block(cursor);
@@ -351,11 +352,48 @@ fn function(cursor: &mut Cursor, start: Span, modifiers: Modifiers, bodied: bool
         static_: modifiers.static_,
         name,
         type_params,
+        constraints,
         params,
         result,
         body,
         span: start.to(cursor.previous_span()),
     }
+}
+
+/// `where T: Comparable, U: Hashable & Display` (LR19).
+///
+/// Each bound is read as one type, so `&` composes them the way it composes
+/// any other pair of types (LR17.3).
+fn where_clause(cursor: &mut Cursor) -> Vec<Constraint> {
+    if !cursor.eat_keyword(Keyword::Where) {
+        return Vec::new();
+    }
+
+    let mut constraints = Vec::new();
+    loop {
+        let start = cursor.span();
+        let parameter = cursor.name().0;
+
+        if !cursor.eat(TokenKind::Colon) {
+            let here = cursor.span();
+            cursor
+                .error(codes::EXPECTED_TYPE, here, "expected `:` and a bound")
+                .note("A bound is written `T: Interface` (LR19).");
+        }
+
+        let bound = ty::ty(cursor);
+        constraints.push(Constraint {
+            parameter,
+            bound,
+            span: start.to(cursor.previous_span()),
+        });
+
+        if !cursor.eat(TokenKind::Comma) {
+            break;
+        }
+    }
+
+    constraints
 }
 
 /// `(a: int, b: int = 0, ...rest: string)` (LR9.4, LR9.6).

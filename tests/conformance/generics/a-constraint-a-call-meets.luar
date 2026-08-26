@@ -1,0 +1,23 @@
+--- expect: compile-ok
+--- spec: LR19
+--- spec: LR18
+interface Display
+    function display(self): string
+end
+
+struct User implements Display
+    name: string
+
+    function display(self): string
+        return self.name
+    end
+end
+
+function show<T>(value: T): string
+where T: Display
+    return value:display()
+end
+
+export function main()
+    print(show(User { name = "ada" }))
+end

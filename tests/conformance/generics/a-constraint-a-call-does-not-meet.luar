@@ -1,0 +1,20 @@
+--- expect: compile-error
+--- code: LR0172
+--- span: 19:12
+--- spec: LR19
+interface Display
+    function display(self): string
+end
+
+struct Plain
+    id: int
+end
+
+function show<T>(value: T): string
+where T: Display
+    return value:display()
+end
+
+function label(plain: Plain): string
+    return show(plain)
+end

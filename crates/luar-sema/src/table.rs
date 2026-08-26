@@ -65,6 +65,11 @@ impl Kinds {
 #[derive(Debug, Clone)]
 pub struct Signature {
     pub asynchronous: bool,
+    /// Its own type parameters, which a call works out from what it passes
+    /// (LR19).
+    pub type_params: Vec<String>,
+    /// What `where` requires of them, by parameter (LR19).
+    pub constraints: Vec<(String, Type)>,
     /// The parameters, without `self`.
     pub params: Vec<Param>,
     /// What it returns. A function that states nothing returns nothing.
@@ -869,10 +874,23 @@ fn signature(
         None => Type::Tuple(Vec::new()),
     };
 
+    let constraints = function
+        .constraints
+        .iter()
+        .map(|constraint| {
+            (
+                constraint.parameter.clone(),
+                resolver.resolve(&constraint.bound, diagnostics),
+            )
+        })
+        .collect();
+
     resolver.leave();
 
     Signature {
         asynchronous: function.asynchronous,
+        type_params: function.type_params.clone(),
+        constraints,
         params,
         result,
         takes_self,

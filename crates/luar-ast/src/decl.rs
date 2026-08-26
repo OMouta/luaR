@@ -72,12 +72,22 @@ pub struct Function {
     pub name: Vec<String>,
     /// Type parameters, by name (LR19).
     pub type_params: Vec<String>,
+    /// What `where` requires of them (LR19).
+    pub constraints: Vec<Constraint>,
     pub params: Vec<Param>,
     /// The declared result. Absent when the function returns nothing.
     pub result: Option<Type>,
     /// The body, absent where a declaration states a signature and no more:
     /// an interface member (LR18) and a foreign declaration (LR46).
     pub body: Option<Block>,
+    pub span: Span,
+}
+
+/// One `where` bound: a type parameter, and what it must satisfy (LR19).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Constraint {
+    pub parameter: String,
+    pub bound: Type,
     pub span: Span,
 }
 

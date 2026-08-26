@@ -219,6 +219,8 @@ registry! {
         "An index has the type the container is keyed by.";
     active 171 => RETURN_TYPE, "LR9.1",
         "A return gives a value of the type its function declares.";
+    active 172 => CONSTRAINT_NOT_SATISFIED, "LR19",
+        "A type argument satisfies what `where` requires of the parameter it fills.";
 }
 
 #[cfg(test)]

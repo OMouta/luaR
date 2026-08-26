@@ -1,0 +1,21 @@
+--- expect: compile-ok
+--- spec: LR19
+struct Box<T>
+    value: T
+end
+
+function identity<T>(value: T): T
+    return value
+end
+
+function pair<A, B>(a: A, b: B): B
+    return b
+end
+
+export function main()
+    local boxed = Box { value = 3 }
+    local number: int = identity(3)
+    local text: string = identity<string>("x")
+    local second: string = pair(1, "x")
+    print(boxed.value, number, text, second)
+end

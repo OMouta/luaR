@@ -40,6 +40,7 @@ pub fn check(graph: &Graph, names: &Names, table: &Table) -> Vec<Diagnostic> {
             scope: id,
             values: vec![HashMap::new()],
             extensions: extensions(names, table, id),
+            constraints: Vec::new(),
             returns: Vec::new(),
             narrowed: Vec::new(),
             diagnostics: &mut diagnostics,
@@ -64,6 +65,9 @@ struct Checker<'a> {
     values: Vec<HashMap<String, Type>>,
     /// The extension blocks this module may reach (LR20).
     extensions: Vec<Extension<'a>>,
+    /// What `where` requires of the type parameters in scope, innermost last
+    /// (LR19). It is what gives `T` any members at all inside the body.
+    constraints: Vec<HashMap<String, Type>>,
     /// What the function being walked declares it returns, innermost last
     /// (LR9.1). `None` where nothing was written down to check against.
     returns: Vec<Option<Type>>,
@@ -211,6 +215,92 @@ fn fit(signature: &Signature, args: &[Argument]) -> Fit {
         slots,
         counted: variadic || (!missing && position <= params.len()),
     }
+}
+
+/// Reads what a type parameter must be by lining a declared type up with the
+/// type of what was passed for it (LR19).
+fn infer(params: &[String], wanted: &Type, held: &Type, bound: &mut BTreeMap<String, Type>) {
+    match (wanted, held) {
+        (Type::Parameter(name), held) if params.iter().any(|param| param == name) => {
+            if !matches!(held, Type::Unresolved) {
+                bound
+                    .entry(name.clone())
+                    .or_insert_with(|| settle(held.clone()));
+            }
+        }
+        (Type::Optional(wanted), Type::Optional(held)) => infer(params, wanted, held, bound),
+        (Type::Array(wanted), Type::Array(held)) => infer(params, wanted, held, bound),
+        (Type::Array(wanted), Type::SequenceLiteral(held)) => infer(params, wanted, held, bound),
+        (Type::Pointer { target: wanted, .. }, Type::Pointer { target: held, .. }) => {
+            infer(params, wanted, held, bound);
+        }
+        (
+            Type::Builtin { kind, args },
+            Type::Builtin {
+                kind: held_kind,
+                args: had,
+            },
+        ) if kind == held_kind => {
+            for (wanted, held) in args.iter().zip(had) {
+                infer(params, wanted, held, bound);
+            }
+        }
+        (
+            Type::Named { name, args, .. },
+            Type::Named {
+                name: had_name,
+                args: had,
+                ..
+            },
+        ) if name == had_name => {
+            for (wanted, held) in args.iter().zip(had) {
+                infer(params, wanted, held, bound);
+            }
+        }
+        (Type::Tuple(wanted), Type::Tuple(held)) => {
+            for (wanted, held) in wanted.iter().zip(held) {
+                infer(params, wanted, held, bound);
+            }
+        }
+        (
+            Type::Function {
+                params: wanted,
+                result,
+                ..
+            },
+            Type::Function {
+                params: had,
+                result: had_result,
+                ..
+            },
+        ) => {
+            for (wanted, held) in wanted.iter().zip(had) {
+                infer(params, wanted, held, bound);
+            }
+            infer(params, result, had_result, bound);
+        }
+        _ => {}
+    }
+}
+
+/// Overloads with the type arguments of the receiver put where the type
+/// declares its parameters (LR19).
+fn filled(overloads: &Overloads, params: &[String], args: &[Type]) -> Overloads {
+    overloads
+        .iter()
+        .map(|signature| Signature {
+            params: signature
+                .params
+                .iter()
+                .map(|param| crate::table::Param {
+                    ty: substitute(&param.ty, params, args),
+                    ..param.clone()
+                })
+                .collect(),
+            result: substitute(&signature.result, params, args),
+            ..signature.clone()
+        })
+        .collect()
 }
 
 /// Whether the overloads of one method take `self`, which every overload of
@@ -489,6 +579,21 @@ impl Checker<'_> {
             None => function.result.as_ref().map(|result| self.resolve(result)),
         };
 
+        let constraints = match signature {
+            Some(signature) => signature.constraints.iter().cloned().collect(),
+            None => function
+                .constraints
+                .iter()
+                .map(|constraint| {
+                    (
+                        constraint.parameter.clone(),
+                        self.resolve(&constraint.bound),
+                    )
+                })
+                .collect(),
+        };
+
+        self.constraints.push(constraints);
         self.returns.push(returns);
         if let Some(body) = &function.body {
             for stmt in &body.stmts {
@@ -496,6 +601,7 @@ impl Checker<'_> {
             }
         }
         self.returns.pop();
+        self.constraints.pop();
 
         self.pop();
         self.types.leave();
@@ -931,11 +1037,16 @@ impl Checker<'_> {
                 type_args,
                 args,
             } => {
-                for ty in type_args {
-                    self.resolve(ty);
-                }
+                let written: Vec<Type> = type_args.iter().map(|ty| self.resolve(ty)).collect();
                 let receiver = self.expr(callee);
-                self.call(callee, method.as_deref(), &receiver, args, expr.span)
+                self.call(
+                    callee,
+                    method.as_deref(),
+                    &receiver,
+                    &written,
+                    args,
+                    expr.span,
+                )
             }
             ExprKind::Field {
                 receiver,
@@ -1356,31 +1467,39 @@ impl Checker<'_> {
         let Type::Named {
             module,
             name: declared,
-            ..
+            args,
         } = held
         else {
             return None;
         };
 
-        let field = match self.table.get(*module, declared)? {
-            Decl::Struct(structure) => structure
-                .fields
-                .iter()
-                .chain(&structure.properties)
-                .find(|field| field.name == name),
+        let (params, field) = match self.table.get(*module, declared)? {
+            Decl::Struct(structure) => (
+                &structure.type_params,
+                structure
+                    .fields
+                    .iter()
+                    .chain(&structure.properties)
+                    .find(|field| field.name == name),
+            ),
             // An interface requires properties of its own (LR18).
-            Decl::Interface(interface) => interface
-                .properties
-                .iter()
-                .find(|property| property.name == name),
-            _ => None,
-        }?;
+            Decl::Interface(interface) => (
+                &interface.type_params,
+                interface
+                    .properties
+                    .iter()
+                    .find(|property| property.name == name),
+            ),
+            _ => return None,
+        };
+        let field = field?;
 
         Some(Found {
             module: *module,
             owner: declared.clone(),
             visibility: field.visibility,
-            ty: field.ty.clone(),
+            // LR19: a member of `Box<int>` reads as `int`, not as `T`.
+            ty: substitute(&field.ty, params, args),
         })
     }
 
@@ -1552,15 +1671,38 @@ impl Checker<'_> {
             .named(path, Vec::new())
             .unwrap_or(Type::Unresolved);
 
-        if let Type::Named { module, name, .. } = &built
-            && let Some(structure) = self.table.structure(*module, name)
-        {
-            let (module, name) = (*module, name.clone());
-            let fields = structure.fields.clone();
-            self.initializers(&name, module, &fields, written, values, span);
+        let Type::Named { module, name, .. } = &built else {
+            return built;
+        };
+        let (module, name) = (*module, name.clone());
+
+        let Some(structure) = self.table.structure(module, &name) else {
+            return built;
+        };
+        let (params, mut fields) = (structure.type_params.clone(), structure.fields.clone());
+
+        // LR19: a generic struct takes its type arguments from the values it
+        // is built with, the way a generic call takes them from what it
+        // passes.
+        let mut bound = BTreeMap::new();
+        for (field, value) in written.iter().zip(values) {
+            if let Some(declared) = fields.iter().find(|declared| declared.name == field.name) {
+                infer(&params, &declared.ty, value, &mut bound);
+            }
         }
 
-        built
+        let args: Vec<Type> = params
+            .iter()
+            .map(|param| bound.get(param).cloned().unwrap_or(Type::Unresolved))
+            .collect();
+
+        for field in &mut fields {
+            field.ty = substitute(&field.ty, &params, &args);
+        }
+
+        self.initializers(&name, module, &fields, written, values, span);
+
+        Type::Named { module, name, args }
     }
 
     /// The enum variant `owner.name` names, and the enum it builds (LR15.3).
@@ -1746,6 +1888,7 @@ impl Checker<'_> {
         callee: &Expr,
         method: Option<&str>,
         receiver: &Type,
+        written: &[Type],
         args: &[Argument],
         span: Span,
     ) -> Type {
@@ -1791,6 +1934,10 @@ impl Checker<'_> {
             return Type::Unresolved;
         };
 
+        // LR19: a generic call takes its type arguments from what it writes
+        // down, and works out the rest from what it passes.
+        let signature = self.specialize(signature, written, &held, span);
+
         self.arguments(&signature, args, &held, span);
         signature.result
     }
@@ -1809,6 +1956,84 @@ impl Checker<'_> {
                     Some(index) => self.accepts(&signature.params[*index].ty, held),
                     None => false,
                 })
+    }
+
+    /// One call of a generic signature, with its type parameters worked out
+    /// (LR19).
+    ///
+    /// A parameter the call neither writes down nor passes anything for is
+    /// left unresolved, because reading it back from the result needs context
+    /// this stage does not carry (LR7), and guessing would reject a program
+    /// that is fine.
+    fn specialize(
+        &mut self,
+        signature: Signature,
+        written: &[Type],
+        held: &[Type],
+        span: Span,
+    ) -> Signature {
+        if signature.type_params.is_empty() {
+            return signature;
+        }
+
+        let mut bound: BTreeMap<String, Type> = signature
+            .type_params
+            .iter()
+            .cloned()
+            .zip(written.iter().cloned())
+            .collect();
+
+        for (param, held) in signature.params.iter().zip(held) {
+            infer(&signature.type_params, &param.ty, held, &mut bound);
+        }
+
+        let args: Vec<Type> = signature
+            .type_params
+            .iter()
+            .map(|param| bound.get(param).cloned().unwrap_or(Type::Unresolved))
+            .collect();
+
+        // LR19: `where` is a promise the call has to keep.
+        for (parameter, wanted) in &signature.constraints {
+            let Some(index) = signature
+                .type_params
+                .iter()
+                .position(|param| param == parameter)
+            else {
+                continue;
+            };
+
+            let filling = &args[index];
+            if matches!(filling, Type::Unresolved) || self.accepts(wanted, filling) {
+                continue;
+            }
+
+            self.diagnostics.push(
+                Diagnostic::error(
+                    codes::CONSTRAINT_NOT_SATISFIED,
+                    span,
+                    format!("`{parameter}` is `{filling}` here, and that is not a `{wanted}`"),
+                )
+                .note(format!(
+                    "`where {parameter}: {wanted}` is what this call has to meet (LR19)."
+                )),
+            );
+        }
+
+        Signature {
+            params: signature
+                .params
+                .iter()
+                .map(|param| crate::table::Param {
+                    ty: substitute(&param.ty, &signature.type_params, &args),
+                    ..param.clone()
+                })
+                .collect(),
+            result: substitute(&signature.result, &signature.type_params, &args),
+            type_params: Vec::new(),
+            constraints: Vec::new(),
+            ..signature
+        }
     }
 
     /// LR40: a call resolves to exactly one overload.
@@ -1919,10 +2144,26 @@ impl Checker<'_> {
             return None;
         }
 
+        // LR19: inside the body, a type parameter has whatever `where` says
+        // it has, and nothing else is known about it.
+        if let Type::Parameter(parameter) = receiver {
+            let bound = self
+                .constraints
+                .iter()
+                .rev()
+                .find_map(|scope| scope.get(parameter))
+                .cloned();
+
+            return match bound {
+                Some(bound) => self.method(&bound, name, span),
+                None => None,
+            };
+        }
+
         if let Type::Named {
             module,
             name: declared,
-            ..
+            args,
         } = receiver
         {
             match self.table.get(*module, declared) {
@@ -1930,7 +2171,11 @@ impl Checker<'_> {
                 // same name, so adding one shadows the extension rather than
                 // changing what a call already meant.
                 Some(Decl::Struct(structure)) => {
-                    if let Some(overloads) = structure.methods.get(name).cloned() {
+                    if let Some(overloads) = structure
+                        .methods
+                        .get(name)
+                        .map(|overloads| filled(overloads, &structure.type_params, args))
+                    {
                         // Where every overload is private, no call from
                         // outside can reach any of them (LR44).
                         let hidden = overloads
@@ -1945,7 +2190,11 @@ impl Checker<'_> {
                 // A value of interface type dispatches over what the
                 // interface requires (LR18.1).
                 Some(Decl::Interface(interface)) => {
-                    if let Some(overloads) = interface.methods.get(name).cloned() {
+                    if let Some(overloads) = interface
+                        .methods
+                        .get(name)
+                        .map(|overloads| filled(overloads, &interface.type_params, args))
+                    {
                         return Some(overloads);
                     }
                 }
@@ -2067,6 +2316,8 @@ impl Checker<'_> {
                 name: format!("{owner}.{name}"),
                 overloads: vec![Signature {
                     asynchronous: false,
+                    type_params: Vec::new(),
+                    constraints: Vec::new(),
                     params: payload
                         .into_iter()
                         .enumerate()
