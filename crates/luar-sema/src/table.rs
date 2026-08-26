@@ -14,7 +14,7 @@
 use std::collections::BTreeMap;
 
 use luar_ast::{Function, Item, Member, Semantics, Visibility};
-use luar_diagnostics::{Diagnostic, codes};
+use luar_diagnostics::{Diagnostic, Span, codes};
 
 use crate::annotations::Resolver;
 use crate::modules::{Graph, ModuleId};
@@ -107,6 +107,17 @@ pub struct StructType {
     pub methods: BTreeMap<String, Signature>,
     /// The interfaces it claims to implement (LR18).
     pub implements: Vec<Type>,
+}
+
+impl StructType {
+    /// Whether the type declares `name`, under any of the three member forms
+    /// that share one namespace (LR12.2).
+    #[must_use]
+    pub fn has_member(&self, name: &str) -> bool {
+        self.methods.contains_key(name)
+            || self.fields.iter().any(|field| field.name == name)
+            || self.properties.iter().any(|property| property.name == name)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -274,8 +285,27 @@ fn declare(
                 let mut fields = Vec::new();
                 let mut properties = Vec::new();
                 let mut methods = BTreeMap::new();
+                let mut seen: BTreeMap<&str, Span> = BTreeMap::new();
 
                 for member in &structure.members {
+                    let (name, span) = match member {
+                        Member::Field(field) => (&field.name, field.span),
+                        Member::Property(property) => (&property.name, property.span),
+                        Member::Function { function, .. } => match function.name.last() {
+                            Some(name) => (name, function.span),
+                            None => continue,
+                        },
+                    };
+
+                    // LR12.2: one namespace over fields, properties, and
+                    // methods, and the first declaration is the one every
+                    // later stage sees.
+                    if let Some(first) = seen.get(name.as_str()) {
+                        diagnostics.push(duplicate(&structure.name, name, span, Some(*first)));
+                        continue;
+                    }
+                    seen.insert(name, span);
+
                     match member {
                         Member::Field(field) => fields.push(Field {
                             name: field.name.clone(),
@@ -443,11 +473,21 @@ fn declare(
     }
 }
 
+/// A member declared twice (LR12.2). The first one is the one that stands.
+fn duplicate(owner: &str, name: &str, span: Span, first: Option<Span>) -> Diagnostic {
+    let mut reported = Diagnostic::error(
+        codes::DUPLICATE_MEMBER,
+        span,
+        format!("`{owner}` already has a member `{name}`"),
+    );
+    if let Some(first) = first {
+        reported = reported.label(first, "first declared here");
+    }
+
+    reported.note("Fields, properties, and methods share one namespace (LR12.2).")
+}
+
 /// Attaches `function Type.method(...)` to the type it names (LR20).
-///
-/// A member the type already declares stays as declared. Two declarations of
-/// one member is not a rule the spec states yet, and keeping the first is
-/// what makes every later stage see one member rather than the last written.
 fn attach(
     items: &[Item],
     module: ModuleId,
@@ -493,9 +533,20 @@ fn attach(
         }
 
         let signature = signature(function, None, resolver, diagnostics);
-        if let Some(Decl::Struct(structure)) = decls.get_mut(&(module, owner.clone())) {
-            structure.methods.entry(name.clone()).or_insert(signature);
+        let Some(Decl::Struct(structure)) = decls.get_mut(&(module, owner.clone())) else {
+            continue;
+        };
+
+        // LR12.2: attaching a method the type already has declares one member
+        // twice, however far apart the two are written.
+        // The body's span is not kept in the table, so the second one is
+        // where this points; the type it names is right there in the name.
+        if structure.has_member(name) {
+            diagnostics.push(duplicate(owner, name, function.span, None));
+            continue;
         }
+
+        structure.methods.insert(name.clone(), signature);
     }
 }
 

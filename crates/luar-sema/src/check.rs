@@ -775,10 +775,7 @@ impl Checker<'_> {
             return;
         };
 
-        let held = structure.methods.contains_key(name)
-            || structure.fields.iter().any(|field| field.name == name)
-            || structure.properties.iter().any(|field| field.name == name);
-        if !held {
+        if !structure.has_member(name) {
             return;
         }
 

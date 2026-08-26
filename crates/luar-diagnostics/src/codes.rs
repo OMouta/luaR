@@ -185,6 +185,8 @@ registry! {
         "A struct literal gives a value for every field without a default.";
     active 154 => UNKNOWN_FIELD, "LR12.2",
         "A struct literal names only fields the struct declares.";
+    active 155 => DUPLICATE_MEMBER, "LR12.2",
+        "A type declares each member once, whether written in its body or attached outside it.";
 }
 
 #[cfg(test)]
