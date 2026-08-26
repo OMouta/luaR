@@ -1,0 +1,7 @@
+--- expect: compile-error
+--- code: LR0169
+--- span: 6:12
+--- spec: LR37
+function initial(text: string): string
+    return text[0]
+end

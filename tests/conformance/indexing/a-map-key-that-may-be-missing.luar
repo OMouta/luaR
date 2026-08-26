@@ -1,0 +1,13 @@
+--- expect: compile-error
+--- code: LR0160
+--- span: 12:12
+--- spec: LR69
+--- spec: LR8
+struct User
+    name: string
+end
+
+function label(users: Map<string, User>): string
+    local found = users["ada"]
+    return found.name
+end

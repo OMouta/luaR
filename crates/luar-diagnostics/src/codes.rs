@@ -213,6 +213,10 @@ registry! {
         "`//` is integer division, and is defined on integers alone.";
     active 168 => FALLIBLE_PROPERTY, "LR43",
         "A property reads like a field, so it cannot hand back a failure to handle.";
+    active 169 => STRING_NOT_INDEXABLE, "LR37",
+        "A string is UTF-8, so it is read through its own APIs rather than by index.";
+    active 170 => INDEX_TYPE, "LR37",
+        "An index has the type the container is keyed by.";
 }
 
 #[cfg(test)]

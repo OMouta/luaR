@@ -1,0 +1,14 @@
+--- expect: compile-ok
+--- spec: LR69
+--- spec: LR57
+struct User
+    name: string
+end
+
+export function label(users: Map<string, User>): string
+    local found = users["ada"]
+    if found ~= nil then
+        return found.name
+    end
+    return "none"
+end

@@ -940,11 +940,22 @@ impl Checker<'_> {
                 }
             }
             ExprKind::Index {
-                receiver, index, ..
+                receiver,
+                index,
+                optional,
             } => {
-                self.expr(receiver);
-                self.expr(index);
-                Type::Unresolved
+                let held = self.expr(receiver);
+                let key = self.expr(index);
+
+                // LR8: `?[` reaches through an optional the way `?.` does.
+                let container = if *optional { held.without_nil() } else { held };
+
+                let element = self.indexed(&container, &key, index.span, expr.span);
+                if *optional {
+                    element.optional()
+                } else {
+                    element
+                }
             }
             ExprKind::Try(inner) => {
                 self.expr(inner);
@@ -1418,6 +1429,70 @@ impl Checker<'_> {
 
     /// LR12.2: a struct literal gives a value for every field the struct
     /// declares without a default, and names no field it does not declare.
+    /// What `container[key]` reads, and what it takes for a key (LR37, LR69).
+    ///
+    /// A missing map key is an ordinary outcome, so a map hands back `V?` and
+    /// the caller has to settle it. A list index out of range is a mistake in
+    /// the caller's arithmetic, so a list hands back `T` and traps (LR70).
+    fn indexed(&mut self, container: &Type, key: &Type, key_span: Span, span: Span) -> Type {
+        // LR37: a string is UTF-8, and an index into one would have to
+        // pretend otherwise.
+        if *container == Type::STRING {
+            self.diagnostics.push(
+                Diagnostic::error(
+                    codes::STRING_NOT_INDEXABLE,
+                    span,
+                    "a string is not indexed by integer",
+                )
+                .note(
+                    "UTF-8 has no constant-time character at an index. \
+                     Read it with `bytes()`, `chars()`, or `graphemes()` (LR37).",
+                ),
+            );
+            return Type::Unresolved;
+        }
+
+        let (wanted, element) = match container {
+            Type::Builtin {
+                kind: Builtin::Map | Builtin::FrozenMap,
+                args,
+            } => {
+                let value = args.get(1).cloned().unwrap_or(Type::Unresolved);
+                (args.first().cloned(), value.optional())
+            }
+            Type::Builtin {
+                kind: Builtin::List | Builtin::FrozenList,
+                args,
+            } => (
+                Some(Type::Primitive(Primitive::I64)),
+                args.first().cloned().unwrap_or(Type::Unresolved),
+            ),
+            Type::Array(element) => (
+                Some(Type::Primitive(Primitive::I64)),
+                element.as_ref().clone(),
+            ),
+            // Everything else is a container this stage does not model, and
+            // what indexing one means waits for the protocol that says so
+            // (LR36).
+            _ => return Type::Unresolved,
+        };
+
+        if let Some(wanted) = wanted
+            && !self.accepts(&wanted, key)
+        {
+            self.diagnostics.push(Diagnostic::error(
+                codes::INDEX_TYPE,
+                key_span,
+                format!(
+                    "this is keyed by `{wanted}`, and the index is {}",
+                    article(key)
+                ),
+            ));
+        }
+
+        element
+    }
+
     /// The type a `Path { ... }` literal builds: a struct, or the enum a
     /// record variant belongs to (LR12.2, LR15.3).
     fn built(

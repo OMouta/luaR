@@ -1,0 +1,6 @@
+--- expect: compile-ok
+--- spec: LR69
+--- spec: LR37
+export function first(values: List<int>): int
+    return values[0]
+end
