@@ -181,6 +181,10 @@ registry! {
         "An extension adds members to a type and never replaces one it already has.";
     active 152 => METHOD_OUTSIDE_ITS_MODULE, "LR20",
         "A method is attached to a type in the module declaring it; elsewhere an extension block adds one.";
+    active 153 => MISSING_FIELD, "LR12.2",
+        "A struct literal gives a value for every field without a default.";
+    active 154 => UNKNOWN_FIELD, "LR12.2",
+        "A struct literal names only fields the struct declares.";
 }
 
 #[cfg(test)]

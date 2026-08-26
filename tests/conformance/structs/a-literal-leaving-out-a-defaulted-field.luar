@@ -1,0 +1,11 @@
+--- expect: compile-ok
+--- spec: LR12.2
+struct Request
+    path: string
+    method: string = "GET"
+end
+
+export function main()
+    local request = Request { path = "/" }
+    print(request.method)
+end

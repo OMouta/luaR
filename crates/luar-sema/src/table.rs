@@ -92,6 +92,9 @@ pub struct Field {
     pub ty: Type,
     /// `private` narrows a member to its module (LR44).
     pub visibility: Option<Visibility>,
+    /// Whether a literal may leave it out, which a default makes true
+    /// (LR12.2). Only a stored field has one.
+    pub optional: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -278,11 +281,13 @@ fn declare(
                             name: field.name.clone(),
                             ty: resolver.resolve(&field.ty, diagnostics),
                             visibility: field.visibility,
+                            optional: field.default.is_some(),
                         }),
                         Member::Property(property) => properties.push(Field {
                             name: property.name.clone(),
                             ty: resolver.resolve(&property.ty, diagnostics),
                             visibility: property.visibility,
+                            optional: false,
                         }),
                         Member::Function {
                             visibility,
@@ -338,6 +343,7 @@ fn declare(
                                     name: field.name.clone(),
                                     ty: resolver.resolve(&field.ty, diagnostics),
                                     visibility: None,
+                                    optional: false,
                                 })
                                 .collect(),
                         ),
@@ -376,6 +382,7 @@ fn declare(
                                 name: name.clone(),
                                 ty: resolver.resolve(ty, diagnostics),
                                 visibility: None,
+                                optional: false,
                             });
                         }
                     }

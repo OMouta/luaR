@@ -1,5 +1,5 @@
 export struct Client
-    private socket: int
+    private socket: int = 0
     internal pool: int
     public host: string
 

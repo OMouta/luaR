@@ -620,22 +620,27 @@ impl Checker<'_> {
                 Type::SequenceLiteral(Box::new(element))
             }
             ExprKind::Record { path, fields } => {
-                let mut members = Vec::with_capacity(fields.len());
-                for field in fields {
-                    let value = settle(self.expr(&field.value));
-                    members.push((field.name.clone(), value));
-                }
+                // The values keep their literal types, because what a field
+                // declares is the context that settles them (LR39).
+                let values: Vec<Type> =
+                    fields.iter().map(|field| self.expr(&field.value)).collect();
 
                 // LR12.2: a path names the type being built. Without one the
                 // literal is a structural record (LR12.1).
                 if path.is_empty() {
-                    Type::Record(members)
+                    Type::Record(
+                        fields
+                            .iter()
+                            .zip(values)
+                            .map(|(field, value)| (field.name.clone(), settle(value)))
+                            .collect(),
+                    )
                 } else {
                     let built = self
                         .types
                         .named(path, Vec::new())
                         .unwrap_or(Type::Unresolved);
-                    self.initializers(&built, fields);
+                    self.initializers(&built, fields, &values, expr.span);
                     built
                 }
             }
@@ -827,12 +832,9 @@ impl Checker<'_> {
         None
     }
 
-    /// The fields a struct literal names (LR12.2).
-    ///
-    /// Only their visibility is checked here. Whether the literal names every
-    /// field, and only fields the struct has, waits for the stage that reads
-    /// a struct declaration back.
-    fn initializers(&mut self, built: &Type, fields: &[FieldInit]) {
+    /// LR12.2: a struct literal gives a value for every field the struct
+    /// declares without a default, and names no field it does not declare.
+    fn initializers(&mut self, built: &Type, written: &[FieldInit], values: &[Type], span: Span) {
         let Type::Named { module, name, .. } = built else {
             return;
         };
@@ -840,14 +842,44 @@ impl Checker<'_> {
             return;
         };
 
-        for written in fields {
-            if let Some(field) = structure
+        for (field, value) in written.iter().zip(values) {
+            let Some(declared) = structure
                 .fields
                 .iter()
-                .find(|field| field.name == written.name)
-            {
-                self.private(field.visibility, *module, name, &written.name, written.span);
-            }
+                .find(|declared| declared.name == field.name)
+            else {
+                self.diagnostics.push(
+                    Diagnostic::error(
+                        codes::UNKNOWN_FIELD,
+                        field.span,
+                        format!("`{name}` has no field `{}`", field.name),
+                    )
+                    .note("A struct literal names the fields the struct declares (LR12.2)."),
+                );
+                continue;
+            };
+
+            self.private(declared.visibility, *module, name, &field.name, field.span);
+            self.expect(&declared.ty, value, field.value.span);
+        }
+
+        let missing: Vec<String> = structure
+            .fields
+            .iter()
+            .filter(|declared| !declared.optional)
+            .filter(|declared| !written.iter().any(|field| field.name == declared.name))
+            .map(|declared| format!("`{}`", declared.name))
+            .collect();
+
+        if !missing.is_empty() {
+            self.diagnostics.push(
+                Diagnostic::error(
+                    codes::MISSING_FIELD,
+                    span,
+                    format!("this `{name}` is missing {}", missing.join(", ")),
+                )
+                .note("A field is left out only where it is declared with a default (LR12.2)."),
+            );
         }
     }
 

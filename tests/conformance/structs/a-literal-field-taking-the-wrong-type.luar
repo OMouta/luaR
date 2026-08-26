@@ -1,0 +1,12 @@
+--- expect: compile-error
+--- code: LR0145
+--- span: 11:29
+--- spec: LR12.2
+--- spec: LR5.1
+struct Request
+    path: string
+end
+
+function build(): Request
+    return Request { path = 1 }
+end
