@@ -1,8 +1,9 @@
 //! Declarations, and the module that holds them (§9, §21.3, §44).
 
 use luar_ast::{
-    Block, Enum, Extend, Field, Function, Interface, InterfaceMember, Item, Member, Module, Param,
-    Property, Semantics, Setter, Struct, Type, TypeAlias, Variant, VariantPayload, Visibility,
+    Block, Decorator, Enum, Extend, Field, Function, Interface, InterfaceMember, Item, Member,
+    Module, Param, Property, Semantics, Setter, Struct, Type, TypeAlias, Variant, VariantPayload,
+    Visibility,
 };
 use luar_diagnostics::{Span, codes};
 use luar_lexer::{Keyword, TokenKind};
@@ -51,6 +52,7 @@ pub(crate) fn module(cursor: &mut Cursor) -> Module {
 /// A declaration, if one starts here.
 fn item(cursor: &mut Cursor) -> Option<Item> {
     let start = cursor.span();
+    let decorators = decorators(cursor);
     let mark = cursor.mark();
     let exported = cursor.eat_keyword(Keyword::Export);
 
@@ -68,30 +70,50 @@ fn item(cursor: &mut Cursor) -> Option<Item> {
     };
 
     if cursor.kind() == TokenKind::Keyword(Keyword::Struct) {
-        return Some(Item::Struct(structure(cursor, start, exported, semantics)));
+        return Some(Item::Struct(structure(
+            cursor, start, decorators, exported, semantics,
+        )));
     }
 
     if cursor.kind() == TokenKind::Keyword(Keyword::Enum) {
-        return Some(Item::Enum(enumeration(cursor, start, exported)));
+        return Some(Item::Enum(enumeration(cursor, start, decorators, exported)));
     }
 
     if cursor.kind() == TokenKind::Keyword(Keyword::Extend) {
-        return Some(Item::Extend(extension(cursor, start, exported)));
+        return Some(Item::Extend(extension(cursor, start, decorators, exported)));
     }
 
     if cursor.kind() == TokenKind::Keyword(Keyword::Type) {
-        return Some(Item::TypeAlias(type_alias(cursor, start, exported)));
+        return Some(Item::TypeAlias(type_alias(
+            cursor, start, decorators, exported,
+        )));
     }
 
     let structural = cursor.eat_keyword(Keyword::Structural);
     if cursor.kind() == TokenKind::Keyword(Keyword::Interface) {
         return Some(Item::Interface(interface(
-            cursor, start, exported, structural,
+            cursor, start, decorators, exported, structural,
         )));
     }
 
     cursor.rewind(mark);
-    declaration(cursor).map(Item::Function)
+    let decorated = decorators.first().map(|decorator| decorator.span);
+    let function = declaration(cursor, decorators);
+
+    // §23: a decorator attaches to a declaration. On anything else it would
+    // be read and then dropped, which is worse than not reading it.
+    if let (None, Some(span)) = (&function, decorated) {
+        let here = cursor.span();
+        cursor
+            .error(
+                codes::EXPECTED_DECLARATION,
+                here,
+                "a decorator attaches to a declaration, and this is not one",
+            )
+            .label(span, "this decorator has nothing to attach to");
+    }
+
+    function.map(Item::Function)
 }
 
 /// A function declaration, if one starts here.
@@ -99,7 +121,7 @@ fn item(cursor: &mut Cursor) -> Option<Item> {
 /// §89.1: `unsafe` followed by `function` or `static` is the modifier on a
 /// declaration, and `unsafe` followed by anything else opens a block, so the
 /// modifiers are read together and only then does `function` have to follow.
-fn declaration(cursor: &mut Cursor) -> Option<Function> {
+fn declaration(cursor: &mut Cursor, decorators: Vec<Decorator>) -> Option<Function> {
     let start = cursor.span();
     let mark = cursor.mark();
 
@@ -130,7 +152,8 @@ fn declaration(cursor: &mut Cursor) -> Option<Function> {
     Some(function(
         cursor,
         start,
-        &Modifiers {
+        Modifiers {
+            decorators,
             exported,
             asynchronous,
             unsafe_,
@@ -141,6 +164,7 @@ fn declaration(cursor: &mut Cursor) -> Option<Function> {
 }
 
 struct Modifiers {
+    decorators: Vec<Decorator>,
     exported: bool,
     asynchronous: bool,
     unsafe_: bool,
@@ -149,7 +173,7 @@ struct Modifiers {
 
 /// A function declaration. `body` is read unless the caller says the
 /// declaration states a signature and no more (§18, §46).
-fn function(cursor: &mut Cursor, start: Span, modifiers: &Modifiers, bodied: bool) -> Function {
+fn function(cursor: &mut Cursor, start: Span, modifiers: Modifiers, bodied: bool) -> Function {
     // A qualified name declares a member of the type it names (§20, §42).
     let mut name = vec![cursor.name().0];
     while cursor.eat(TokenKind::Dot) {
@@ -167,6 +191,7 @@ fn function(cursor: &mut Cursor, start: Span, modifiers: &Modifiers, bodied: boo
     });
 
     Function {
+        decorators: modifiers.decorators,
         exported: modifiers.exported,
         asynchronous: modifiers.asynchronous,
         unsafe_: modifiers.unsafe_,
@@ -219,7 +244,13 @@ fn parameters(cursor: &mut Cursor) -> Vec<Param> {
 }
 
 /// `struct`, `const struct`, and `ref struct` (§12.2, §12.4, §31).
-fn structure(cursor: &mut Cursor, start: Span, exported: bool, semantics: Semantics) -> Struct {
+fn structure(
+    cursor: &mut Cursor,
+    start: Span,
+    decorators: Vec<Decorator>,
+    exported: bool,
+    semantics: Semantics,
+) -> Struct {
     cursor.advance();
 
     let name = cursor.name().0;
@@ -255,6 +286,7 @@ fn structure(cursor: &mut Cursor, start: Span, exported: bool, semantics: Semant
     }
 
     Struct {
+        decorators,
         exported,
         semantics,
         name,
@@ -268,6 +300,7 @@ fn structure(cursor: &mut Cursor, start: Span, exported: bool, semantics: Semant
 /// A field, a method, or a property (§12.2, §42, §43).
 fn member(cursor: &mut Cursor) -> Member {
     let start = cursor.span();
+    let decorators = decorators(cursor);
 
     // §44: a member is public by default, and may say otherwise.
     let visibility = match cursor.kind() {
@@ -285,7 +318,7 @@ fn member(cursor: &mut Cursor) -> Member {
     }
 
     // A method is an ordinary function declaration, modifiers and all (§42).
-    if let Some(function) = declaration(cursor) {
+    if let Some(function) = declaration(cursor, decorators) {
         return Member::Function(function);
     }
 
@@ -432,7 +465,12 @@ fn close(cursor: &mut Cursor, opened: Span, construct: &str) {
 }
 
 /// `enum Name ... end`, whose variants may carry data (§15).
-fn enumeration(cursor: &mut Cursor, start: Span, exported: bool) -> Enum {
+fn enumeration(
+    cursor: &mut Cursor,
+    start: Span,
+    decorators: Vec<Decorator>,
+    exported: bool,
+) -> Enum {
     cursor.advance();
 
     let name = cursor.name().0;
@@ -454,6 +492,7 @@ fn enumeration(cursor: &mut Cursor, start: Span, exported: bool) -> Enum {
     close(cursor, start, "enum");
 
     Enum {
+        decorators,
         exported,
         name,
         type_params,
@@ -498,7 +537,13 @@ fn variant_types(cursor: &mut Cursor) -> Vec<Type> {
 }
 
 /// `interface Name ... end`, and `structural interface` (§18).
-fn interface(cursor: &mut Cursor, start: Span, exported: bool, structural: bool) -> Interface {
+fn interface(
+    cursor: &mut Cursor,
+    start: Span,
+    decorators: Vec<Decorator>,
+    exported: bool,
+    structural: bool,
+) -> Interface {
     cursor.advance();
 
     let name = cursor.name().0;
@@ -520,6 +565,7 @@ fn interface(cursor: &mut Cursor, start: Span, exported: bool, structural: bool)
     close(cursor, start, "interface");
 
     Interface {
+        decorators,
         exported,
         structural,
         name,
@@ -532,13 +578,15 @@ fn interface(cursor: &mut Cursor, start: Span, exported: bool, structural: bool)
 /// A required method, which has no body, or a required property (§18).
 fn interface_member(cursor: &mut Cursor) -> InterfaceMember {
     let start = cursor.span();
+    let decorators = decorators(cursor);
     let asynchronous = cursor.eat_keyword(Keyword::Async);
 
     if cursor.eat_keyword(Keyword::Function) {
         return InterfaceMember::Function(function(
             cursor,
             start,
-            &Modifiers {
+            Modifiers {
+                decorators,
                 exported: false,
                 asynchronous,
                 unsafe_: false,
@@ -565,7 +613,12 @@ fn interface_member(cursor: &mut Cursor) -> InterfaceMember {
 }
 
 /// `extend Name for Type ... end` (§20).
-fn extension(cursor: &mut Cursor, start: Span, exported: bool) -> Extend {
+fn extension(
+    cursor: &mut Cursor,
+    start: Span,
+    decorators: Vec<Decorator>,
+    exported: bool,
+) -> Extend {
     cursor.advance();
 
     let name = cursor.name().0;
@@ -592,7 +645,8 @@ fn extension(cursor: &mut Cursor, start: Span, exported: bool) -> Extend {
     ) {
         let before = cursor.mark();
 
-        match declaration(cursor) {
+        let member_decorators = self::decorators(cursor);
+        match declaration(cursor, member_decorators) {
             Some(function) => functions.push(function),
             None => {
                 let here = cursor.span();
@@ -616,6 +670,7 @@ fn extension(cursor: &mut Cursor, start: Span, exported: bool) -> Extend {
     close(cursor, start, "extend");
 
     Extend {
+        decorators,
         exported,
         name,
         target,
@@ -625,7 +680,12 @@ fn extension(cursor: &mut Cursor, start: Span, exported: bool) -> Extend {
 }
 
 /// `type Name = T` (§17.1).
-fn type_alias(cursor: &mut Cursor, start: Span, exported: bool) -> TypeAlias {
+fn type_alias(
+    cursor: &mut Cursor,
+    start: Span,
+    decorators: Vec<Decorator>,
+    exported: bool,
+) -> TypeAlias {
     cursor.advance();
 
     let name = cursor.name().0;
@@ -639,10 +699,36 @@ fn type_alias(cursor: &mut Cursor, start: Span, exported: bool) -> TypeAlias {
     let target = ty::ty(cursor);
 
     TypeAlias {
+        decorators,
         exported,
         name,
         type_params,
         target,
         span: start.to(cursor.previous_span()),
     }
+}
+
+/// The decorators written before a declaration (§23).
+fn decorators(cursor: &mut Cursor) -> Vec<Decorator> {
+    let mut decorators = Vec::new();
+
+    while cursor.kind() == TokenKind::At {
+        let start = cursor.span();
+        cursor.advance();
+
+        let name = cursor.name().0;
+        let args = if cursor.kind() == TokenKind::LeftParen {
+            expr::arguments(cursor)
+        } else {
+            Vec::new()
+        };
+
+        decorators.push(Decorator {
+            name,
+            args,
+            span: start.to(cursor.previous_span()),
+        });
+    }
+
+    decorators
 }

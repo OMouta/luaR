@@ -29,6 +29,7 @@ pub enum Item {
 /// A function declaration (§9.1).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Function {
+    pub decorators: Vec<Decorator>,
     /// Exposed from the module (§44).
     pub exported: bool,
     pub asynchronous: bool,
@@ -63,6 +64,7 @@ pub struct Param {
 /// A `struct` declaration (§12.2, §12.4, §31).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Struct {
+    pub decorators: Vec<Decorator>,
     pub exported: bool,
     pub semantics: Semantics,
     pub name: String,
@@ -136,6 +138,7 @@ pub struct Setter {
 /// An `enum` declaration: a nominal tagged value (§15).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Enum {
+    pub decorators: Vec<Decorator>,
     pub exported: bool,
     pub name: String,
     pub type_params: Vec<String>,
@@ -163,6 +166,7 @@ pub enum VariantPayload {
 /// An `interface` declaration: a behavior contract (§18).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Interface {
+    pub decorators: Vec<Decorator>,
     pub exported: bool,
     /// `structural interface`, satisfied by shape rather than by declaration.
     /// Nominal is the default, because conformance is a claim about behavior
@@ -189,6 +193,7 @@ pub enum InterfaceMember {
 /// somewhere else.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Extend {
+    pub decorators: Vec<Decorator>,
     pub exported: bool,
     pub name: String,
     pub target: Type,
@@ -199,9 +204,21 @@ pub struct Extend {
 /// A type alias (§17.1).
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeAlias {
+    pub decorators: Vec<Decorator>,
     pub exported: bool,
     pub name: String,
     pub type_params: Vec<String>,
     pub target: Type,
+    pub span: Span,
+}
+
+/// A decorator, attached to the declaration it precedes (§23).
+///
+/// What it does is decided when decorators are expanded (§23.1); here it is
+/// its name and the arguments written with it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Decorator {
+    pub name: String,
+    pub args: Vec<crate::expr::Argument>,
     pub span: Span,
 }

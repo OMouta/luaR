@@ -1,0 +1,35 @@
+--- expect: compile-ok
+--- spec: §23
+--- spec: §23.2
+@serializable
+export struct User
+    id: u64
+    name: string
+
+    @inline
+    function display(self): string
+        return self.name
+    end
+end
+
+@derive(Json, Eq)
+export enum Status
+    Active
+    Retired
+end
+
+@repr("C")
+struct CTime
+    seconds: i64
+    nanos: i64
+end
+
+@deprecated("Use newApi instead")
+function oldApi()
+end
+
+@route("/users/:id")
+@auth(role = "admin")
+async function getUser(id: string): Result<User, HttpError>
+    return fetch(id)
+end

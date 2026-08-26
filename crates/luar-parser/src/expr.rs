@@ -402,14 +402,10 @@ fn type_arguments(cursor: &mut Cursor) -> Option<Vec<Type>> {
     Some(args)
 }
 
-fn call(cursor: &mut Cursor, callee: Expr, method: Option<String>) -> Expr {
+/// The arguments of a call, or of a decorator (§9.5, §23).
+pub(crate) fn arguments(cursor: &mut Cursor) -> Vec<Argument> {
     let opened = cursor.span();
-
-    if !cursor.eat(TokenKind::LeftParen) {
-        let here = cursor.span();
-        cursor.error(codes::EXPECTED_EXPRESSION, here, "expected a call here");
-        return Expr::new(ExprKind::Error, here);
-    }
+    cursor.advance();
 
     let mut args = Vec::new();
     while !matches!(cursor.kind(), TokenKind::RightParen | TokenKind::Eof) {
@@ -419,10 +415,19 @@ fn call(cursor: &mut Cursor, callee: Expr, method: Option<String>) -> Expr {
         }
     }
 
-    let end = cursor.span();
     cursor.close(TokenKind::RightParen, opened, ")");
+    args
+}
 
-    let span = callee.span.to(end);
+fn call(cursor: &mut Cursor, callee: Expr, method: Option<String>) -> Expr {
+    if cursor.kind() != TokenKind::LeftParen {
+        let here = cursor.span();
+        cursor.error(codes::EXPECTED_EXPRESSION, here, "expected a call here");
+        return Expr::new(ExprKind::Error, here);
+    }
+
+    let args = arguments(cursor);
+    let span = callee.span.to(cursor.previous_span());
     Expr::new(
         ExprKind::Call {
             callee: Box::new(callee),
