@@ -63,12 +63,6 @@ them.
 | `lute luar lint` | `cargo clippy --workspace --all-targets -- -D warnings` |
 | `lute luar ci` | format, lint, unit tests, conformance |
 
-`check` runs the frontend: it reads the modules the file imports, resolves
-names, orders module initialization, reads every declaration into a table, and
-checks the types it can work out. It rejects more programs as the rest of type
-checking lands, so a file that passes today may not later. `run` exits 2,
-because there is no backend.
-
 ## Writing a conformance test
 
 Put a `.luar` file under `tests/conformance/<area>/`. The runner walks the
