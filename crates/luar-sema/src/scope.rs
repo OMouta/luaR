@@ -22,7 +22,8 @@ use luar_ast::{
 };
 use luar_diagnostics::{Diagnostic, Span, codes};
 
-use crate::modules::Graph;
+use crate::init::Use;
+use crate::modules::{Graph, ModuleId};
 use crate::names::{Names, Origin, bound};
 
 /// The names in scope in every module, with no import (§54.1).
@@ -39,31 +40,55 @@ pub static PREDECLARED: &[&str] = &[
 ];
 
 /// Resolves every name in every module of `graph`.
+///
+/// Returns what it reported, and every name a module reaches for another
+/// module's while running its own top-level code, which is what decides
+/// whether the modules can be ordered (§78).
 #[must_use]
-pub fn resolve(graph: &Graph, names: &Names) -> Vec<Diagnostic> {
+pub fn resolve(graph: &Graph, names: &Names) -> (Vec<Diagnostic>, Vec<Use>) {
     let mut diagnostics = Vec::new();
+    let mut uses = Vec::new();
 
     for (id, node) in graph.modules() {
         let mut resolver = Resolver {
             module: names,
             scope: id,
             frames: vec![HashSet::new()],
+            initializing: false,
             diagnostics: &mut diagnostics,
+            uses: &mut uses,
         };
         resolver.module(&node.ast);
     }
 
-    diagnostics
+    (diagnostics, uses)
 }
 
 struct Resolver<'a> {
     module: &'a Names,
-    scope: crate::modules::ModuleId,
+    scope: ModuleId,
     /// Names bound inside the module, innermost last. The first frame holds
     /// the module's own `local` and `const` bindings (§21.3), which are
     /// visible from where they are written onward, unlike declarations.
     frames: Vec<HashSet<String>>,
+    /// Whether the walk is inside the module's top-level code, which runs
+    /// before `main` (§78). A function body runs later, so it is not.
+    initializing: bool,
     diagnostics: &'a mut Vec<Diagnostic>,
+    uses: &'a mut Vec<Use>,
+}
+
+/// What a name resolves to, as far as scope is concerned.
+enum Found {
+    /// A local, a parameter, a pattern binding, or a module-level binding the
+    /// walk has already passed.
+    Binding,
+    /// A declaration of this module, or a predeclared name (§54.1).
+    Declaration,
+    /// A name another module owns, and the module that owns it (§21.1).
+    Other(ModuleId),
+    /// Nothing binds it.
+    Nothing,
 }
 
 impl Resolver<'_> {
@@ -102,7 +127,11 @@ impl Resolver<'_> {
                     self.item(item);
                 }
             }
-            Item::Stmt(stmt) => self.stmt(stmt),
+            Item::Stmt(stmt) => {
+                self.initializing = true;
+                self.stmt(stmt);
+                self.initializing = false;
+            }
         }
     }
 
@@ -121,6 +150,8 @@ impl Resolver<'_> {
     /// A property's accessors take no parameters and read `self`, unlike a
     /// method, which declares it (§43, §65).
     fn property(&mut self, property: &Property) {
+        let outer = std::mem::replace(&mut self.initializing, false);
+
         self.push();
         self.bind("self");
         self.block(&property.get);
@@ -133,15 +164,23 @@ impl Resolver<'_> {
             self.block(&setter.body);
             self.pop();
         }
+
+        self.initializing = outer;
     }
 
     fn function(&mut self, function: &Function) {
         let Some(body) = &function.body else { return };
 
+        // A declared body runs when it is called, which is after every
+        // module has initialized (§78). A closure written inside top-level
+        // code is left alone: it may run during initialization, and reading
+        // it as if it does is what keeps the ordering sound.
+        let outer = std::mem::replace(&mut self.initializing, false);
         self.push();
         self.params(&function.params);
         self.block(body);
         self.pop();
+        self.initializing = outer;
     }
 
     /// Parameters, in order. A default may use the parameters before it and
@@ -288,7 +327,7 @@ impl Resolver<'_> {
     fn assigned(&mut self, target: &Expr) {
         match &target.kind {
             ExprKind::Name(name) => {
-                if !self.in_scope(name) {
+                if matches!(self.find(name), Found::Nothing) {
                     self.diagnostics.push(
                         Diagnostic::error(
                             codes::IMPLICIT_GLOBAL,
@@ -307,11 +346,7 @@ impl Resolver<'_> {
 
     fn expr(&mut self, expr: &Expr) {
         match &expr.kind {
-            ExprKind::Name(name) => {
-                if !self.in_scope(name) {
-                    self.not_in_scope(name, expr.span);
-                }
-            }
+            ExprKind::Name(name) => self.read(name, expr.span),
             ExprKind::Nil
             | ExprKind::Bool(_)
             | ExprKind::Integer(_)
@@ -468,23 +503,48 @@ impl Resolver<'_> {
         }
     }
 
-    /// Whether `name` is bound where it is being read.
+    /// What binds `name` where it is written.
     ///
     /// A declaration and an import are in scope throughout the module. A
     /// module-level `local` or `const` is in scope from where it is written
-    /// onward, so it is found in the first frame, once the walk has passed it.
-    fn in_scope(&self, name: &str) -> bool {
+    /// onward, so it is found in the first frame once the walk has passed it,
+    /// and not through the module's own table.
+    fn find(&self, name: &str) -> Found {
         if self.frames.iter().any(|frame| frame.contains(name)) {
-            return true;
+            return Found::Binding;
         }
 
-        let module = self
-            .module
-            .scope(self.scope)
-            .get(name)
-            .is_some_and(|binding| !matches!(binding.origin, Origin::Binding { .. }));
+        match self.module.scope(self.scope).get(name).map(|b| &b.origin) {
+            Some(Origin::Declared { .. }) => Found::Declaration,
+            Some(Origin::Imported { module, .. } | Origin::Namespace(module)) => {
+                Found::Other(*module)
+            }
+            Some(Origin::Binding { .. }) | None => {
+                if PREDECLARED.contains(&name) {
+                    Found::Declaration
+                } else {
+                    Found::Nothing
+                }
+            }
+        }
+    }
 
-        module || PREDECLARED.contains(&name)
+    /// Reads `name`, recording it where it reaches another module while this
+    /// one is initializing (§78).
+    fn read(&mut self, name: &str, span: Span) {
+        match self.find(name) {
+            Found::Binding | Found::Declaration => {}
+            Found::Other(module) => {
+                if self.initializing {
+                    self.uses.push(Use {
+                        module: self.scope,
+                        needs: module,
+                        span,
+                    });
+                }
+            }
+            Found::Nothing => self.not_in_scope(name, span),
+        }
     }
 
     fn bind(&mut self, name: &str) {

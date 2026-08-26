@@ -1,0 +1,7 @@
+import { label } from "../an-orderable-import-cycle"
+
+export const defaults = 30
+
+export function describe(): string
+    return label()
+end

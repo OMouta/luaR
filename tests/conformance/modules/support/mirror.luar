@@ -1,0 +1,3 @@
+import { setting } from "../an-unorderable-import-cycle"
+
+export const mode = setting

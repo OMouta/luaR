@@ -159,6 +159,8 @@ registry! {
         "A parameter list names each parameter once.";
     active 141 => EXPORTED_MUTABLE_STATE, "§52",
         "`export` reaches declarations and `const` values, and not mutable state.";
+    active 142 => UNSAFE_IMPORT_CYCLE, "§21.2",
+        "Modules in a cycle must have an initialization order, and this pair has none.";
 }
 
 #[cfg(test)]

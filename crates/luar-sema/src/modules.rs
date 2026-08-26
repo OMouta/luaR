@@ -101,10 +101,13 @@ pub fn resolve(path: &str, importer: &Path) -> Target {
 /// Resolves `.` and `..` in `path` without touching the filesystem.
 ///
 /// Two spellings of one module must reach the same file, since a module is
-/// initialized once (§21.2) and the graph keys modules by path. Doing it
-/// lexically keeps a path in a diagnostic looking like what the user wrote,
-/// which `fs::canonicalize` does not.
-fn normalize(path: PathBuf) -> PathBuf {
+/// initialized once (§21.2) and the graph keys modules by path. That includes
+/// the root, which is spelled by whoever started the compilation and may well
+/// be reached again by an import. Doing it lexically keeps a path in a
+/// diagnostic looking like what the user wrote, which `fs::canonicalize` does
+/// not.
+#[must_use]
+pub fn normalize(path: PathBuf) -> PathBuf {
     use std::path::Component;
 
     let mut out = PathBuf::new();

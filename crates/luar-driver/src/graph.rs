@@ -17,7 +17,7 @@ pub(crate) fn build(sources: &mut SourceMap, root: FileId) -> (Graph, Vec<Diagno
     let mut graph = Graph::default();
     let mut diagnostics = Vec::new();
 
-    let path = sources.file(root).path().to_path_buf();
+    let path = luar_sema::modules::normalize(sources.file(root).path().to_path_buf());
     let text = sources.file(root).text().to_owned();
     let parsed = luar_parser::module(&text, root);
     diagnostics.extend(parsed.diagnostics);

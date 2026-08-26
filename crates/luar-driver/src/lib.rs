@@ -34,6 +34,9 @@ pub fn check(sources: &mut SourceMap, root: FileId) -> Check {
     let (graph, mut diagnostics) = graph::build(sources, root);
     let (names, reported) = luar_sema::names::resolve(&graph);
     diagnostics.extend(reported);
-    diagnostics.extend(luar_sema::scope::resolve(&graph, &names));
+
+    let (reported, uses) = luar_sema::scope::resolve(&graph, &names);
+    diagnostics.extend(reported);
+    diagnostics.extend(luar_sema::init::check(&graph, &uses));
     Check::Ran(diagnostics)
 }

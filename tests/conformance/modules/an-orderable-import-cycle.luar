@@ -1,0 +1,14 @@
+--- expect: compile-ok
+--- spec: §21.2
+--- spec: §78
+import { defaults } from "./support/settings"
+
+const timeout = defaults
+
+export function label(): string
+    return "timeout"
+end
+
+export function main()
+    print(timeout, label())
+end
