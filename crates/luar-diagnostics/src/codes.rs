@@ -147,6 +147,8 @@ registry! {
         "A foreign declaration states an ABI and is `unsafe`, since neither is verifiable.";
     active 135 => MALFORMED_IMPORT, "§21.1",
         "An import names what it binds, then `from`, then the module path as a string.";
+    active 136 => UNRESOLVED_IMPORT, "§21.1",
+        "An import path must name a module the compiler can read.";
 }
 
 #[cfg(test)]

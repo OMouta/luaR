@@ -1,0 +1,8 @@
+--- expect: compile-ok
+--- spec: §21.1
+--- spec: §21.2
+import { ping } from "./support/ping"
+
+export function main()
+    print(ping(4))
+end

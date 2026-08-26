@@ -1,4 +1,4 @@
-//! Where an import points (§21.1).
+//! The module graph, and where an import points (§21.1).
 //!
 //! An import path is one of three things: a path relative to the importing
 //! file, a standard library module, or a module in a package. Which one it is
@@ -7,9 +7,14 @@
 //!
 //! Turning that into a file is the part that touches the filesystem, and it
 //! happens in the driver. Here a path becomes either a file to read or a
-//! reason the compiler cannot name one.
+//! reason the compiler cannot name one, and the modules that were read become
+//! a [`Graph`] the stages after this one walk.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+
+use luar_ast::Module;
+use luar_diagnostics::{FileId, Span};
 
 /// The extension a module file carries (§2).
 const EXTENSION: &str = "luar";
@@ -117,6 +122,106 @@ fn normalize(path: PathBuf) -> PathBuf {
 
 fn is_name(component: std::path::Component<'_>) -> bool {
     matches!(component, std::path::Component::Normal(_))
+}
+
+/// A module in the graph. Stable for the life of the [`Graph`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ModuleId(u32);
+
+/// One module: its source, its syntax, and what it imports.
+#[derive(Debug)]
+pub struct Node {
+    pub file: FileId,
+    /// The file it was read from, resolved. Two imports naming this module
+    /// spell it the same way, so the graph holds it once (§21.2).
+    pub path: PathBuf,
+    pub ast: Module,
+    /// One edge per import, in the order written.
+    pub imports: Vec<Edge>,
+}
+
+/// An import, and the module it reached.
+#[derive(Debug, Clone, Copy)]
+pub struct Edge {
+    /// The module imported. Absent where the import resolved to nothing,
+    /// which is reported where it is found.
+    pub target: Option<ModuleId>,
+    /// The path as written, for pointing at.
+    pub span: Span,
+}
+
+/// Every module one compilation reaches, and the imports between them (§21.1).
+///
+/// The root is the first module inserted, so a graph is never empty in
+/// practice and the order of the rest is the order they were discovered in.
+#[derive(Debug, Default)]
+pub struct Graph {
+    nodes: Vec<Node>,
+    by_path: BTreeMap<PathBuf, ModuleId>,
+}
+
+impl Graph {
+    /// Adds a module read from `path`, and returns its id.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a module was already added for `path`. Callers ask
+    /// [`Graph::find`] first, because reading one file twice would give a
+    /// module two initializations (§21.2).
+    pub fn insert(&mut self, file: FileId, path: PathBuf, ast: Module) -> ModuleId {
+        let id = ModuleId(u32::try_from(self.nodes.len()).expect("module count fits in u32"));
+        assert!(
+            self.by_path.insert(path.clone(), id).is_none(),
+            "one module per file: {}",
+            path.display()
+        );
+        self.nodes.push(Node {
+            file,
+            path,
+            ast,
+            imports: Vec::new(),
+        });
+        id
+    }
+
+    /// The module read from `path`, if it is already in the graph.
+    #[must_use]
+    pub fn find(&self, path: &Path) -> Option<ModuleId> {
+        self.by_path.get(path).copied()
+    }
+
+    /// Records what `id` imports, once every module it names is in the graph.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` came from another graph.
+    pub fn set_imports(&mut self, id: ModuleId, imports: Vec<Edge>) {
+        self.node_mut(id).imports = imports;
+    }
+
+    /// # Panics
+    ///
+    /// Panics if `id` came from another graph.
+    #[must_use]
+    pub fn module(&self, id: ModuleId) -> &Node {
+        self.nodes
+            .get(id.0 as usize)
+            .expect("module id belongs to another graph")
+    }
+
+    /// Every module, in the order they were discovered.
+    pub fn modules(&self) -> impl Iterator<Item = (ModuleId, &Node)> {
+        self.nodes
+            .iter()
+            .enumerate()
+            .map(|(i, node)| (ModuleId(i as u32), node))
+    }
+
+    fn node_mut(&mut self, id: ModuleId) -> &mut Node {
+        self.nodes
+            .get_mut(id.0 as usize)
+            .expect("module id belongs to another graph")
+    }
 }
 
 #[cfg(test)]

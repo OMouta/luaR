@@ -1,0 +1,5 @@
+import { ping } from "./ping"
+
+export function pong(depth: int): int
+    return ping(depth)
+end

@@ -1,5 +1,7 @@
 //! Drives one compilation: source in, artifact or diagnostics out.
 
+mod graph;
+
 use luar_diagnostics::{Diagnostic, FileId, SourceMap};
 
 /// What checking a module produced.
@@ -17,13 +19,17 @@ pub enum Check {
 
 /// Checks `root` and the modules it imports, without producing an artifact.
 ///
-/// The frontend reaches as far as the syntax tree. An accepted program is one
-/// that lexes and parses, and every stage added after this one narrows what
-/// that means: name resolution, then type checking. A program accepted here
-/// and rejected later was never accepted by the finished compiler, and the
-/// test that says so starts failing the day the stage that rejects it lands.
+/// The frontend reaches as far as the module graph: every module the root
+/// imports is read and parsed, and an import naming nothing is reported. Each
+/// stage added after this one narrows what an accepted program is: name
+/// resolution, then type checking. A program accepted here and rejected later
+/// was never accepted by the finished compiler, and the test that says so
+/// starts failing the day the stage that rejects it lands.
+///
+/// Imported modules are added to `sources`, so their spans resolve like the
+/// root's.
 #[must_use]
-pub fn check(sources: &SourceMap, root: FileId) -> Check {
-    let parsed = luar_parser::module(sources.file(root).text(), root);
-    Check::Ran(parsed.diagnostics)
+pub fn check(sources: &mut SourceMap, root: FileId) -> Check {
+    let (_graph, diagnostics) = graph::build(sources, root);
+    Check::Ran(diagnostics)
 }

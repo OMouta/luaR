@@ -5,6 +5,9 @@
 //! no mocked stages, no snapshots, and nothing it asserts about is internal to
 //! the compiler.
 //!
+//! A directory named `support` holds modules that tests import (§21.1). They
+//! are read as part of the test that imports them, and are not tests.
+//!
 //! Expectations the compiler cannot answer yet are reported as skipped, never
 //! as passed. `run` tests are written as their features arrive and sit skipped
 //! until the backend exists, so that the day it lands the suite says how much
@@ -49,6 +52,9 @@ impl fmt::Display for Outcome {
     }
 }
 
+/// Modules that tests import rather than tests themselves.
+const SUPPORT: &str = "support";
+
 /// Every `.luar` file under `root`, in a stable order.
 ///
 /// A missing directory is an empty suite, not an error: the tree does not
@@ -70,6 +76,9 @@ fn collect(dir: &Path, found: &mut Vec<PathBuf>) -> io::Result<()> {
     for entry in entries {
         let path = entry?.path();
         if path.is_dir() {
+            if path.file_name().is_some_and(|name| name == SUPPORT) {
+                continue;
+            }
             collect(&path, found)?;
         } else if path.extension().is_some_and(|ext| ext == "luar") {
             found.push(path);
@@ -112,7 +121,7 @@ fn check(path: &Path, source: String, directives: &Directives) -> Outcome {
     let mut sources = SourceMap::new();
     let file = sources.add(path, source);
 
-    let diagnostics = match luar_driver::check(&sources, file) {
+    let diagnostics = match luar_driver::check(&mut sources, file) {
         Check::Ran(diagnostics) => diagnostics,
         Check::Unimplemented => {
             return Outcome::Skipped("the compiler frontend does not exist yet".to_owned());

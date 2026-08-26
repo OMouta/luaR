@@ -28,7 +28,7 @@ pub fn run(paths: &[String]) -> ExitCode {
         let mut sources = SourceMap::new();
         let file = sources.add(path, source);
 
-        let diagnostics = match luar_driver::check(&sources, file) {
+        let diagnostics = match luar_driver::check(&mut sources, file) {
             Check::Ran(diagnostics) => diagnostics,
             // The frontend answers today, and this stays until nothing can
             // return it.

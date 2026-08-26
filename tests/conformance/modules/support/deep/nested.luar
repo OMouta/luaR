@@ -1,0 +1,5 @@
+import { name } from "../config"
+
+export function label(): string
+    return name()
+end

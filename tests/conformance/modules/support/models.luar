@@ -1,0 +1,8 @@
+export struct User
+    id: string
+end
+
+export struct Session
+    id: string
+    user: User
+end
