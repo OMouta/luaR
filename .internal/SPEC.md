@@ -3691,6 +3691,13 @@ lvalue          = identifier
 
 expression_stmt = expression ;       (* whose outermost operation is a call *)
 
+conditional     = "#if" expression { item }
+                  { "#elseif" expression { item } }
+                  [ "#else" { item } ]
+                  "#end" ;                      (* §48 *)
+                  (* `item` is whatever the surrounding position holds: a
+                     declaration at module level, a statement in a block *)
+
 assign_op       = "=" | "+=" | "-=" | "*=" | "/=" | "//=" | "%="
                 | "**=" | "&=" | "|=" | "^=" | "<<=" | ">>=" ;
 
