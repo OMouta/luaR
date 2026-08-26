@@ -207,6 +207,8 @@ registry! {
         "A match covers every value its scrutinee can hold.";
     active 165 => UNREACHABLE_CASE, "LR16.4",
         "A case an earlier one already covers never runs.";
+    active 166 => CIRCULAR_ALIAS, "LR17.1",
+        "An alias names what another type is, and cannot name itself.";
 }
 
 #[cfg(test)]

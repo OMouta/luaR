@@ -14,6 +14,7 @@ use std::collections::HashSet;
 use luar_ast::TypeKind;
 use luar_diagnostics::{Diagnostic, Span, codes};
 
+use crate::aliases::Aliases;
 use crate::modules::ModuleId;
 use crate::names::{Names, Origin};
 use crate::table::Kinds;
@@ -23,6 +24,9 @@ use crate::types::{Builtin, Primitive, Type};
 pub struct Resolver<'a> {
     names: &'a Names,
     kinds: &'a Kinds,
+    /// What every alias stands for (LR17.1). Empty while the table is being
+    /// built, because building it is what works them out.
+    aliases: &'a Aliases,
     module: ModuleId,
     /// The type parameters of the declarations being walked, innermost last
     /// (LR19).
@@ -31,10 +35,11 @@ pub struct Resolver<'a> {
 
 impl<'a> Resolver<'a> {
     #[must_use]
-    pub fn new(names: &'a Names, kinds: &'a Kinds, module: ModuleId) -> Self {
+    pub fn new(names: &'a Names, kinds: &'a Kinds, aliases: &'a Aliases, module: ModuleId) -> Self {
         Self {
             names,
             kinds,
+            aliases,
             module,
             parameters: Vec::new(),
         }
@@ -154,11 +159,17 @@ impl<'a> Resolver<'a> {
             _ => return None,
         };
 
-        if self.declares_type(module, &name) {
-            Some(Type::Named { module, name, args })
-        } else {
-            None
+        if !self.declares_type(module, &name) {
+            return None;
         }
+
+        // LR17.1: an alias stands for its target, so what a path naming one
+        // resolves to is the target. Nothing past here sees the alias.
+        Some(
+            self.aliases
+                .stands_for(module, &name, &args)
+                .unwrap_or(Type::Named { module, name, args }),
+        )
     }
 
     /// Whether `module` declares a type called `name` that this module may

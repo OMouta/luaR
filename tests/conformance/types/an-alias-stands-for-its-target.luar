@@ -1,0 +1,21 @@
+--- expect: compile-ok
+--- spec: LR17.1
+struct User
+    name: string
+end
+
+type Person = User
+type UserId = u64
+
+function label(person: Person): string
+    return person.name
+end
+
+function identify(id: UserId): u64
+    return id
+end
+
+export function main()
+    local user = User { name = "ada" }
+    print(label(user), identify(7))
+end

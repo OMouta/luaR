@@ -16,6 +16,7 @@ use std::collections::BTreeMap;
 use luar_ast::{Function, Item, Member, Semantics, Visibility};
 use luar_diagnostics::{Diagnostic, Span, codes};
 
+use crate::aliases::{self, Aliases, Written};
 use crate::annotations::Resolver;
 use crate::modules::{Graph, ModuleId};
 use crate::names::{Names, Origin};
@@ -177,6 +178,7 @@ pub enum Decl {
 pub struct Table {
     kinds: Kinds,
     decls: BTreeMap<(ModuleId, String), Decl>,
+    aliases: Aliases,
 }
 
 impl Table {
@@ -207,6 +209,12 @@ impl Table {
         &self.kinds
     }
 
+    /// What every alias in the program stands for (LR17.1).
+    #[must_use]
+    pub fn aliases(&self) -> &Aliases {
+        &self.aliases
+    }
+
     /// Every declaration in the program, with the module declaring it.
     pub fn decls(&self) -> impl Iterator<Item = (ModuleId, &str, &Decl)> {
         self.decls
@@ -219,11 +227,12 @@ impl Table {
 #[must_use]
 pub fn build(graph: &Graph, names: &Names) -> (Table, Vec<Diagnostic>) {
     let kinds = collect_kinds(graph);
+    let empty = Aliases::default();
     let mut decls = BTreeMap::new();
     let mut diagnostics = Vec::new();
 
     for (module, node) in graph.modules() {
-        let mut resolver = Resolver::new(names, &kinds, module);
+        let mut resolver = Resolver::new(names, &kinds, &empty, module);
         declare(
             &node.ast.items,
             module,
@@ -237,7 +246,7 @@ pub fn build(graph: &Graph, names: &Names) -> (Table, Vec<Diagnostic>) {
     // A method written outside its type's body is attached once every
     // declaration is read, because the type may be written after it (LR20).
     for (module, node) in graph.modules() {
-        let mut resolver = Resolver::new(names, &kinds, module);
+        let mut resolver = Resolver::new(names, &kinds, &empty, module);
         attach(
             &node.ast.items,
             module,
@@ -249,7 +258,139 @@ pub fn build(graph: &Graph, names: &Names) -> (Table, Vec<Diagnostic>) {
         );
     }
 
-    (Table { kinds, decls }, diagnostics)
+    // LR17.1: an alias is not a type of its own, so it is taken back out
+    // before anything reads what is here. Every type an alias was resolved
+    // to, in this pass, is one of the aliases being worked out.
+    let (aliases, reported) = aliases::resolve(&written(graph, &decls));
+    diagnostics.extend(reported);
+
+    for decl in decls.values_mut() {
+        expand(decl, &aliases);
+    }
+
+    (
+        Table {
+            kinds,
+            decls,
+            aliases,
+        },
+        diagnostics,
+    )
+}
+
+/// Every alias in the program, as written, with the target the first pass
+/// resolved it to.
+fn written(graph: &Graph, decls: &BTreeMap<(ModuleId, String), Decl>) -> Vec<Written> {
+    fn walk(
+        items: &[Item],
+        module: ModuleId,
+        decls: &BTreeMap<(ModuleId, String), Decl>,
+        found: &mut Vec<Written>,
+    ) {
+        for item in items {
+            match item {
+                Item::TypeAlias(alias) => {
+                    let Some(Decl::Alias {
+                        type_params,
+                        target,
+                    }) = decls.get(&(module, alias.name.clone()))
+                    else {
+                        continue;
+                    };
+
+                    found.push(Written {
+                        module,
+                        name: alias.name.clone(),
+                        params: type_params.clone(),
+                        target: target.clone(),
+                        span: alias.span,
+                    });
+                }
+                Item::Conditional(conditional) => {
+                    for (_, items) in &conditional.branches {
+                        walk(items, module, decls, found);
+                    }
+                    if let Some(items) = &conditional.otherwise {
+                        walk(items, module, decls, found);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let mut found = Vec::new();
+    for (module, node) in graph.modules() {
+        walk(&node.ast.items, module, decls, &mut found);
+    }
+    found
+}
+
+/// Puts every alias in one declaration back to what it stands for.
+fn expand(decl: &mut Decl, aliases: &Aliases) {
+    fn field(field: &mut Field, aliases: &Aliases) {
+        field.ty = aliases.expand(&field.ty);
+    }
+
+    fn signature(signature: &mut Signature, aliases: &Aliases) {
+        for param in &mut signature.params {
+            param.ty = aliases.expand(&param.ty);
+        }
+        signature.result = aliases.expand(&signature.result);
+    }
+
+    fn overloads(overloads: &mut BTreeMap<String, Overloads>, aliases: &Aliases) {
+        for set in overloads.values_mut() {
+            for held in set {
+                signature(held, aliases);
+            }
+        }
+    }
+
+    match decl {
+        Decl::Struct(structure) => {
+            for held in structure.fields.iter_mut().chain(&mut structure.properties) {
+                field(held, aliases);
+            }
+            overloads(&mut structure.methods, aliases);
+            for claim in &mut structure.implements {
+                *claim = aliases.expand(claim);
+            }
+        }
+        Decl::Enum(enumeration) => {
+            for variant in enumeration.variants.values_mut() {
+                match variant {
+                    Variant::Unit => {}
+                    Variant::Tuple(types) => {
+                        for ty in types {
+                            *ty = aliases.expand(ty);
+                        }
+                    }
+                    Variant::Record(fields) => {
+                        for held in fields {
+                            field(held, aliases);
+                        }
+                    }
+                }
+            }
+        }
+        Decl::Interface(interface) => {
+            overloads(&mut interface.methods, aliases);
+            for held in &mut interface.properties {
+                field(held, aliases);
+            }
+        }
+        Decl::Alias { target, .. } => *target = aliases.expand(target),
+        Decl::Function(set) => {
+            for held in set {
+                signature(held, aliases);
+            }
+        }
+        Decl::Extension { target, methods } => {
+            *target = aliases.expand(target);
+            overloads(methods, aliases);
+        }
+    }
 }
 
 /// The kind of each declaration, read from the syntax alone.

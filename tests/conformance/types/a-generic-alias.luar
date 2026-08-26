@@ -1,0 +1,12 @@
+--- expect: compile-ok
+--- spec: LR17.1
+--- spec: LR19
+type Pair<T> = (T, T)
+
+function first(pair: Pair<string>): string
+    return "x"
+end
+
+export function main()
+    print(first(("a", "b")))
+end

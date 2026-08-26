@@ -35,7 +35,7 @@ pub fn check(graph: &Graph, names: &Names, table: &Table) -> Vec<Diagnostic> {
         let mut checker = Checker {
             names,
             table,
-            types: Resolver::new(names, table.kinds(), id),
+            types: Resolver::new(names, table.kinds(), table.aliases(), id),
             scope: id,
             values: vec![HashMap::new()],
             extensions: extensions(names, table, id),
