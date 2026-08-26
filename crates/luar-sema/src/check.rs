@@ -112,11 +112,20 @@ impl Checker<'_> {
             // A declaration the table holds was resolved when the table was
             // built, so its body is checked against what is recorded there.
             Item::Function(function) => {
-                let signature = match function.name.as_slice() {
-                    [name] => self.table.signature(self.scope, name).cloned(),
-                    _ => None,
+                // LR20: a qualified name writes a member of the type it
+                // names, so its body reads `self` as that type.
+                let (signature, receiver) = match function.name.as_slice() {
+                    [name] => (self.table.signature(self.scope, name).cloned(), None),
+                    [owner, name] => match self.table.structure(self.scope, owner) {
+                        Some(structure) => (
+                            structure.methods.get(name).cloned(),
+                            Some(self.receiver(owner)),
+                        ),
+                        None => (None, None),
+                    },
+                    _ => (None, None),
                 };
-                self.body(function, signature.as_ref(), None);
+                self.body(function, signature.as_ref(), receiver);
             }
             Item::Struct(structure) => self.structure(structure),
             Item::Extend(extend) => {
@@ -155,21 +164,32 @@ impl Checker<'_> {
         }
     }
 
+    /// The type a member of `name` reads `self` as, which is the type
+    /// itself, standing for its own parameters (LR65, LR19).
+    fn receiver(&self, name: &str) -> Type {
+        let args = match self.table.structure(self.scope, name) {
+            Some(structure) => structure
+                .type_params
+                .iter()
+                .map(|param| Type::Parameter(param.clone()))
+                .collect(),
+            None => Vec::new(),
+        };
+
+        Type::Named {
+            module: self.scope,
+            name: name.to_owned(),
+            args,
+        }
+    }
+
     fn structure(&mut self, structure: &Struct) {
         let Some(declared) = self.table.structure(self.scope, &structure.name).cloned() else {
             return;
         };
 
         // LR65: `self` in a member is the type the member is declared in.
-        let receiver = Type::Named {
-            module: self.scope,
-            name: structure.name.clone(),
-            args: structure
-                .type_params
-                .iter()
-                .map(|param| Type::Parameter(param.clone()))
-                .collect(),
-        };
+        let receiver = self.receiver(&structure.name);
 
         self.types.enter(&structure.type_params);
 

@@ -14,11 +14,11 @@
 use std::collections::BTreeMap;
 
 use luar_ast::{Function, Item, Member, Semantics, Visibility};
-use luar_diagnostics::Diagnostic;
+use luar_diagnostics::{Diagnostic, codes};
 
 use crate::annotations::Resolver;
 use crate::modules::{Graph, ModuleId};
-use crate::names::Names;
+use crate::names::{Names, Origin};
 use crate::types::Type;
 
 /// What kind of thing a declaration is, before anything about it is resolved.
@@ -193,6 +193,20 @@ pub fn build(graph: &Graph, names: &Names) -> (Table, Vec<Diagnostic>) {
         declare(
             &node.ast.items,
             module,
+            &mut resolver,
+            &mut decls,
+            &mut diagnostics,
+        );
+    }
+
+    // A method written outside its type's body is attached once every
+    // declaration is read, because the type may be written after it (LR20).
+    for (module, node) in graph.modules() {
+        let mut resolver = Resolver::new(names, &kinds, module);
+        attach(
+            &node.ast.items,
+            module,
+            names,
             &mut resolver,
             &mut decls,
             &mut diagnostics,
@@ -419,6 +433,62 @@ fn declare(
         };
 
         decls.entry((module, name)).or_insert(decl);
+    }
+}
+
+/// Attaches `function Type.method(...)` to the type it names (LR20).
+///
+/// A member the type already declares stays as declared. Two declarations of
+/// one member is not a rule the spec states yet, and keeping the first is
+/// what makes every later stage see one member rather than the last written.
+fn attach(
+    items: &[Item],
+    module: ModuleId,
+    names: &Names,
+    resolver: &mut Resolver,
+    decls: &mut BTreeMap<(ModuleId, String), Decl>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    for item in items {
+        let function = match item {
+            Item::Function(function) if function.name.len() == 2 => function,
+            Item::Conditional(conditional) => {
+                for (_, items) in &conditional.branches {
+                    attach(items, module, names, resolver, decls, diagnostics);
+                }
+                if let Some(items) = &conditional.otherwise {
+                    attach(items, module, names, resolver, decls, diagnostics);
+                }
+                continue;
+            }
+            _ => continue,
+        };
+
+        let (owner, name) = (&function.name[0], &function.name[1]);
+
+        // LR20: the type's own module is where its methods are written.
+        // Another module adds to it through an extension block, which the
+        // reader can see imported.
+        if let Some(Origin::Imported { .. } | Origin::Namespace(_)) = names
+            .scope(module)
+            .get(owner)
+            .map(|binding| &binding.origin)
+        {
+            diagnostics.push(
+                Diagnostic::error(
+                    codes::METHOD_OUTSIDE_ITS_MODULE,
+                    function.span,
+                    format!("`{owner}` is declared in another module"),
+                )
+                .note("A module adds to a type it did not declare with `extend` (LR20)."),
+            );
+            continue;
+        }
+
+        let signature = signature(function, None, resolver, diagnostics);
+        if let Some(Decl::Struct(structure)) = decls.get_mut(&(module, owner.clone())) {
+            structure.methods.entry(name.clone()).or_insert(signature);
+        }
     }
 }
 

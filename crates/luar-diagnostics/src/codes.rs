@@ -179,6 +179,8 @@ registry! {
         "Two extension blocks in scope offering one method for one type is decided by naming one.";
     active 151 => EXTENSION_OVERRIDES_MEMBER, "LR20",
         "An extension adds members to a type and never replaces one it already has.";
+    active 152 => METHOD_OUTSIDE_ITS_MODULE, "LR20",
+        "A method is attached to a type in the module declaring it; elsewhere an extension block adds one.";
 }
 
 #[cfg(test)]
