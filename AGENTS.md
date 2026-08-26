@@ -1,45 +1,45 @@
 # AGENTS.md
 
-LuaR is a compiled language. This repo is its compiler, written in Rust, and the conformance suite that decides whether the compiler matches the language.
+LuaR is a compiled language, and this repo is its compiler, written in Rust. The conformance suite under `tests/conformance/` decides whether the compiler matches the language.
 
-`.internal/SPEC.md` is the language, and it is normative. Every rule the compiler enforces cites the section that states it: in the diagnostic registry, in the test that produces it, and in the commit that changes it.
+`.internal/SPEC.md` is the language. Every rule the compiler enforces cites the section that states it, and so does the test for that rule.
 
-`CONTRIBUTING.md` has the commands, the test file format, and what each crate holds. Read it first. This file is the part that is easy to get wrong.
+`CONTRIBUTING.md` has the commands, the test file format, and what each crate holds. Read it first.
 
-## The spec is the authority
+## The spec wins
 
-The compiler is an attempt at the spec. When the two disagree, the spec is right.
+When the compiler and the spec disagree, the spec is right.
 
-When the spec is wrong, ambiguous, or silent on something you need, change the spec in its own commit, before the code that depends on it, and say so in your summary. A compiler rule with no section behind it is a rule nobody agreed to, and a test for that rule proves only that the compiler agrees with itself.
+When the spec is wrong, ambiguous, or silent on something you need, change the spec first, in its own commit, and say so in your summary. A rule with no section behind it is one nobody agreed to, and its test proves only that the compiler agrees with itself.
 
-## A failing test makes the compiler the suspect
+## When a test fails
 
-Work out which of three things is true before you touch anything:
+Decide which of three things is true before you change anything.
 
 1. **The compiler is wrong.** Fix the compiler. This is the usual answer.
-2. **The program was never valid.** A test program can be invalid under a rule the compiler only just learned to enforce, so landing a stage routinely fails tests that passed the day before. Fix the program, keep its expectation and its subject intact, and name the section that makes it invalid.
+2. **The program was never valid.** Landing a new stage routinely fails tests that passed the day before, because the compiler only just learned to reject them. Fix the program, keep its expectation and its subject, and cite the section that makes it invalid.
 3. **The spec is wrong.** Change the spec in its own commit, then the expectation.
 
-Two branches change a test, and both start from a spec section that says the program was wrong. Absent that section, the compiler is what changes.
+Two of those change a test, and both need a spec section saying the program was wrong. Without one, fix the compiler.
 
-When a compiler defect surfaces while you are working on something else, fix the defect or leave the test failing with its citation. Rewriting the program until the suite goes green buries the defect and makes the suite report success on exactly the thing it was written to catch.
+Finding a compiler bug while working on something else does not change this. Fix the bug, or leave the test failing and cite the section. Rewriting the program until the suite goes green hides the bug, and the suite then reports success on the thing it was written to catch.
 
 ## Tests
 
-- A test is a LuaR program plus its observable behavior: an exit code, stdout, or a diagnostic. Not a token stream, an AST node, or an internal function's return.
+- A test is a LuaR program and its observable behavior: an exit code, stdout, or a diagnostic. Never a token stream, an AST node, or what some internal function returned.
 - Every test cites the spec sections it enforces. No citation, no test.
-- A negative test matches a diagnostic code and a source span. Wording is not normative (§80) and gets reworded without warning.
-- Unit tests are for units that are themselves the contract: integer overflow helpers, UTF-8 boundary math, the range arithmetic in bounds-check elimination. Everything else is a conformance test running the real pipeline, with no mocked stages.
-- Write `run` tests as the features arrive. They report as skipped until the backend exists, and the day it lands the suite says how much of the language works.
-- `luarc coverage` lists the spec sections no test cites. That list is the backlog.
+- A negative test matches a diagnostic code and a source span. §80 leaves wording open, so anyone may reword a message, and a test that reads one breaks for no reason.
+- Write conformance tests by default. Save unit tests for code that is itself the contract: integer overflow helpers, UTF-8 boundary math, the range arithmetic in bounds-check elimination. Every test runs the real pipeline, never a mocked stage.
+- Write `run` tests as features arrive. They skip until the backend exists, and the day it lands the suite reports how much of the language works.
+- `luarc coverage` lists the spec sections no test cites. Start there when you want work.
 
 ## Adding a rule
 
 1. Find the section that states it.
-2. Add a code to `crates/luar-diagnostics/src/codes.rs`: the next number, ascending, cited to that section. A retired number stays retired, because build logs and recorded expectations still name it.
+2. Add a code to `crates/luar-diagnostics/src/codes.rs`, the next number up, cited to that section. Retired numbers stay retired, because old build logs and recorded expectations still name them.
 3. Enforce it.
-4. Write the conformance test that produces the code, and keep a test that stays accepted where the rule does not apply.
-5. Run the whole suite and expect casualties. Each one goes through the three branches above.
+4. Write a test that produces the code, and one that stays accepted where the rule does not apply.
+5. Run the whole suite. Expect failures, and work each one through the three branches above.
 
 ## Before committing
 
@@ -49,6 +49,6 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-CI runs the same three, and a clippy warning fails the build.
+CI runs those three. A clippy warning fails the build.
 
-Commit in small units, one coherent change each, with a short direct subject line and no trailers. A spec change commits alone.
+Keep commits small, one change each, with a short plain subject line and no trailers. A spec change commits alone.
