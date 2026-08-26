@@ -2386,21 +2386,21 @@ internal
 public
 ```
 
-Module-local declarations are private by default.
+A declaration is private to its module unless it is exported (LR21). `export` is what controls the module surface, and a visibility level never widens it.
 
-`export` exposes a declaration from the current module.
+The levels apply to the members of a declaration (LR12.3), which are public by default.
 
-For packages with multiple modules, `internal` exposes declarations within the same package but not to dependent packages.
-
-Example:
+`private` narrows a member to the module that declares it.
 
 ```lua
-internal struct ParserState
-    ...
+export struct Parser
+    private state: ParserState
 end
 ```
 
-`public` may be used where explicit visibility improves readability, but exporting still controls module surface.
+`internal` narrows a member to the package that declares it, so a dependent package cannot reach it (LR22). Within one package it reads the same as `public`.
+
+`public` may be written where explicit visibility improves readability.
 
 ---
 
@@ -3649,9 +3649,9 @@ struct_decl     = [ "export" ]
                   { struct_member }
                   "end" ;
 
-struct_member   = [ visibility ] field_decl
-                | function_decl
-                | property_decl ;
+struct_member   = [ visibility ] ( field_decl
+                                | function_decl
+                                | property_decl ) ;
 
 visibility      = "private" | "internal" | "public" ;
 
