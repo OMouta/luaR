@@ -977,7 +977,7 @@ end
 
 Methods use explicit `self`.
 
-A type declares each member once. Fields, properties, and methods share one namespace, and a method written outside the body (LR20) is the same member as one written inside it.
+A type declares each member once. Fields, properties, and methods share one namespace, and a method written outside the body (LR20) is the same member as one written inside it. Overloads of one method (LR40) are one member under one name.
 
 Method-call syntax uses `:`.
 
@@ -2287,7 +2287,11 @@ end
 
 Overload resolution is compile-time only.
 
-Return type alone cannot distinguish overloads.
+Return type alone cannot distinguish overloads. Two overloads are distinguishable when their parameter lists differ, by holding a different number of parameters or a different type in some position. Two that differ only in their result, or not at all, are an error at the second one.
+
+A call resolves to exactly one overload. Matching none and matching more than one are both errors at the call.
+
+Methods overload on the same terms, and overloads of one method are one member of the type (LR12.2).
 
 Libraries should avoid large overload sets when generics or distinct names are clearer.
 
