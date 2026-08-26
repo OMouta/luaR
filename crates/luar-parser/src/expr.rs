@@ -354,7 +354,21 @@ fn postfix(cursor: &mut Cursor) -> Expr {
             TokenKind::Colon => {
                 cursor.advance();
                 let (method, _) = cursor.name();
-                call(cursor, value, Some(method))
+
+                // §89.1: a method call is a call, so the same rule decides
+                // its type arguments. They are read here rather than at the
+                // top of the loop because `:` reads its call immediately,
+                // where `.` comes back around.
+                let generic = (cursor.kind() == TokenKind::Lt)
+                    .then(|| type_arguments(cursor))
+                    .flatten();
+
+                let mut called = call(cursor, value, Some(method));
+                if let (Some(args), ExprKind::Call { type_args, .. }) = (generic, &mut called.kind)
+                {
+                    *type_args = args;
+                }
+                called
             }
             // `map?[key]` indexes an optional receiver (§8), while `x?`
             // propagates an error (§25.2). The two are told apart by what

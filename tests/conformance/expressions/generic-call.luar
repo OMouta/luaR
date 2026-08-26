@@ -5,7 +5,13 @@ struct User
 end
 
 struct Decoder
-    static function decode<T>(text: string): T
+    strict: bool
+
+    function decode<T>(self, text: string): T
+        return unreachable()
+    end
+
+    static function parse<T>(text: string): T
         return unreachable()
     end
 end
@@ -15,6 +21,7 @@ function into<T>(value: int): T
 end
 
 export function main()
+    local json = Decoder { strict = true }
     local text = "{}"
     local value = 0
     local a = 1
@@ -22,7 +29,8 @@ export function main()
     local c = 3
     local d = 4
 
-    local user = Decoder.decode<User>(text)
+    local user = json:decode<User>(text)
+    local parsed = Decoder.parse<User>(text)
     local nested = into<Map<string, List<int>>>(value)
-    print(user, nested, a < b, c > d)
+    print(user, parsed, nested, a < b, c > d)
 end
