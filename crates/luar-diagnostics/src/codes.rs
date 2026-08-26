@@ -149,6 +149,8 @@ registry! {
         "An import names what it binds, then `from`, then the module path as a string.";
     active 136 => UNRESOLVED_IMPORT, "§21.1",
         "An import path must name a module the compiler can read.";
+    active 137 => NAME_NOT_EXPORTED, "§21.1",
+        "A named import must name a declaration the module exports.";
 }
 
 #[cfg(test)]

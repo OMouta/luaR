@@ -19,17 +19,20 @@ pub enum Check {
 
 /// Checks `root` and the modules it imports, without producing an artifact.
 ///
-/// The frontend reaches as far as the module graph: every module the root
-/// imports is read and parsed, and an import naming nothing is reported. Each
-/// stage added after this one narrows what an accepted program is: name
-/// resolution, then type checking. A program accepted here and rejected later
-/// was never accepted by the finished compiler, and the test that says so
-/// starts failing the day the stage that rejects it lands.
+/// The frontend reaches as far as the top-level names of each module: every
+/// module the root imports is read and parsed, an import naming nothing is
+/// reported, and so is one naming something the other module does not export.
+/// Each stage added after this one narrows what an accepted program is: the
+/// rest of name resolution, then type checking. A program accepted here and
+/// rejected later was never accepted by the finished compiler, and the test
+/// that says so starts failing the day the stage that rejects it lands.
 ///
 /// Imported modules are added to `sources`, so their spans resolve like the
 /// root's.
 #[must_use]
 pub fn check(sources: &mut SourceMap, root: FileId) -> Check {
-    let (_graph, diagnostics) = graph::build(sources, root);
+    let (graph, mut diagnostics) = graph::build(sources, root);
+    let (_names, reported) = luar_sema::names::resolve(&graph);
+    diagnostics.extend(reported);
     Check::Ran(diagnostics)
 }

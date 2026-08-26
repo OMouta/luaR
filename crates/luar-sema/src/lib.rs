@@ -2,3 +2,4 @@
 //! exhaustiveness, and decorator expansion.
 
 pub mod modules;
+pub mod names;
