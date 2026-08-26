@@ -3799,7 +3799,9 @@ address_of_expr = ( "&" | "&mut" ) lvalue ;
 
 The interactions that previously blocked a normative grammar are decided.
 
-**Type arguments versus comparison.** In expression position, `name <` begins a type-argument list only when the tokens through the matching `>` parse as a type list *and* the token immediately after `>` is `(`. Type arguments in expression position only ever precede a call, so `json.decode<User>(text)` is a generic call while `a < b > (c)` is a comparison. No turbofish is required and the rule needs only bounded lookahead.
+**Type arguments versus comparison.** In expression position, `name <` begins a type-argument list only when the tokens through the matching `>` parse as a type list *and* the token after `>` is `(`. Type arguments in expression position only ever precede a call, so `json.decode<User>(text)` is a generic call. No turbofish is required and the rule needs only bounded lookahead.
+
+The rule cannot take a comparison away from a program that has one. `a < b > (c)` matches it and reads as a call, and its reading as a comparison was never valid: comparison does not chain (§11.7). Anything that does compare a comparison is parenthesized, `(a < b) == c`, and parentheses keep it out of the rule's way.
 
 **Ranges versus concatenation and float literals.** `..`, `..<`, and `..=` are three distinct tokens (§10.4). Bare `..` is always concatenation and no range is spelled with it. `0..<10` cannot lex as a float because `0.` requires a following digit.
 
