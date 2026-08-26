@@ -314,6 +314,8 @@ The type is inferred from the initializer unless declared explicitly.
 local count: i64 = 0
 ```
 
+A binding declared with a type takes values of that type. An integer literal takes the declared type when the value is representable in it (LR39).
+
 A local declaration without an initializer requires a type.
 
 ```lua
