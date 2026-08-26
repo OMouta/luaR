@@ -1,9 +1,9 @@
 //! Declarations, and the module that holds them (§9, §21.3, §44).
 
 use luar_ast::{
-    Block, Conditional, Decorator, Enum, Extend, Field, Function, Interface, InterfaceMember, Item,
-    Member, Module, Param, Property, Semantics, Setter, Struct, Type, TypeAlias, Variant,
-    VariantPayload, Visibility,
+    Block, Conditional, Decorator, Enum, Extend, Field, Function, Import, ImportName, ImportNames,
+    Interface, InterfaceMember, Item, Member, Module, Param, Property, Semantics, Setter, Struct,
+    Type, TypeAlias, Variant, VariantPayload, Visibility,
 };
 use luar_diagnostics::{Span, codes};
 use luar_lexer::{Keyword, TokenKind};
@@ -57,6 +57,11 @@ fn item(cursor: &mut Cursor) -> Option<Item> {
     // one would be.
     if cursor.at_directive(Keyword::If) {
         return Some(Item::Conditional(conditional(cursor)));
+    }
+
+    // §21.1: an import takes no decorators, so it is read before them.
+    if cursor.kind() == TokenKind::Keyword(Keyword::Import) {
+        return Some(Item::Import(import(cursor, start)));
     }
 
     let decorators = decorators(cursor);
@@ -121,6 +126,76 @@ fn item(cursor: &mut Cursor) -> Option<Item> {
     }
 
     function.map(Item::Function)
+}
+
+/// An `import` declaration (§21.1).
+fn import(cursor: &mut Cursor, start: Span) -> Import {
+    cursor.advance();
+
+    let names = if cursor.kind() == TokenKind::LeftBrace {
+        let opened = cursor.span();
+        cursor.advance();
+        ImportNames::Named(import_names(cursor, opened))
+    } else {
+        ImportNames::Namespace(cursor.name().0)
+    };
+
+    if !cursor.eat_keyword(Keyword::From) {
+        let here = cursor.span();
+        cursor
+            .error(
+                codes::MALFORMED_IMPORT,
+                here,
+                "expected `from` and the module path",
+            )
+            .note("An import says where it comes from: `import { A } from \"./a\"` (§21.1).");
+    }
+
+    let path_span = cursor.span();
+    let path = if cursor.kind() == TokenKind::String {
+        let text = cursor.text(path_span);
+        cursor.advance();
+        luar_lexer::value::string(text)
+    } else {
+        cursor.error(
+            codes::MALFORMED_IMPORT,
+            path_span,
+            "expected the module path, written as a string",
+        );
+        None
+    };
+
+    Import {
+        names,
+        path,
+        path_span,
+        span: start.to(cursor.previous_span()),
+    }
+}
+
+/// The names inside `import { ... }`, up to and including the closing brace.
+fn import_names(cursor: &mut Cursor, opened: Span) -> Vec<ImportName> {
+    let mut names = Vec::new();
+
+    while !matches!(cursor.kind(), TokenKind::RightBrace | TokenKind::Eof) {
+        let start = cursor.span();
+        let name = cursor.name().0;
+        let alias = cursor.eat_keyword(Keyword::As).then(|| cursor.name().0);
+        names.push(ImportName {
+            name,
+            alias,
+            span: start.to(cursor.previous_span()),
+        });
+
+        // Every turn of the loop consumes the comma or leaves, so a name that
+        // could not be read ends the list rather than being read again.
+        if !cursor.eat(TokenKind::Comma) {
+            break;
+        }
+    }
+
+    cursor.close(TokenKind::RightBrace, opened, "}");
+    names
 }
 
 /// A function declaration, if one starts here.

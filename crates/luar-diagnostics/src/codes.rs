@@ -145,6 +145,8 @@ registry! {
         "A property says what reading it does, and a setter names what is assigned.";
     active 134 => EXTERN_WITHOUT_UNSAFE, "§46",
         "A foreign declaration states an ABI and is `unsafe`, since neither is verifiable.";
+    active 135 => MALFORMED_IMPORT, "§21.1",
+        "An import names what it binds, then `from`, then the module path as a string.";
 }
 
 #[cfg(test)]

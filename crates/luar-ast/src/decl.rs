@@ -16,6 +16,7 @@ pub struct Module {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Item {
+    Import(Import),
     Function(Function),
     Struct(Struct),
     Enum(Enum),
@@ -25,6 +26,36 @@ pub enum Item {
     Conditional(Conditional),
     /// A statement at module level (§21.3).
     Stmt(crate::stmt::Stmt),
+}
+
+/// An `import` declaration (§21.1).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Import {
+    pub names: ImportNames,
+    /// The module path as written, with the quotes removed. `None` where the
+    /// path is missing or is not a string literal, which is already reported.
+    pub path: Option<String>,
+    /// Where the path was written, which is what an unresolved import points
+    /// at.
+    pub path_span: Span,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ImportNames {
+    /// `import { Client, Request } from "http"`.
+    Named(Vec<ImportName>),
+    /// `import http from "http"`, binding the module itself.
+    Namespace(String),
+}
+
+/// One name in a named import, and the local name it takes.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImportName {
+    pub name: String,
+    /// `as`, where the import renames what it binds.
+    pub alias: Option<String>,
+    pub span: Span,
 }
 
 /// A function declaration (§9.1).
