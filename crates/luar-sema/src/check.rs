@@ -14,9 +14,9 @@
 use std::collections::HashMap;
 
 use luar_ast::{
-    ArmBody, BinaryOp, Binding, Block, Expr, ExprKind, Function, FunctionBody, InterpolationPart,
-    Item, MapKey, MatchArm, Member, Module, Param, Pattern, PatternKind, Payload, Property, Stmt,
-    StmtKind, Struct, UnaryOp,
+    Argument, ArmBody, BinaryOp, Binding, Block, Expr, ExprKind, Function, FunctionBody,
+    InterpolationPart, Item, MapKey, MatchArm, Member, Module, Param, Pattern, PatternKind,
+    Payload, Property, Stmt, StmtKind, Struct, UnaryOp,
 };
 use luar_diagnostics::{Diagnostic, Span, codes};
 
@@ -486,10 +486,7 @@ impl Checker<'_> {
                     self.resolve(ty);
                 }
                 let receiver = self.expr(callee);
-                for arg in args {
-                    self.expr(&arg.value);
-                }
-                self.returns(callee, method.as_deref(), &receiver)
+                self.call(callee, method.as_deref(), &receiver, args, expr.span)
             }
             ExprKind::Field {
                 receiver,
@@ -678,26 +675,55 @@ impl Checker<'_> {
         Type::Unresolved
     }
 
-    /// What a call gives back: the result of the method being called, or of
-    /// the function the callee names.
-    fn returns(&mut self, callee: &Expr, method: Option<&str>, receiver: &Type) -> Type {
+    /// Checks a call against what it calls, and gives back what it returns.
+    ///
+    /// A callee this stage cannot name a signature for is left alone: a
+    /// closure held in a local, a method of a type it does not model, a
+    /// predeclared name. Checking those needs signatures it does not have.
+    fn call(
+        &mut self,
+        callee: &Expr,
+        method: Option<&str>,
+        receiver: &Type,
+        args: &[Argument],
+        span: Span,
+    ) -> Type {
+        let Some(signature) = self.signature_of(callee, method, receiver) else {
+            // The arguments are still expressions, and whatever is wrong
+            // inside them is wrong whoever is being called.
+            for argument in args {
+                self.expr(&argument.value);
+            }
+            return Type::Unresolved;
+        };
+
+        self.arguments(&signature, args, span);
+        signature.result
+    }
+
+    /// The signature of what is being called, where the table holds one.
+    fn signature_of(
+        &self,
+        callee: &Expr,
+        method: Option<&str>,
+        receiver: &Type,
+    ) -> Option<Signature> {
         if let Some(method) = method {
             let Type::Named { module, name, .. } = receiver else {
-                return Type::Unresolved;
+                return None;
             };
-            return match self.table.structure(*module, name) {
-                Some(structure) => structure
-                    .methods
-                    .get(method)
-                    .map_or(Type::Unresolved, |signature| signature.result.clone()),
-                None => Type::Unresolved,
-            };
+            return self
+                .table
+                .structure(*module, name)?
+                .methods
+                .get(method)
+                .cloned();
         }
 
         // A call through anything but a plain name reaches a value whose type
         // this stage does not follow yet.
         let ExprKind::Name(name) = &callee.kind else {
-            return Type::Unresolved;
+            return None;
         };
 
         // A local holding a function shadows a declaration of the same name.
@@ -707,22 +733,86 @@ impl Checker<'_> {
             .rev()
             .any(|scope| scope.contains_key(name))
         {
-            return Type::Unresolved;
+            return None;
         }
 
-        let declared = match self.names.scope(self.scope).get(name).map(|b| &b.origin) {
-            Some(Origin::Declared { .. }) => Some((self.scope, name.clone())),
-            Some(Origin::Imported { module, name }) => Some((*module, name.clone())),
-            _ => None,
+        let (module, name) = match self.names.scope(self.scope).get(name).map(|b| &b.origin) {
+            Some(Origin::Declared { .. }) => (self.scope, name.clone()),
+            Some(Origin::Imported { module, name }) => (*module, name.clone()),
+            _ => return None,
         };
 
-        match declared {
-            Some((module, name)) => self
-                .table
-                .signature(module, &name)
-                .map_or(Type::Unresolved, |signature| signature.result.clone()),
-            None => Type::Unresolved,
+        self.table.signature(module, &name).cloned()
+    }
+
+    /// LR9.1: every parameter without a default takes an argument, and every
+    /// argument has its parameter's type.
+    fn arguments(&mut self, signature: &Signature, args: &[Argument], span: Span) {
+        let params = &signature.params;
+        let variadic = params.last().is_some_and(|param| param.variadic);
+        let mut filled = vec![false; params.len()];
+        let mut position = 0;
+
+        for argument in args {
+            let held = self.expr(&argument.value);
+
+            let index = match &argument.name {
+                // LR9.5: a named argument names a parameter.
+                Some(name) => params.iter().position(|param| &param.name == name),
+                None => {
+                    let index = position;
+                    position += 1;
+                    // Everything from a variadic onward goes to it (LR9.6).
+                    Some(index.min(params.len().saturating_sub(1)))
+                        .filter(|_| index < params.len() || (variadic && !params.is_empty()))
+                }
+            };
+
+            if let Some(index) = index {
+                filled[index] = true;
+                self.expect_argument(&params[index].ty, &held, argument.value.span);
+            }
         }
+
+        if variadic {
+            return;
+        }
+
+        let wanted = params.iter().filter(|param| !param.optional).count();
+        let missing = params
+            .iter()
+            .zip(&filled)
+            .any(|(param, filled)| !param.optional && !filled);
+
+        if missing || position > params.len() {
+            let given = args.len();
+            self.diagnostics.push(Diagnostic::error(
+                codes::ARGUMENT_COUNT,
+                span,
+                format!(
+                    "this call passes {given} {}, and {} {wanted} {}",
+                    plural(given, "argument"),
+                    if params.len() == wanted {
+                        "takes"
+                    } else {
+                        "needs at least"
+                    },
+                    plural(wanted, "argument"),
+                ),
+            ));
+        }
+    }
+
+    fn expect_argument(&mut self, wanted: &Type, held: &Type, span: Span) {
+        if wanted.accepts(held) {
+            return;
+        }
+
+        self.diagnostics.push(Diagnostic::error(
+            codes::ARGUMENT_TYPE,
+            span,
+            format!("expected `{wanted}`, found {}", article(held)),
+        ));
     }
 
     fn name(&mut self, name: &str) -> Type {
@@ -919,4 +1009,12 @@ fn field_type(fields: &[Field], name: &str) -> Type {
         .iter()
         .find(|field| field.name == name)
         .map_or(Type::Unresolved, |field| field.ty.clone())
+}
+
+fn plural(count: usize, word: &str) -> String {
+    if count == 1 {
+        word.to_owned()
+    } else {
+        format!("{word}s")
+    }
 }

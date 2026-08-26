@@ -169,6 +169,10 @@ registry! {
         "A binding declared with a type takes values of that type.";
     active 146 => NO_SUCH_MEMBER, "LR12.2",
         "A field read from a value must be one the type declares.";
+    active 147 => ARGUMENT_COUNT, "LR9.1",
+        "A call passes an argument for every parameter without a default.";
+    active 148 => ARGUMENT_TYPE, "LR9.1",
+        "An argument has the type its parameter declares.";
 }
 
 #[cfg(test)]

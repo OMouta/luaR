@@ -1,0 +1,11 @@
+--- expect: compile-error
+--- code: LR0148
+--- span: 10:18
+--- spec: LR9.1
+function add(a: int, b: int): int
+    return a + b
+end
+
+export function main()
+    print(add(1, "two"))
+end

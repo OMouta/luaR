@@ -1,0 +1,24 @@
+--- expect: compile-ok
+--- spec: LR9.1
+--- spec: LR9.4
+--- spec: LR9.5
+--- spec: LR9.6
+function greet(name: string = "world")
+    print(name)
+end
+
+function printAll(...values: string)
+    print(values)
+end
+
+function connect(host: string, port: int, secure: bool)
+    print(host, port, secure)
+end
+
+export function main()
+    greet()
+    greet("ada")
+    printAll()
+    printAll("a", "b", "c")
+    connect("localhost", port = 5432, secure = true)
+end
