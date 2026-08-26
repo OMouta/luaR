@@ -4,6 +4,30 @@
 --- spec: §17.2
 --- spec: §17.3
 --- spec: §71
+interface Named
+    function name(self): string
+end
+
+interface Identified
+    id: u64
+end
+
+struct Request
+    path: string
+end
+
+struct Response
+    status: u16
+end
+
+struct User
+    id: u64
+end
+
+struct LoadError
+    message: string
+end
+
 function make(): Named & Identified
     return unreachable()
 end
@@ -28,6 +52,6 @@ export function main()
     local waiting: async (Request) -> Response = respondLater
     local bytes: [u8; 4] = [0, 1, 2, 3]
     local user: { id: u64, email: string? } = record()
-    local maybe: Result<User, Error>? = nil
+    local maybe: Result<User, LoadError>? = nil
     print(id, entity, pair, handler, waiting, bytes, user, maybe)
 end

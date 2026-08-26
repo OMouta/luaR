@@ -12,6 +12,10 @@ export structural interface Readable
     function read(self): bytes
 end
 
+export struct DbError
+    message: string
+end
+
 export interface Repository<T>
     async function find(self, id: u64): Result<T?, DbError>
     async function save(self, value: T): Result<(), DbError>

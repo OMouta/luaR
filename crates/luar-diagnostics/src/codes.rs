@@ -161,6 +161,8 @@ registry! {
         "`export` reaches declarations and `const` values, and not mutable state.";
     active 142 => UNSAFE_IMPORT_CYCLE, "§21.2",
         "Modules in a cycle must have an initialization order, and this pair has none.";
+    active 143 => UNKNOWN_TYPE, "§54",
+        "A name in a type must be a primitive, a declaration, an import, or predeclared.";
 }
 
 #[cfg(test)]

@@ -1,6 +1,23 @@
 --- expect: compile-ok
 --- spec: §20
 --- spec: §17.1
+struct Request
+    path: string
+end
+
+struct Response
+    status: u16
+end
+
+struct Vec2
+    x: float
+    y: float
+
+    function length(self): float
+        return (self.x * self.x + self.y * self.y) ** 0.5
+    end
+end
+
 export type Handler = (Request) -> Response
 export type Id = string | u64
 export type Pair<T> = (T, T)

@@ -28,6 +28,10 @@ end
 function oldApi()
 end
 
+struct HttpError
+    status: u16
+end
+
 function fetch(id: string): Result<User, HttpError>
     return Result.Ok(User { id = 1, name = id })
 end

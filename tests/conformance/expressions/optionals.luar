@@ -2,6 +2,15 @@
 --- spec: §8
 --- spec: §56
 --- spec: §25.2
+struct Address
+    city: string
+end
+
+struct User
+    name: string
+    address: Address?
+end
+
 export function loadCity(user: User?): string
     local city = user?.address?.city
     local name = user?.name ?? "Anonymous"

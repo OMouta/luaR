@@ -1,0 +1,15 @@
+--- expect: compile-ok
+--- spec: §54.1
+--- spec: §13
+--- spec: §59
+export function main()
+    local names: List<string> = ["ada"]
+    local ages: Map<string, int> = Map { ada = 36 }
+    local seen: Set<int> = unreachable()
+    local frozenNames: FrozenList<string> = unreachable()
+    local frozenAges: FrozenMap<string, int> = unreachable()
+    local frozenSeen: FrozenSet<int> = unreachable()
+    local loaded: Result<int, string> = Result.Ok(1)
+
+    print(names, ages, seen, frozenNames, frozenAges, frozenSeen, loaded)
+end

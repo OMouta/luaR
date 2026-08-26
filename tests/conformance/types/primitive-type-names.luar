@@ -1,0 +1,22 @@
+--- expect: compile-ok
+--- spec: §6
+--- spec: §4.3
+--- spec: §4.4
+export function main()
+    local counted: int = 1
+    local wide: i64 = 1
+    local size: usize = 1
+    local offset: isize = 1
+    local ratio: float = 1.0
+    local exact: f64 = 1.0
+    local small: u8 = 1
+    local flag: bool = true
+    local text: string = "text"
+    local raw: bytes = b"text"
+    local letter: char = 'a'
+    local loose: any = 1
+    local checked: unknown = 1
+
+    print(counted, wide, size, offset, ratio, exact, small)
+    print(flag, text, raw, letter, loose, checked)
+end

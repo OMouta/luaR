@@ -5,3 +5,4 @@ pub mod init;
 pub mod modules;
 pub mod names;
 pub mod scope;
+pub mod types;
