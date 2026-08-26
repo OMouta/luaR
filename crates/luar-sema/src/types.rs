@@ -277,11 +277,13 @@ impl Type {
             // A bracket literal fills either sequence (LR13.1, LR71). Whether
             // it has N elements waits for `const` evaluation (LR24).
             (Self::Array(element), Self::SequenceLiteral(held)) => element.accepts(held),
-            (Self::Builtin { kind, args }, Self::SequenceLiteral(held))
-                if matches!(kind, Builtin::List | Builtin::FrozenList) =>
-            {
-                args.first().is_none_or(|element| element.accepts(held))
-            }
+            (
+                Self::Builtin {
+                    kind: Builtin::List | Builtin::FrozenList,
+                    args,
+                },
+                Self::SequenceLiteral(held),
+            ) => args.first().is_none_or(|element| element.accepts(held)),
 
             // `nil` inhabits every optional, and nothing else (LR8).
             (Self::Optional(_), Self::Primitive(Primitive::Nil)) => true,
