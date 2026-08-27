@@ -229,6 +229,12 @@ registry! {
         "`const` binds a name once, and nothing may bind it again.";
     active 176 => CONST_NOT_EVALUABLE, "LR24",
         "A `const` is worked out while compiling, over the pure subset that allows.";
+    active 177 => UNSAFE_REQUIRED, "LR29.2",
+        "A low-level operation is written inside an `unsafe` context.";
+    active 178 => ADDRESS_OF_TEMPORARY, "LR72",
+        "An address is taken of a binding that stays put, not of a value in flight.";
+    active 179 => ADDRESS_OF_CONSTANT, "LR72",
+        "`&mut` takes a mutable address, which a `const` binding does not have.";
 }
 
 #[cfg(test)]

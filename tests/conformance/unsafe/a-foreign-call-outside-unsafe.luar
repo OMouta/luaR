@@ -1,0 +1,15 @@
+--- expect: compile-error
+--- code: LR0177
+--- span: 14:12
+--- spec: LR29.2
+--- spec: LR46
+@extern("c")
+unsafe function puts(text: *const u8): i32
+
+unsafe function shout(text: *const u8): i32
+    return puts(text)
+end
+
+function quiet(text: *const u8): i32
+    return puts(text)
+end

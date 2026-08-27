@@ -84,6 +84,8 @@ pub struct Signature {
     pub span: Span,
     /// Whether the result was left for the compiler to work out (LR7).
     pub inferred: bool,
+    /// Whether calling it needs an `unsafe` context (LR29.2, LR46).
+    pub unsafe_: bool,
 }
 
 /// Every signature one name has (LR40). One is the ordinary case.
@@ -980,5 +982,6 @@ fn signature(
         visibility,
         span: function.span,
         inferred: function.result.is_none(),
+        unsafe_: function.unsafe_,
     }
 }

@@ -92,6 +92,7 @@ fn walk(
             scope: id,
             values: vec![HashMap::new()],
             constants: vec![HashSet::new()],
+            unsafely: 0,
             extensions: extensions(names, table, id),
             bodies: Vec::new(),
             collected: HashMap::new(),
@@ -122,6 +123,9 @@ struct Checker<'a> {
     /// Which of them `const` bound, scope for scope alongside `values`
     /// (LR5.2).
     constants: Vec<HashSet<String>>,
+    /// How many `unsafe` contexts are open around what is being walked
+    /// (LR29.2). An `unsafe` function opens one for its whole body.
+    unsafely: usize,
     /// The extension blocks this module may reach (LR20).
     extensions: Vec<Extension<'a>>,
     /// The declaration each body being walked belongs to, innermost last. A
@@ -657,6 +661,11 @@ impl Checker<'_> {
                 .collect(),
         };
 
+        // LR29.2: an `unsafe` function is one long unsafe context, which is
+        // what lets a foreign call be written plainly inside it (LR46).
+        let unsafely = usize::from(function.unsafe_);
+        self.unsafely += unsafely;
+
         self.constraints.push(constraints);
         self.returns.push(returns);
         self.bodies.push(Some(function.span));
@@ -668,6 +677,7 @@ impl Checker<'_> {
         self.bodies.pop();
         self.returns.pop();
         self.constraints.pop();
+        self.unsafely -= unsafely;
 
         self.pop();
         self.types.leave();
@@ -843,7 +853,11 @@ impl Checker<'_> {
                     self.block(otherwise);
                 }
             }
-            StmtKind::Unsafe(body) => self.block(body),
+            StmtKind::Unsafe(body) => {
+                self.unsafely += 1;
+                self.block(body);
+                self.unsafely -= 1;
+            }
             StmtKind::Match { scrutinee, arms } => {
                 let held = self.expr(scrutinee);
                 for arm in arms {
@@ -1189,6 +1203,7 @@ impl Checker<'_> {
             }
             ExprKind::AddressOf { mutable, operand } => {
                 let target = self.expr(operand);
+                self.address_of(*mutable, operand, expr.span);
                 Type::Pointer {
                     mutable: *mutable,
                     target: Box::new(target),
@@ -2019,6 +2034,19 @@ impl Checker<'_> {
             return Type::Unresolved;
         };
 
+        // LR29.2, LR46: an `unsafe` function makes a promise the compiler
+        // cannot check, so the call site says out loud that it is keeping it.
+        if signature.unsafe_ && self.unsafely == 0 {
+            self.diagnostics.push(
+                Diagnostic::error(
+                    codes::UNSAFE_REQUIRED,
+                    span,
+                    format!("`{}` is `unsafe`, and this call is not", resolved.name),
+                )
+                .note("Write it inside an `unsafe` block (LR29.2)."),
+            );
+        }
+
         // LR19: a generic call takes its type arguments from what it writes
         // down, and works out the rest from what it passes.
         let signature = self.specialize(signature, written, &held, span);
@@ -2418,6 +2446,7 @@ impl Checker<'_> {
                     visibility: None,
                     span,
                     inferred: false,
+                    unsafe_: false,
                 }],
                 receiver: None,
             });
@@ -2816,6 +2845,48 @@ impl Checker<'_> {
         self.constants.pop();
     }
 
+    /// LR72: an address is taken inside `unsafe`, and only of a binding that
+    /// stays put for the length of that context.
+    fn address_of(&mut self, mutable: bool, operand: &Expr, span: Span) {
+        let taking = if mutable { "`&mut`" } else { "`&`" };
+
+        if self.unsafely == 0 {
+            self.diagnostics.push(
+                Diagnostic::error(
+                    codes::UNSAFE_REQUIRED,
+                    span,
+                    format!("{taking} takes a raw pointer, which needs `unsafe`"),
+                )
+                .note("Write it inside an `unsafe` block, or in an `unsafe` function (LR29.2)."),
+            );
+        }
+
+        if !addressable(operand) {
+            self.diagnostics.push(
+                Diagnostic::error(
+                    codes::ADDRESS_OF_TEMPORARY,
+                    operand.span,
+                    "this is a value in flight, and has no address to take",
+                )
+                .note("An address is taken of a binding, a field of one, or an element (LR72)."),
+            );
+            return;
+        }
+
+        if let (true, ExprKind::Name(name)) = (mutable, &operand.kind)
+            && self.is_constant(name)
+        {
+            self.diagnostics.push(
+                Diagnostic::error(
+                    codes::ADDRESS_OF_CONSTANT,
+                    operand.span,
+                    format!("`{name}` is bound by `const`, and `&mut` writes through"),
+                )
+                .note("Take `&` of a `const` binding, or bind it with `local` (LR72, LR5.2)."),
+            );
+        }
+    }
+
     /// LR24: a `const` is worked out while compiling, over a pure subset:
     /// literals, arithmetic and comparison, string operations, tuple, record
     /// and array construction, enum construction, and other `const` values.
@@ -3125,6 +3196,18 @@ fn fold(op: BinaryOp, left: u64, right: u64) -> Option<u64> {
         BinaryOp::Multiply => left.checked_mul(right),
         BinaryOp::Remainder => left.checked_rem(right),
         _ => None,
+    }
+}
+
+/// Whether `expr` names storage that stays put, which is what an address can
+/// be taken of (LR72).
+fn addressable(expr: &Expr) -> bool {
+    match &expr.kind {
+        ExprKind::Name(_) => true,
+        ExprKind::Field { receiver, .. } | ExprKind::Index { receiver, .. } => {
+            addressable(receiver)
+        }
+        _ => false,
     }
 }
 
