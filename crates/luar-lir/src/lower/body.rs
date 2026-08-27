@@ -1452,22 +1452,33 @@ impl<'a> Body<'a> {
             return self.missing(span, "a call to a function with no body");
         };
 
-        if reached.generic {
-            // LR19: the call worked out what fills each type parameter, and
-            // monomorphization needs to be told which. Nothing carries that
-            // from the checker yet.
-            return self.missing(span, "a call to a generic function");
-        }
         if reached.params.iter().any(|param| param.variadic) {
             return self.missing(span, "a call to a variadic function");
         }
 
+        // LR19: a generic call carries what fills each of the callee's type
+        // parameters, which is what monomorphization substitutes.
+        let declared = reached.type_params.clone();
+        let type_args = if declared.is_empty() {
+            Vec::new()
+        } else {
+            match self.type_args(span, declared.len()) {
+                Some(args) => args,
+                // A method of a generic type takes the type's parameters as
+                // well as its own, and the checker works out only its own.
+                // Guessing the rest would be a wrong call, not a missing one.
+                None => return self.missing(span, "a call whose type arguments are not all known"),
+            }
+        };
+
         let id = reached.id;
         let takes_self = reached.takes_self;
+        // The caller is not inside the callee's type parameters, so it passes
+        // its arguments at the parameter types with those already filled in.
         let wanted: Vec<Ty> = reached
             .params
             .iter()
-            .map(|param| param.ty.clone())
+            .map(|param| param.ty.substitute(&declared, &type_args))
             .collect();
         let names: Vec<String> = reached
             .params
@@ -1526,12 +1537,25 @@ impl<'a> Body<'a> {
         self.emit(
             InstKind::Call {
                 callee: id,
-                type_args: Vec::new(),
+                type_args,
                 args: passed,
             },
             result,
             span,
         )
+    }
+
+    /// What fills the callee's type parameters at `span`, where the checker
+    /// worked out every one of them (LR19).
+    fn type_args(&mut self, span: Span, wanted: usize) -> Option<Vec<Ty>> {
+        let recorded = self.context.facts.type_args(span)?;
+        if recorded.len() != wanted {
+            return None;
+        }
+        recorded
+            .iter()
+            .map(|ty| types::convert(ty, self.context.ids).ok())
+            .collect()
     }
 
     /// LR12.1, LR12.2: a literal gives a value for every field, and a field

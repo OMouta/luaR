@@ -213,6 +213,59 @@ impl Ty {
         }
     }
 
+    /// This type with each of `params` replaced by the argument filling it
+    /// (LR19).
+    ///
+    /// A parameter `params` does not name is left alone, which is what keeps
+    /// an inner generic's own parameters out of an outer one's substitution.
+    #[must_use]
+    pub fn substitute(&self, params: &[String], args: &[Ty]) -> Self {
+        if params.is_empty() {
+            return self.clone();
+        }
+
+        let each = |types: &[Ty]| -> Vec<Ty> {
+            types.iter().map(|ty| ty.substitute(params, args)).collect()
+        };
+
+        match self {
+            Self::Parameter(name) => match params.iter().position(|param| param == name) {
+                Some(index) => args.get(index).cloned().unwrap_or_else(|| self.clone()),
+                None => self.clone(),
+            },
+            Self::Named { id, args: held } => Self::Named {
+                id: *id,
+                args: each(held),
+            },
+            Self::Builtin { kind, args: held } => Self::Builtin {
+                kind: *kind,
+                args: each(held),
+            },
+            Self::Record(fields) => Self::Record(
+                fields
+                    .iter()
+                    .map(|(name, ty)| (name.clone(), ty.substitute(params, args)))
+                    .collect(),
+            ),
+            Self::Tuple(members) => Self::Tuple(each(members)),
+            Self::Union(members) => Self::Union(each(members)),
+            Self::Optional(inner) => Self::Optional(Box::new(inner.substitute(params, args))),
+            Self::Array(element) => Self::Array(Box::new(element.substitute(params, args))),
+            Self::Pointer { mutable, target } => Self::Pointer {
+                mutable: *mutable,
+                target: Box::new(target.substitute(params, args)),
+            },
+            Self::Function {
+                params: takes,
+                result,
+            } => Self::Function {
+                params: each(takes),
+                result: Box::new(result.substitute(params, args)),
+            },
+            other => other.clone(),
+        }
+    }
+
     /// Whether the type still mentions a parameter, and so has no layout
     /// until monomorphization has run (LR19).
     #[must_use]

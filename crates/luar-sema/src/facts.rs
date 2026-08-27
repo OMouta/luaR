@@ -21,6 +21,7 @@ pub struct Facts {
     types: HashMap<Span, Type>,
     calls: HashMap<Span, Span>,
     bindings: HashMap<Span, Type>,
+    type_args: HashMap<Span, Vec<Type>>,
 }
 
 impl Facts {
@@ -67,10 +68,28 @@ impl Facts {
         self.bindings.get(&span)
     }
 
+    /// Records what fills each type parameter of the call at `span`, in the
+    /// order the callee declares them (LR19).
+    ///
+    /// This is what monomorphization substitutes. Working it out is the
+    /// checker's job, because it is the same inference that decided the call
+    /// was well typed at all.
+    pub fn record_type_args(&mut self, span: Span, args: Vec<Type>) {
+        self.type_args.insert(span, args);
+    }
+
+    /// What filled the callee's type parameters at `span`, if the call
+    /// reached a generic function.
+    #[must_use]
+    pub fn type_args(&self, span: Span) -> Option<&[Type]> {
+        self.type_args.get(&span).map(Vec::as_slice)
+    }
+
     /// Takes everything `other` recorded.
     pub fn absorb(&mut self, other: Self) {
         self.types.extend(other.types);
         self.calls.extend(other.calls);
         self.bindings.extend(other.bindings);
+        self.type_args.extend(other.type_args);
     }
 }

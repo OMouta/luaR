@@ -105,9 +105,10 @@ pub(super) struct Callee {
     pub takes_self: bool,
     /// The parameters, without `self`, in declaration order.
     pub params: Vec<Parameter>,
-    /// Whether the function is generic, and so needs the type arguments a
-    /// call worked out before it can be compiled (LR19).
-    pub generic: bool,
+    /// Its type parameters, in declaration order. A call carries one argument
+    /// for each, and passes its arguments at the parameter types with those
+    /// put in place (LR19).
+    pub type_params: Vec<String>,
 }
 
 pub(super) struct Parameter {
@@ -404,7 +405,7 @@ impl Lowering<'_> {
         // rather than returning something made up.
         lowered.block_mut(lowered.entry).term = Some(Terminator::Trap(Trap::Unreachable));
 
-        let generic = !lowered.type_params.is_empty();
+        let declared = lowered.type_params.clone();
         let id = self.program.add_function(lowered);
         self.functions.insert(
             span,
@@ -412,7 +413,7 @@ impl Lowering<'_> {
                 id,
                 takes_self: signature.takes_self,
                 params: taken,
-                generic,
+                type_params: declared,
             },
         );
 

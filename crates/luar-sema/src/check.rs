@@ -2174,6 +2174,10 @@ impl Checker<'_> {
             .map(|param| bound.get(param).cloned().unwrap_or(Type::Unresolved))
             .collect();
 
+        // LR19: what fills each parameter is worked out here, and nowhere
+        // else knows it. Monomorphization reads it back.
+        self.facts.record_type_args(span, args.clone());
+
         // LR19: `where` is a promise the call has to keep.
         for (parameter, wanted) in &signature.constraints {
             let Some(index) = signature
