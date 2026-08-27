@@ -57,6 +57,7 @@ pub fn lower(graph: &Graph, table: &Table, facts: &Facts) -> Lowered {
         ids: Ids::new(),
         functions: HashMap::new(),
         virtuals: HashMap::new(),
+        defaults: HashMap::new(),
         bodies: Vec::new(),
         gaps: Vec::new(),
     };
@@ -85,6 +86,9 @@ struct Lowering<'a> {
     /// The interface method each bodiless declaration stands for, by its
     /// span. A call reaching one dispatches at runtime (LR18.1).
     virtuals: HashMap<Span, MethodId>,
+    /// The default written beside a field, by the type and the field it
+    /// belongs to (LR12.2).
+    defaults: HashMap<(TypeId, u32), luar_ast::Expr>,
     /// The bodies waiting to be lowered, once every function has an id for
     /// the calls between them to name.
     bodies: Vec<Pending>,
@@ -170,7 +174,7 @@ impl Lowering<'_> {
         for ((module, name), id) in ordered {
             let span = self.declaration_span(module, &name);
             let nominal = match table.get(module, &name) {
-                Some(Decl::Struct(structure)) => self.structure(module, &name, structure, span),
+                Some(Decl::Struct(structure)) => self.structure(module, &name, structure, span, id),
                 Some(Decl::Enum(enumeration)) => self.enumeration(module, &name, enumeration, span),
                 Some(Decl::Interface(interface)) => {
                     self.interface(module, &name, interface, span, id)
@@ -189,6 +193,7 @@ impl Lowering<'_> {
         name: &str,
         structure: &StructType,
         span: Span,
+        id: TypeId,
     ) -> Nominal {
         let fields = self.fields(
             structure
@@ -197,6 +202,15 @@ impl Lowering<'_> {
                 .map(|field| (&field.name, &field.ty)),
             span,
         );
+
+        // LR12.2: a field written with a default may be left out of a
+        // literal, and the default is evaluated where the literal is written.
+        for (index, default) in self.written_defaults(module, name).into_iter().enumerate() {
+            if let Some(default) = default {
+                let index = u32::try_from(index).expect("field count fits in u32");
+                self.defaults.insert((id, index), default);
+            }
+        }
 
         Nominal {
             name: self.qualify(module, name),
@@ -424,6 +438,8 @@ impl Lowering<'_> {
                 ids: &self.ids,
                 callees: &self.functions,
                 virtuals: &self.virtuals,
+                defaults: &self.defaults,
+                program: &self.program,
             };
             let shell = self.program.function(pending.id).clone();
             built.push((
@@ -468,6 +484,29 @@ impl Lowering<'_> {
     fn declaration_span(&self, module: ModuleId, name: &str) -> Span {
         let node = self.graph.module(module);
         declared_at(&node.ast, name).unwrap_or(node.ast.span)
+    }
+
+    /// The default written beside each stored field of a struct, in the order
+    /// the fields are declared (LR12.2).
+    fn written_defaults(&self, module: ModuleId, name: &str) -> Vec<Option<luar_ast::Expr>> {
+        let node = self.graph.module(module);
+        node.ast
+            .items
+            .iter()
+            .find_map(|item| match item {
+                Item::Struct(structure) if structure.name == name => Some(
+                    structure
+                        .members
+                        .iter()
+                        .filter_map(|member| match member {
+                            Member::Field(field) => Some(field.default.clone()),
+                            _ => None,
+                        })
+                        .collect(),
+                ),
+                _ => None,
+            })
+            .unwrap_or_default()
     }
 
     fn variant_order(&self, module: ModuleId, name: &str) -> Vec<String> {

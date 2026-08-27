@@ -13,8 +13,8 @@
 use std::collections::HashMap;
 
 use luar_ast::{
-    Argument, ArmBody, BinaryOp as AstBinary, Binding, Block, Branch, Expr, ExprKind, Stmt,
-    StmtKind, UnaryOp as AstUnary,
+    Argument, ArmBody, BinaryOp as AstBinary, Binding, Block, Branch, Expr, ExprKind, FieldInit,
+    Stmt, StmtKind, UnaryOp as AstUnary,
 };
 use luar_diagnostics::Span;
 use luar_sema::facts::Facts;
@@ -25,8 +25,8 @@ use crate::inst::MethodId;
 use crate::inst::{BinaryOp, Const, Inst, InstKind, Target, Terminator, Trap, UnaryOp, Value};
 use crate::lower::types::{self, Ids};
 use crate::lower::{Callee, Gap};
-use crate::program::{BlockId, Function};
-use crate::ty::Ty;
+use crate::program::{BlockId, Function, Program, Shape};
+use crate::ty::{Ty, TypeId};
 
 /// A binding, told apart from every other one with its name (LR53).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -66,6 +66,9 @@ pub(super) struct Context<'a> {
     pub callees: &'a HashMap<Span, Callee>,
     /// The interface methods, which have declarations and no bodies (LR18.1).
     pub virtuals: &'a HashMap<Span, MethodId>,
+    /// The default written beside a field (LR12.2).
+    pub defaults: &'a HashMap<(TypeId, u32), Expr>,
+    pub program: &'a Program,
 }
 
 pub(super) struct Body<'a> {
@@ -706,6 +709,31 @@ impl<'a> Body<'a> {
                 ..
             } => self.call(callee, method.as_deref(), args, span),
 
+            ExprKind::Record { fields, .. } => self.record(fields, wanted, span),
+            ExprKind::Field {
+                receiver,
+                name,
+                optional,
+            } => self.field(receiver, name, *optional, span),
+            ExprKind::Tuple(members) => {
+                let types = match wanted {
+                    Some(Ty::Tuple(types)) => types.clone(),
+                    _ => match self.recorded(span) {
+                        Ty::Tuple(types) => types,
+                        _ => return self.missing(span, "a tuple whose members have no type"),
+                    },
+                };
+                if types.len() != members.len() {
+                    return self.missing(span, "a tuple of a length the checker did not agree on");
+                }
+                let values = members
+                    .iter()
+                    .zip(&types)
+                    .map(|(member, ty)| self.expr(member, Some(ty)))
+                    .collect();
+                self.emit(InstKind::MakeTuple(values), Ty::Tuple(types), span)
+            }
+
             ExprKind::Cast { value, .. } => {
                 // LR33: `as` converts between numeric types, and the type it
                 // converts to is the type of the whole expression.
@@ -874,6 +902,188 @@ impl<'a> Body<'a> {
         )
     }
 
+    /// LR12.1, LR12.2: a literal gives a value for every field, and a field
+    /// with a default may be left out.
+    ///
+    /// LR55: the initializers run in the order they are written, whichever
+    /// field each one fills, and the defaults that fill the rest run after
+    /// them in the order the type declares them.
+    fn record(&mut self, fields: &[FieldInit], wanted: Option<&Ty>, span: Span) -> Value {
+        let ty = match self.recorded(span) {
+            Ty::Never => match wanted {
+                Some(wanted) => wanted.clone(),
+                None => return self.missing(span, "a record literal with no type"),
+            },
+            recorded => recorded,
+        };
+
+        let Some(declared) = self.fields_of(&ty) else {
+            return self.missing(span, "a record literal of a type with no fields");
+        };
+
+        let mut filled: Vec<Option<Value>> = vec![None; declared.len()];
+        for init in fields {
+            let slot = declared.iter().position(|(name, _)| *name == init.name);
+            let value = self.expr(&init.value, slot.map(|slot| &declared[slot].1));
+            if let Some(slot) = slot {
+                filled[slot] = Some(value);
+            }
+        }
+
+        for (slot, (_, held)) in declared.iter().enumerate() {
+            if filled[slot].is_some() {
+                continue;
+            }
+
+            let index = u32::try_from(slot).expect("field count fits in u32");
+            let default = match &ty {
+                Ty::Named { id, .. } => self.context.defaults.get(&(*id, index)).cloned(),
+                _ => None,
+            };
+
+            filled[slot] = Some(match default {
+                Some(default) => self.expr(&default, Some(held)),
+                // LR12.1: a field a record leaves out is one nothing was
+                // given for, which only an optional field may be.
+                None if held.is_optional() => {
+                    self.emit(InstKind::Const(Const::Nil), held.clone(), span)
+                }
+                None => return self.missing(span, "a literal with no value for a field"),
+            });
+        }
+
+        let values = filled.into_iter().flatten().collect();
+        self.emit(
+            InstKind::MakeStruct {
+                ty: ty.clone(),
+                fields: values,
+            },
+            ty,
+            span,
+        )
+    }
+
+    /// LR12.2: `.` reads a field. LR8: `?.` reads one through a value that
+    /// may hold nothing, and gives nothing back where it does.
+    fn field(&mut self, receiver: &Expr, name: &str, optional: bool, span: Span) -> Value {
+        // LR15.3: a variant with no payload is written like a field of the
+        // enum, and builds a value rather than reading one.
+        if let ExprKind::Name(written) = &receiver.kind
+            && self.lookup(written).is_none()
+        {
+            let ty = self.recorded(span);
+            if let Some(variant) = self.variant_of(&ty, name) {
+                return self.emit(
+                    InstKind::MakeEnum {
+                        ty: ty.clone(),
+                        variant,
+                        payload: Vec::new(),
+                    },
+                    ty,
+                    span,
+                );
+            }
+        }
+
+        let object = self.expr(receiver, None);
+        let held = self.function.type_of(object).clone();
+        let result = self.recorded(span);
+
+        if !optional {
+            let Some(index) = self.field_index(&held, name) else {
+                return self.missing(span, "a member that is not a stored field");
+            };
+            return self.emit(
+                InstKind::GetField {
+                    object,
+                    field: index,
+                },
+                result,
+                span,
+            );
+        }
+
+        let Ty::Optional(inner) = held else {
+            return self.missing(span, "`?.` on a value that holds something already");
+        };
+        let Some(index) = self.field_index(&inner, name) else {
+            return self.missing(span, "a member that is not a stored field");
+        };
+        let read = result.clone().without_optional();
+
+        let present = self.function.add_block();
+        let absent = self.function.add_block();
+        let join = self.function.add_block();
+        let there = self.emit(InstKind::IsSome { value: object }, Ty::Bool, span);
+        self.terminate(Terminator::Branch {
+            condition: there,
+            then: Target::to(present),
+            otherwise: Target::to(absent),
+        });
+
+        self.switch_to(present);
+        let inside = self.emit(InstKind::Unwrap { value: object }, (*inner).clone(), span);
+        let read = self.emit(
+            InstKind::GetField {
+                object: inside,
+                field: index,
+            },
+            read,
+            span,
+        );
+        let wrapped = self.coerce(read, &result, span);
+        self.terminate(Terminator::Jump(Target::new(join, vec![wrapped])));
+
+        self.switch_to(absent);
+        let nothing = self.emit(InstKind::Const(Const::Nil), result.clone(), span);
+        self.terminate(Terminator::Jump(Target::new(join, vec![nothing])));
+
+        self.switch_to(join);
+        self.function.add_block_param(join, result)
+    }
+
+    /// The fields a type stores, in the order it declares them.
+    fn fields_of(&self, ty: &Ty) -> Option<Vec<(String, Ty)>> {
+        match ty {
+            Ty::Named { id, .. } => match &self.context.program.nominal(*id).shape {
+                Shape::Struct(structure) => Some(
+                    structure
+                        .fields
+                        .iter()
+                        .map(|field| (field.name.clone(), field.ty.clone()))
+                        .collect(),
+                ),
+                _ => None,
+            },
+            Ty::Record(fields) => Some(fields.clone()),
+            _ => None,
+        }
+    }
+
+    fn field_index(&self, ty: &Ty, name: &str) -> Option<u32> {
+        let index = self
+            .fields_of(ty)?
+            .iter()
+            .position(|(held, _)| held == name)?;
+        u32::try_from(index).ok()
+    }
+
+    /// The tag of the variant `name` names, if `ty` is an enum with one
+    /// (LR15).
+    fn variant_of(&self, ty: &Ty, name: &str) -> Option<u32> {
+        let Ty::Named { id, .. } = ty else {
+            return None;
+        };
+        let Shape::Enum(enumeration) = &self.context.program.nominal(*id).shape else {
+            return None;
+        };
+        let index = enumeration
+            .variants
+            .iter()
+            .position(|variant| variant.name == name)?;
+        u32::try_from(index).ok()
+    }
+
     /// LR18.1: a call through an interface finds its implementation at
     /// runtime, until devirtualization proves there is only one.
     fn dispatch(
@@ -976,7 +1186,23 @@ impl<'a> Body<'a> {
             Ty::Optional(inner) if held == **inner => {
                 self.emit(InstKind::MakeSome { value }, wanted.clone(), span)
             }
+            // LR18.1: a value used through an interface carries the
+            // implementation to dispatch to. What it carries is a
+            // representation nothing has decided yet.
+            _ if held != *wanted && self.is_interface(wanted) => {
+                self.gap(span, "a value used as an interface value");
+                value
+            }
             _ => value,
+        }
+    }
+
+    fn is_interface(&self, ty: &Ty) -> bool {
+        match ty {
+            Ty::Named { id, .. } => {
+                matches!(self.context.program.nominal(*id).shape, Shape::Interface(_))
+            }
+            _ => false,
         }
     }
 }

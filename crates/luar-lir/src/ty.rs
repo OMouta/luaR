@@ -197,6 +197,22 @@ impl Ty {
     /// `int`, which is `i64` on every target (LR4.3).
     pub const INT: Self = Self::Int(IntTy::I64);
 
+    /// Whether `nil` inhabits the type (LR8).
+    #[must_use]
+    pub fn is_optional(&self) -> bool {
+        matches!(self, Self::Optional(_))
+    }
+
+    /// What the type holds when it holds something (LR8). Anything that is
+    /// not optional is already that.
+    #[must_use]
+    pub fn without_optional(self) -> Self {
+        match self {
+            Self::Optional(inner) => *inner,
+            other => other,
+        }
+    }
+
     /// Whether the type still mentions a parameter, and so has no layout
     /// until monomorphization has run (LR19).
     #[must_use]
