@@ -2872,12 +2872,37 @@ impl Checker<'_> {
                 }
                 Type::BOOL
             }
+            // LR11.3: comparison is built in for the primitive types. Every
+            // other type reaches it through `Eq` or `Comparable` (LR36), and
+            // either way the answer is a `bool`.
             BinaryOp::Equal
             | BinaryOp::NotEqual
             | BinaryOp::Less
             | BinaryOp::LessEqual
             | BinaryOp::Greater
-            | BinaryOp::GreaterEqual => Type::BOOL,
+            | BinaryOp::GreaterEqual => {
+                if !compared_builtin(&held_left, &held_right) {
+                    let (spelling, protocol, method) = match op {
+                        BinaryOp::Equal => ("==", "Eq", "eq"),
+                        BinaryOp::NotEqual => ("~=", "Eq", "eq"),
+                        BinaryOp::Less => ("<", "Comparable", "compare"),
+                        BinaryOp::LessEqual => ("<=", "Comparable", "compare"),
+                        BinaryOp::Greater => (">", "Comparable", "compare"),
+                        _ => (">=", "Comparable", "compare"),
+                    };
+
+                    self.overloaded(
+                        spelling,
+                        protocol,
+                        method,
+                        &held_left,
+                        Some((&held_right, right.span)),
+                        op_span,
+                    );
+                }
+
+                Type::BOOL
+            }
             BinaryOp::Concat => Type::STRING,
             // LR8: `??` produces what the left side holds when it is present.
             BinaryOp::Coalesce => match held_left {
@@ -3310,6 +3335,22 @@ fn addressable(expr: &Expr) -> bool {
 }
 
 /// Whether `as` counts this as a number to convert (LR39).
+/// Whether comparison is built in for two operands (LR11.3). Everything else
+/// compares through a protocol (LR36).
+fn compared_builtin(left: &Type, right: &Type) -> bool {
+    // LR8: `x == nil` asks whether an optional holds anything, whatever it
+    // would hold.
+    let nothing = Type::Primitive(Primitive::Nil);
+    if *left == nothing || *right == nothing {
+        return true;
+    }
+
+    matches!(
+        left,
+        Type::Primitive(_) | Type::IntegerLiteral(_) | Type::FloatLiteral | Type::Unresolved
+    )
+}
+
 /// Whether nothing is known about what a type holds, so no member of it can
 /// be reported missing.
 fn opaque(ty: &Type) -> bool {

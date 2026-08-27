@@ -1,0 +1,18 @@
+--- expect: compile-ok
+--- spec: LR36
+--- spec: LR11.3
+struct Version
+    number: int
+
+    function eq(self, other: Version): bool
+        return self.number == other.number
+    end
+
+    function compare(self, other: Version): int
+        return self.number - other.number
+    end
+end
+
+export function newest(a: Version, b: Version): bool
+    return a > b and a ~= b
+end
