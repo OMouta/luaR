@@ -205,6 +205,23 @@ pub enum InstKind {
         args: Vec<Value>,
     },
 
+    /// A value used through an interface, carrying which implementation to
+    /// dispatch to (LR18.1).
+    ///
+    /// LR18.1 leaves the runtime representation open and requires only that
+    /// dispatch stay dynamic, so what this becomes is the backend's to decide.
+    /// What it says here is which value is inside and which interface it is
+    /// being seen through.
+    MakeDyn {
+        interface: TypeId,
+        value: Value,
+    },
+    /// The value inside an interface value, where a pass has proved which
+    /// implementation it holds (LR18.1).
+    DynValue {
+        value: Value,
+    },
+
     /// A closure, over the values it captured (LR9.8).
     ///
     /// `func` takes what it captured as its first parameters, before the ones
@@ -355,6 +372,8 @@ impl InstKind {
             | Self::MakeSome { .. }
             | Self::IsSome { .. }
             | Self::Unwrap { .. }
+            | Self::MakeDyn { .. }
+            | Self::DynValue { .. }
             | Self::AddressOf { .. } => Effect::None,
 
             Self::Binary { op, .. } => {

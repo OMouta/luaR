@@ -49,6 +49,9 @@ pub fn lower(sources: &mut SourceMap, root: FileId) -> Result<Lowered, Vec<Diagn
     // LR19: a generic function is a template until a call says what fills it,
     // so this runs over the whole program rather than one module at a time.
     luar_lir::mono::run(&mut lowered.program);
+    // LR18.1: an interface call that can reach one function only is a call
+    // to that function, which is a question about the whole program.
+    luar_lir::devirt::run(&mut lowered.program);
     Ok(lowered)
 }
 

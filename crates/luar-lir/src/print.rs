@@ -77,6 +77,14 @@ fn nominal_to(out: &mut String, nominal: &Nominal) {
                     method.result
                 );
             }
+            for held in &interface.implementors {
+                let methods: Vec<String> = held
+                    .methods
+                    .iter()
+                    .map(|func| format!("func{}", func.0))
+                    .collect();
+                let _ = writeln!(out, "    impl type{} [{}]", held.ty.0, methods.join(", "));
+            }
         }
     }
 }
@@ -186,6 +194,10 @@ fn instruction(inst: &Inst, function: &Function) -> String {
             name(*receiver),
             list(args)
         ),
+        InstKind::MakeDyn { interface, value } => {
+            format!("dyn type{} {}", interface.0, name(*value))
+        }
+        InstKind::DynValue { value } => format!("dyn value {}", name(*value)),
         InstKind::MakeClosure { func, captures } => {
             format!("closure func{}[{}]", func.0, list(captures))
         }

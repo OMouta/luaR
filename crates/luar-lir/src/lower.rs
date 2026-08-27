@@ -29,7 +29,8 @@ use luar_sema::types::Type;
 use crate::inst::{MethodId, Terminator, Trap};
 use crate::lower::types::Ids;
 use crate::program::{
-    Enum, Field, FuncId, Function, Interface, Method, Nominal, Program, Shape, Struct,
+    Enum, Field, FuncId, Function, Implementation, Interface, Method, Nominal, Program, Shape,
+    Struct,
 };
 use crate::ty::{Ty, TypeId};
 
@@ -70,6 +71,7 @@ pub fn lower(graph: &Graph, table: &Table, facts: &Facts) -> Lowered {
     lowering.build_types();
     lowering.declare_functions();
     lowering.declare_properties();
+    lowering.build_vtables();
     lowering.lower_bodies();
 
     Lowered {
@@ -533,6 +535,87 @@ impl Lowering<'_> {
 
         self.properties
             .insert((id, property.name.clone()), Property { ty, get, set });
+    }
+
+    /// Records, for each interface, which types implement it and what each of
+    /// its method slots resolves to for that type (LR18.1).
+    ///
+    /// Devirtualization counts these, and the backend dispatches through
+    /// them, so both read one table rather than working it out twice.
+    fn build_vtables(&mut self) {
+        let claims: Vec<(ModuleId, String, Vec<Type>)> = self
+            .table
+            .decls()
+            .filter_map(|(module, name, decl)| match decl {
+                Decl::Struct(structure) if !structure.implements.is_empty() => {
+                    Some((module, name.to_owned(), structure.implements.clone()))
+                }
+                _ => None,
+            })
+            .collect();
+
+        for (module, name, implements) in claims {
+            let Some(ty) = self.ids.get(&(module, name.clone())).copied() else {
+                continue;
+            };
+            for claimed in implements {
+                self.implement(module, &name, ty, &claimed);
+            }
+        }
+    }
+
+    /// Records that `ty` implements `claimed`, with the function each of the
+    /// interface's methods resolves to.
+    fn implement(&mut self, module: ModuleId, name: &str, ty: TypeId, claimed: &Type) {
+        let span = self.declaration_span(module, name);
+        let Ok(Ty::Named { id: interface, .. }) = self::types::convert(claimed, &self.ids) else {
+            self.gap(span, "an interface the compiler could not find");
+            return;
+        };
+
+        let Shape::Interface(held) = &self.program.nominal(interface).shape else {
+            return;
+        };
+        let wanted: Vec<(String, usize)> = held
+            .methods
+            .iter()
+            .map(|method| (method.name.clone(), method.params.len()))
+            .collect();
+
+        let Some(structure) = self.table.structure(module, name) else {
+            return;
+        };
+
+        let mut methods = Vec::with_capacity(wanted.len());
+        for (method, takes) in &wanted {
+            // LR40: a name may have several signatures, and the one filling
+            // the slot is the one that takes what the slot takes.
+            let found = structure.methods.get(method).and_then(|overloads| {
+                let mut fitting = overloads
+                    .iter()
+                    .filter(|signature| signature.params.len() == *takes);
+                let first = fitting.next()?;
+                fitting.next().is_none().then_some(first.span)
+            });
+
+            let Some(found) = found
+                .and_then(|span| self.functions.get(&span))
+                .map(|held| held.id)
+            else {
+                self.gap(
+                    span,
+                    format!(
+                        "`{name}` implementing `{method}` in a way the compiler cannot resolve"
+                    ),
+                );
+                return;
+            };
+            methods.push(found);
+        }
+
+        if let Shape::Interface(held) = &mut self.program.nominal_mut(interface).shape {
+            held.implementors.push(Implementation { ty, methods });
+        }
     }
 
     /// Fills in every declared function's body.

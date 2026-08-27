@@ -67,6 +67,16 @@ pub struct Method {
     pub result: Ty,
 }
 
+/// One type's implementation of an interface: its method table (LR18.1).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Implementation {
+    pub ty: TypeId,
+    /// The function each of the interface's method slots resolves to, in slot
+    /// order. This is the vtable a `CallVirtual` reads at runtime, and what
+    /// devirtualization reads at compile time.
+    pub methods: Vec<FuncId>,
+}
+
 /// An interface (LR18). A method's index in `methods` is the slot a
 /// `CallVirtual` names.
 #[derive(Debug, Clone, PartialEq)]
@@ -74,7 +84,7 @@ pub struct Interface {
     pub methods: Vec<Method>,
     /// Every type that implements it, which is what devirtualization counts
     /// (LR18.1).
-    pub implementors: Vec<TypeId>,
+    pub implementors: Vec<Implementation>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -309,6 +319,15 @@ impl Program {
     pub fn nominal(&self, id: TypeId) -> &Nominal {
         self.types
             .get(id.0 as usize)
+            .expect("type belongs to another program")
+    }
+
+    /// # Panics
+    ///
+    /// Panics if `id` came from another program.
+    pub fn nominal_mut(&mut self, id: TypeId) -> &mut Nominal {
+        self.types
+            .get_mut(id.0 as usize)
             .expect("type belongs to another program")
     }
 

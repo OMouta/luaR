@@ -2278,24 +2278,24 @@ impl<'a> Body<'a> {
             Ty::Optional(inner) if held == **inner => {
                 self.emit(InstKind::MakeSome { value }, wanted.clone(), span)
             }
-            // LR18.1: a value used through an interface carries the
-            // implementation to dispatch to. What it carries is a
-            // representation nothing has decided yet.
-            _ if held != *wanted && self.is_interface(wanted) => {
-                self.gap(span, "a value used as an interface value");
-                value
-            }
+            // LR18.1: a value used through an interface carries which
+            // implementation to dispatch to.
+            _ if held != *wanted => match self.interface_id(wanted) {
+                Some(interface) => {
+                    self.emit(InstKind::MakeDyn { interface, value }, wanted.clone(), span)
+                }
+                None => value,
+            },
             _ => value,
         }
     }
 
-    fn is_interface(&self, ty: &Ty) -> bool {
-        match ty {
-            Ty::Named { id, .. } => {
-                matches!(self.context.program.nominal(*id).shape, Shape::Interface(_))
-            }
-            _ => false,
-        }
+    /// The interface `ty` names, if it names one.
+    fn interface_id(&self, ty: &Ty) -> Option<TypeId> {
+        let Ty::Named { id, .. } = ty else {
+            return None;
+        };
+        matches!(self.context.program.nominal(*id).shape, Shape::Interface(_)).then_some(*id)
     }
 }
 

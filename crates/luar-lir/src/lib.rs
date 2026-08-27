@@ -16,6 +16,7 @@
 //! different values, the block takes a parameter and each jump passes its own,
 //! which is a phi node written where the jump can see it.
 
+pub mod devirt;
 pub mod inst;
 pub mod lower;
 pub mod mono;
@@ -27,7 +28,7 @@ pub use inst::{
     BinaryOp, Const, Effect, Inst, InstKind, MethodId, Target, Terminator, Trap, UnaryOp, Value,
 };
 pub use program::{
-    Block, BlockId, Enum, Field, FuncId, Function, Interface, Method, Nominal, Program, Shape,
-    SlotId, Struct, Variant,
+    Block, BlockId, Enum, Field, FuncId, Function, Implementation, Interface, Method, Nominal,
+    Program, Shape, SlotId, Struct, Variant,
 };
 pub use ty::{Builtin, FloatTy, IntTy, Ty, TypeId};
