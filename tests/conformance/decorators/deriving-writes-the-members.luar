@@ -1,0 +1,17 @@
+--- expect: compile-ok
+--- spec: LR75
+--- spec: LR36
+@derive(Eq, Hash, Display)
+struct Point
+    x: int
+    y: int
+end
+
+export function main()
+    local a = Point { x = 1, y = 2 }
+    print(a == b(), a:hash(), a:display())
+end
+
+function b(): Point
+    return Point { x = 1, y = 2 }
+end

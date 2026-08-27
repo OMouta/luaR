@@ -1,0 +1,16 @@
+--- expect: compile-ok
+--- spec: LR75
+@derive(Eq)
+struct Inner
+    x: int
+end
+
+@derive(Eq)
+struct Outer
+    inner: Inner
+    maybe: Inner?
+end
+
+export function same(a: Outer, b: Outer): bool
+    return a == b
+end

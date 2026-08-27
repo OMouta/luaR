@@ -8,5 +8,5 @@ end
 
 export function main()
     local point = Point { x = 1 }
-    print(point:equals(point))
+    print(point:eq(point))
 end

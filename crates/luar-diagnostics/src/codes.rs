@@ -230,6 +230,12 @@ registry! {
         "A bitwise operator is on integers of one type.";
     active 186 => PROTOCOL_RESULT, "LR36",
         "A protocol method returns what the operator calling it needs.";
+    active 187 => DERIVE_TARGET, "LR75",
+        "`@derive` applies to a declaration with members to write into.";
+    active 188 => DERIVE_COLLIDES, "LR75",
+        "A derived member does not replace one written by hand.";
+    active 189 => DERIVE_UNAVAILABLE, "LR75",
+        "A field has the protocol before the type deriving it can be written out.";
 }
 
 #[cfg(test)]

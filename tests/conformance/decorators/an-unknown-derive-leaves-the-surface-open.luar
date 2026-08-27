@@ -1,0 +1,11 @@
+--- expect: compile-ok
+--- spec: LR75
+--- spec: LR23.1
+@derive(Json)
+struct Open
+    x: int
+end
+
+export function reads(open: Open): int
+    return open:whatever()
+end

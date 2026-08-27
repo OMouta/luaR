@@ -2366,6 +2366,17 @@ impl Checker<'_> {
                         return Some(overloads);
                     }
                 }
+                // LR75: an enum declares no members of its own, and what
+                // `@derive` wrote out is reached the same way as any other.
+                Some(Decl::Enum(enumeration)) => {
+                    if let Some(overloads) = enumeration
+                        .methods
+                        .get(name)
+                        .map(|overloads| filled(overloads, &enumeration.type_params, args))
+                    {
+                        return Some(overloads);
+                    }
+                }
                 // A value of interface type dispatches over what the interface
                 // requires (LR18.1).
                 Some(Decl::Interface(interface)) => {
@@ -2399,6 +2410,7 @@ impl Checker<'_> {
         let known = match self.table.get(*module, declared) {
             Some(Decl::Struct(structure)) => !structure.expands,
             Some(Decl::Interface(interface)) => !interface.expands,
+            Some(Decl::Enum(enumeration)) => !enumeration.expands,
             _ => false,
         };
         if !known {
@@ -2713,6 +2725,7 @@ impl Checker<'_> {
         match self.table.get(*module, name) {
             Some(Decl::Struct(structure)) => structure.expands,
             Some(Decl::Interface(interface)) => interface.expands,
+            Some(Decl::Enum(enumeration)) => enumeration.expands,
             _ => false,
         }
     }

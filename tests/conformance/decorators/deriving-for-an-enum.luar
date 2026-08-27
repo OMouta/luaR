@@ -1,0 +1,12 @@
+--- expect: compile-ok
+--- spec: LR75
+--- spec: LR36
+@derive(Eq)
+enum Shape
+    Circle(int)
+    Rect { w: int, h: int }
+end
+
+export function same(a: Shape, b: Shape): bool
+    return a == b
+end

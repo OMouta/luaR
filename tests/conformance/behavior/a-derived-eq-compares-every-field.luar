@@ -1,0 +1,17 @@
+--- expect: run
+--- exit: 1
+--- spec: LR75
+--- spec: LR36
+@derive(Eq)
+struct Point
+    x: int
+    y: int
+end
+
+export function main(): int
+    local a = Point { x = 1, y = 2 }
+    if a == Point { x = 1, y = 2 } and not (a == Point { x = 1, y = 9 }) then
+        return 1
+    end
+    return 0
+end

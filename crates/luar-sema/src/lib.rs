@@ -4,6 +4,7 @@
 pub mod aliases;
 pub mod annotations;
 pub mod check;
+pub mod derive;
 pub mod facts;
 pub mod init;
 pub mod modules;

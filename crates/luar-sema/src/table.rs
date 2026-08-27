@@ -133,6 +133,11 @@ impl StructType {
 pub struct EnumType {
     pub type_params: Vec<String>,
     pub variants: BTreeMap<String, Variant>,
+    /// What `@derive` wrote out for it (LR75). An enum declares no members of
+    /// its own.
+    pub methods: BTreeMap<String, Overloads>,
+    /// Whether expansion could still add members. See [`StructType::expands`].
+    pub expands: bool,
 }
 
 /// What a variant carries (LR15.2).
@@ -323,6 +328,10 @@ pub fn build(graph: &Graph, names: &Names) -> (Table, Vec<Diagnostic>) {
     for decl in decls.values_mut() {
         expand(decl, &aliases);
     }
+
+    // LR75: `@derive` writes its members once every type is readable, because
+    // deriving a protocol needs the fields' types to have it too.
+    diagnostics.extend(crate::derive::expand(graph, &mut decls));
 
     (
         Table {
@@ -659,6 +668,8 @@ fn declare(
                     Decl::Enum(EnumType {
                         type_params: enumeration.type_params.clone(),
                         variants,
+                        methods: BTreeMap::new(),
+                        expands: expands(&enumeration.decorators),
                     }),
                 )
             }
@@ -825,12 +836,17 @@ fn indistinguishable(left: &Signature, right: &Signature) -> bool {
 /// Whether any of these decorators could add a member to what it is written
 /// on (LR23.1).
 fn expands(decorators: &[Decorator]) -> bool {
-    decorators.iter().any(|decorator| {
-        !matches!(
-            decorator.name.as_str(),
-            "inline" | "noinline" | "deprecated" | "cold" | "repr" | "test" | "extern" | "reflect"
-        )
-    })
+    decorators
+        .iter()
+        .any(|decorator| match decorator.name.as_str() {
+            "inline" | "noinline" | "deprecated" | "cold" | "repr" | "test" | "extern"
+            | "reflect" => false,
+            // LR75: what a derive the compiler writes out adds is known, so the
+            // surface stays closed. One it does not know is the package's to
+            // expand (LR23.1).
+            "derive" => !crate::derive::known(decorator),
+            _ => true,
+        })
 }
 
 /// A member declared twice (LR12.2). The first one is the one that stands.
