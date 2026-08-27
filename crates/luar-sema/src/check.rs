@@ -2923,7 +2923,27 @@ impl Checker<'_> {
 
                 Type::BOOL
             }
-            BinaryOp::Concat => Type::STRING,
+            // LR11.2: both operands are already `string`, which is what keeps
+            // `..` unoverloadable (LR36).
+            BinaryOp::Concat => {
+                for (held, operand) in [(&held_left, left), (&held_right, right)] {
+                    if !Type::STRING.accepts(held) {
+                        self.diagnostics.push(
+                            Diagnostic::error(
+                                codes::CONCAT_OPERANDS,
+                                operand.span,
+                                format!("`..` joins two strings, and this is {}", article(held)),
+                            )
+                            .note(
+                                "Nothing is stringified on its way in. Write an \
+                                 interpolated string, or use `Display` (LR11.2, LR4.6).",
+                            ),
+                        );
+                    }
+                }
+
+                Type::STRING
+            }
             // LR8: `??` produces what the left side holds when it is present.
             BinaryOp::Coalesce => match held_left {
                 Type::Optional(inner) => *inner,

@@ -222,6 +222,8 @@ registry! {
         "A static takes no receiver, so it is called through its type.";
     active 182 => OPERATOR_NOT_OVERLOADED, "LR36",
         "An operator on a type it is not built in for calls the protocol method it names.";
+    active 183 => CONCAT_OPERANDS, "LR11.2",
+        "`..` joins two strings, and nothing is stringified on its way in.";
 }
 
 #[cfg(test)]
