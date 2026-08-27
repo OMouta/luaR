@@ -828,7 +828,7 @@ Division by zero traps for integers. Floating-point division follows IEEE-754.
 
 `%` is the remainder, defined so that `(a // b) * b + (a % b) == a`.
 
-`**` is exponentiation. Lua spells this `^`, which LuaR uses for bitwise XOR (LR11.5).
+`**` is exponentiation. Lua spells this `^`, which LuaR uses for bitwise XOR (LR11.5). On integers it produces an integer, so an exponent below zero leaves the range of the type and traps (LR4.3).
 
 Silently truncating `10 / 3` to `3` is the kind of lossy implicit behavior LR4.4 rules out for conversions, so it is ruled out here too.
 
