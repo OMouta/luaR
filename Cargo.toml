@@ -31,6 +31,16 @@ luar-codegen = { path = "crates/luar-codegen" }
 luar-conformance = { path = "crates/luar-conformance" }
 luar-driver = { path = "crates/luar-driver" }
 
+# Cranelift is versioned 0.x and moves quickly, so the version is exact and
+# bumping it is its own change.
+cranelift-codegen = "=0.125.4"
+cranelift-frontend = "=0.125.4"
+cranelift-native = "=0.125.4"
+cranelift-module = "=0.125.4"
+cranelift-object = "=0.125.4"
+target-lexicon = "=0.13.5"
+cc = "1"
+
 [workspace.lints.rust]
 unsafe_code = "deny"
 
