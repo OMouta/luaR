@@ -1860,7 +1860,11 @@ finally
 end
 ```
 
-A `throw` expression has type `never`.
+`throw` is a statement. It takes a value of any type and does not complete, so a block ending in one produces no value and satisfies a `never` result (LR6.2).
+
+A `catch` clause with no type catches every thrown value and binds it as `unknown` (LR6.3). A clause with a type runs only when the thrown value is of that type, and binds it at that type. Clauses are tried in the order written and the first that matches runs. At most one clause omits its type, and it is written last.
+
+`finally` runs whenever control leaves the `try`, whichever way it leaves: the block completing, a clause completing, an exception no clause caught, or a `return`, `break`, or `continue` out of either. An exception no clause caught continues to propagate once `finally` has run.
 
 Exceptions are unchecked. They do not appear in function signatures, and the compiler does not verify that they are caught. Making them checked would reproduce Java's checked-exception problem, where every signature accumulates the failure modes of everything it transitively calls; making them silent but common would defeat the point of `Result`.
 
@@ -3982,6 +3986,10 @@ try_stmt        = "try" block
                   { catch_clause }
                   [ "finally" block ]
                   "end" ;
+
+catch_clause    = "catch" identifier [ ":" type ] block ;
+
+throw_stmt      = "throw" expression ;
 
 pattern         = or_pattern ;
 
