@@ -2081,7 +2081,18 @@ Types may define deterministic cleanup protocols for use by scoped standard-libr
 
 There is no `class` construct and no implementation inheritance. Domain modeling uses structs, interfaces, enums, composition, extension methods, and closures.
 
-A `struct` has value semantics: assigning it may copy it, and two structs with equal fields are indistinguishable.
+A `struct` has value semantics. Binding it, assigning it, passing it, returning it, and storing it in a field each copy it, so a mutation through one holder is not observable through another. Two structs with equal fields are indistinguishable.
+
+The copy is one level deep. A field holding a reference type still refers to the same object.
+
+```lua
+local a = Point { x = 1 }
+local b = a
+b.x = 5
+print(a.x)          -- 1
+```
+
+A copy no mutation can observe need not happen, which is what leaves `const struct` (LR12.4) and a struct that is never written free of one.
 
 Some types genuinely need reference semantics, where every holder observes one shared, mutable, identifiable object. Connection pools, caches, event buses, and scene nodes are the usual examples, and modeling them as value structs produces silent copies of state that was meant to be shared. These are declared `ref struct`:
 
