@@ -9,6 +9,7 @@ use luar_ast::{
     Stmt, StmtKind, UnaryOp as AstUnary,
 };
 use luar_diagnostics::Span;
+use luar_sema::check::protocol_of;
 use luar_sema::facts::Facts;
 
 use luar_sema::types::Type;
@@ -1258,8 +1259,11 @@ impl<'a> Body<'a> {
             }
 
             ExprKind::Binary {
-                op, left, right, ..
-            } => self.binary(*op, left, right, span),
+                op,
+                op_span,
+                left,
+                right,
+            } => self.binary(*op, *op_span, left, right, span),
 
             ExprKind::Call {
                 callee,
@@ -1342,7 +1346,14 @@ impl<'a> Body<'a> {
         }
     }
 
-    fn binary(&mut self, op: AstBinary, left: &Expr, right: &Expr, span: Span) -> Value {
+    fn binary(
+        &mut self,
+        op: AstBinary,
+        op_span: Span,
+        left: &Expr,
+        right: &Expr,
+        span: Span,
+    ) -> Value {
         // LR8: comparing against `nil` asks whether an optional holds
         // anything, which is the check that settles it.
         if matches!(op, AstBinary::Equal | AstBinary::NotEqual) {
@@ -1365,6 +1376,14 @@ impl<'a> Body<'a> {
                     };
                 }
             }
+        }
+
+        // LR36: an operator the checker sent through a protocol is the call it
+        // named, and nothing else here applies to it.
+        if self.context.facts.call(op_span).is_some()
+            && let Some((_, protocol, method)) = protocol_of(op)
+        {
+            return self.through_protocol(protocol, method, op, left, right, op_span);
         }
 
         match op {
@@ -1394,6 +1413,52 @@ impl<'a> Body<'a> {
                     span,
                 )
             }
+        }
+    }
+
+    /// LR36: `a + b` is `a:add(b)`, and the four ordering operators are one
+    /// `compare` against zero, which is what keeps them consistent.
+    fn through_protocol(
+        &mut self,
+        protocol: &str,
+        method: &str,
+        op: AstBinary,
+        left: &Expr,
+        right: &Expr,
+        span: Span,
+    ) -> Value {
+        let args = vec![Argument {
+            name: None,
+            value: right.clone(),
+            span: right.span,
+        }];
+        let called = self.call(left, Some(method), &args, span);
+
+        match (protocol, op) {
+            ("Eq", AstBinary::NotEqual) => self.emit(
+                InstKind::Unary {
+                    op: UnaryOp::Not,
+                    operand: called,
+                },
+                Ty::Bool,
+                span,
+            ),
+            ("Comparable", _) => {
+                let Some(op) = binary_op(op) else {
+                    return self.missing(span, "an ordering operator");
+                };
+                let zero = self.emit(InstKind::Const(Const::Int(0)), Ty::Int(IntTy::I64), span);
+                self.emit(
+                    InstKind::Binary {
+                        op,
+                        left: called,
+                        right: zero,
+                    },
+                    Ty::Bool,
+                    span,
+                )
+            }
+            _ => called,
         }
     }
 
