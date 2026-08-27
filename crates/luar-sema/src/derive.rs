@@ -1,6 +1,6 @@
 //! `@derive` written out into the members it names (LR75).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use luar_ast::{Decorator, ExprKind, Item};
 use luar_diagnostics::{Diagnostic, Span, codes};
@@ -64,8 +64,22 @@ struct Derivation {
     span: Span,
 }
 
-/// Writes every `@derive` in the program out into the table (LR75).
-pub fn expand(graph: &Graph, decls: &mut BTreeMap<(ModuleId, String), Decl>) -> Vec<Diagnostic> {
+/// A member `@derive` wrote, which the stages after this one write a body for
+/// (LR75).
+#[derive(Debug, Clone)]
+pub struct Derived {
+    pub owner: Type,
+    pub protocol: String,
+    pub member: &'static str,
+}
+
+/// Writes every `@derive` in the program out into the table (LR75). The map is
+/// keyed by the span of the signature written, which is what a call reaching
+/// one names (LR40).
+pub fn expand(
+    graph: &Graph,
+    decls: &mut BTreeMap<(ModuleId, String), Decl>,
+) -> (HashMap<Span, Derived>, Vec<Diagnostic>) {
     let mut diagnostics = Vec::new();
     let mut planned = Vec::new();
 
@@ -81,15 +95,27 @@ pub fn expand(graph: &Graph, decls: &mut BTreeMap<(ModuleId, String), Decl>) -> 
 
     // Every member lands before any field is read, so a field holding another
     // derived type sees what that type derived.
+    let mut written = HashMap::new();
     for derivation in &planned {
-        write(derivation, decls);
+        if let Some(owner) = write(derivation, decls)
+            && let Some(protocol) = protocol(&derivation.protocol)
+        {
+            written.insert(
+                derivation.span,
+                Derived {
+                    owner,
+                    protocol: derivation.protocol.clone(),
+                    member: protocol.member,
+                },
+            );
+        }
     }
 
     for derivation in &planned {
         check(derivation, decls, &mut diagnostics);
     }
 
-    diagnostics
+    (written, diagnostics)
 }
 
 fn plan(
@@ -192,21 +218,19 @@ fn declares(
     }
 }
 
-fn write(derivation: &Derivation, decls: &mut BTreeMap<(ModuleId, String), Decl>) {
-    let Some(protocol) = protocol(&derivation.protocol) else {
-        return;
-    };
+fn write(derivation: &Derivation, decls: &mut BTreeMap<(ModuleId, String), Decl>) -> Option<Type> {
+    let protocol = protocol(&derivation.protocol)?;
 
     let key = (derivation.module, derivation.owner.clone());
     let params = match decls.get(&key) {
         Some(Decl::Struct(structure)) => structure.type_params.clone(),
         Some(Decl::Enum(enumeration)) => enumeration.type_params.clone(),
-        _ => return,
+        _ => return None,
     };
 
     // LR65: what the spec writes as `Self` is this type, with its own
     // parameters where its arguments go.
-    let itself = Type::Named {
+    let owner = Type::Named {
         module: derivation.module,
         name: derivation.owner.clone(),
         args: params.into_iter().map(Type::Parameter).collect(),
@@ -219,7 +243,7 @@ fn write(derivation: &Derivation, decls: &mut BTreeMap<(ModuleId, String), Decl>
         params: if protocol.binary {
             vec![Param {
                 name: "other".to_owned(),
-                ty: itself,
+                ty: owner.clone(),
                 optional: false,
                 variadic: false,
             }]
@@ -237,13 +261,15 @@ fn write(derivation: &Derivation, decls: &mut BTreeMap<(ModuleId, String), Decl>
     let methods = match decls.get_mut(&key) {
         Some(Decl::Struct(StructType { methods, .. })) => methods,
         Some(Decl::Enum(EnumType { methods, .. })) => methods,
-        _ => return,
+        _ => return None,
     };
 
     methods
         .entry(protocol.member.to_owned())
         .or_insert_with(Overloads::new)
         .push(signature);
+
+    Some(owner)
 }
 
 /// LR75: deriving a protocol requires every field, and every payload of every

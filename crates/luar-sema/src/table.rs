@@ -1,12 +1,13 @@
 //! What every declaration in the program is (LR12, LR15, LR17.1, LR18).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use luar_ast::{Decorator, Function, Item, Member, Semantics, Visibility};
 use luar_diagnostics::{Diagnostic, Span, codes};
 
 use crate::aliases::{self, Aliases, Written};
 use crate::annotations::Resolver;
+use crate::derive::Derived;
 use crate::modules::{Graph, ModuleId};
 use crate::names::{Names, Origin};
 use crate::types::Type;
@@ -182,12 +183,20 @@ pub struct Table {
     kinds: Kinds,
     decls: BTreeMap<(ModuleId, String), Decl>,
     aliases: Aliases,
+    /// What `@derive` wrote, by the span of the signature it wrote (LR75).
+    derived: HashMap<Span, Derived>,
 }
 
 impl Table {
     #[must_use]
     pub fn get(&self, module: ModuleId, name: &str) -> Option<&Decl> {
         self.decls.get(&(module, name.to_owned()))
+    }
+
+    /// Every member `@derive` wrote, with the span a call reaching one names
+    /// (LR75).
+    pub fn derived(&self) -> impl Iterator<Item = (Span, &Derived)> {
+        self.derived.iter().map(|(span, derived)| (*span, derived))
     }
 
     #[must_use]
@@ -331,13 +340,15 @@ pub fn build(graph: &Graph, names: &Names) -> (Table, Vec<Diagnostic>) {
 
     // LR75: `@derive` writes its members once every type is readable, because
     // deriving a protocol needs the fields' types to have it too.
-    diagnostics.extend(crate::derive::expand(graph, &mut decls));
+    let (derived, reported) = crate::derive::expand(graph, &mut decls);
+    diagnostics.extend(reported);
 
     (
         Table {
             kinds,
             decls,
             aliases,
+            derived,
         },
         diagnostics,
     )

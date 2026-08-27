@@ -5,6 +5,7 @@ pub mod types;
 mod names;
 
 mod body;
+mod derived;
 
 use std::cell::Cell;
 use std::collections::HashMap;
@@ -54,6 +55,7 @@ pub fn lower(graph: &Graph, table: &Table, facts: &Facts) -> Lowered {
         defaults: HashMap::new(),
         properties: HashMap::new(),
         bodies: Vec::new(),
+        derived: Vec::new(),
         gaps: Vec::new(),
     };
 
@@ -61,8 +63,10 @@ pub fn lower(graph: &Graph, table: &Table, facts: &Facts) -> Lowered {
     lowering.build_types();
     lowering.declare_functions();
     lowering.declare_properties();
+    lowering.declare_derived();
     lowering.build_vtables();
     lowering.lower_bodies();
+    lowering.write_derived();
 
     Lowered {
         program: lowering.program,
@@ -92,6 +96,8 @@ struct Lowering<'a> {
     /// The bodies waiting to be lowered, once every function has an id for
     /// the calls between them to name.
     bodies: Vec<Pending>,
+    /// The members `@derive` wrote, waiting for a body (LR75).
+    derived: Vec<(FuncId, Span, Type, String)>,
     gaps: Vec<Gap>,
 }
 
@@ -739,7 +745,9 @@ fn overloads(decl: &Decl) -> Vec<&Signature> {
         Decl::Struct(structure) => structure.methods.values().flatten().collect(),
         Decl::Interface(interface) => interface.methods.values().flatten().collect(),
         Decl::Extension { methods, .. } => methods.values().flatten().collect(),
-        Decl::Enum(_) | Decl::Alias { .. } => Vec::new(),
+        // LR75: an enum declares no members, and carries what `@derive` wrote.
+        Decl::Enum(enumeration) => enumeration.methods.values().flatten().collect(),
+        Decl::Alias { .. } => Vec::new(),
     }
 }
 
