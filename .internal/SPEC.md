@@ -840,6 +840,8 @@ Both operands must already be `string`. There is no implicit stringification; us
 >=
 ```
 
+Comparison is built in for the primitive types (LR6) and for `string`. Every other type compares through the `Eq` and `Comparable` protocols (LR36).
+
 ### 11.4 Logical Operators
 
 ```text
@@ -2191,18 +2193,49 @@ Operator overloading is permitted only through well-defined interfaces.
 
 A user type cannot define arbitrary parser-level operators.
 
-Example conceptual mapping:
+Each overloadable operator names a protocol (LR35) and the method it calls. A type participates by having that method, reached the way any other method is (LR76).
 
 ```text
-a + b    -> Add
-a == b   -> Eq
-a < b    -> Ord
-a[index] -> Index
+-a          Neg          a:neg()
+~a          BitNot       a:bitNot()
+a + b       Add          a:add(b)
+a - b       Sub          a:sub(b)
+a * b       Mul          a:mul(b)
+a / b       Div          a:div(b)
+a % b       Rem          a:rem(b)
+a ** b      Pow          a:pow(b)
+a & b       BitAnd       a:bitAnd(b)
+a | b       BitOr        a:bitOr(b)
+a ^ b       BitXor       a:bitXor(b)
+a << b      Shl          a:shl(b)
+a >> b      Shr          a:shr(b)
+a == b      Eq           a:eq(b)
+a[index]    Index        a:index(index)
 ```
 
-Overloads must not change evaluation order or short-circuit semantics.
+`~=` is the negation of `==` and calls the same method. `<`, `<=`, `>`, and `>=` call `Comparable`, whose `compare(self, other)` returns an `int` that is negative, zero, or positive:
 
-Logical `and`, `or`, `not`, assignment, `?`, `await`, and member access are not overloadable.
+```text
+a < b   ->  a:compare(b) < 0
+a >= b  ->  a:compare(b) >= 0
+```
+
+One method behind four operators is what stops a type reporting `a < b` and `a >= b` both true.
+
+Dispatch is on the left operand, and neither operand is converted first. `a + b` looks for `add` on the type of `a`, and `b` must fit the parameter that method declares. A type that wants both `Vec2 * f64` and `f64 * Vec2` declares the second on `f64` in an extension block (LR20).
+
+An arithmetic, bitwise, or index operator produces whatever its method returns. `==`, `~=`, `<`, `<=`, `>`, and `>=` produce `bool`.
+
+A compound assignment overloads through the operator it contains, so `a += b` calls `add` (LR5.4).
+
+These operators are not overloadable:
+
+- `and`, `or`, and `not`, which take `bool` and short-circuit (LR11.4).
+- `..`, whose operands are already `string` (LR11.2).
+- `//`, which is integer division (LR11.1).
+- Assignment, `?`, `await`, and member access.
+
+Overloads must not change evaluation order or short-circuit semantics.
 
 ---
 
