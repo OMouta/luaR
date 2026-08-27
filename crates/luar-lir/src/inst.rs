@@ -185,14 +185,16 @@ pub enum InstKind {
         args: Vec<Value>,
     },
 
-    /// A value used through an interface, carrying which implementation to
-    /// dispatch to (LR18.1).
+    /// A value that carries what it is at runtime: one used through an
+    /// interface, carrying which implementation to dispatch to (LR18.1), or
+    /// an `any`, an `unknown`, or a thrown value, which name no interface
+    /// (LR6.3, LR6.4, LR25.3).
     MakeDyn {
-        interface: TypeId,
+        interface: Option<TypeId>,
         value: Value,
     },
-    /// The value inside an interface value, where a pass has proved which
-    /// implementation it holds (LR18.1).
+    /// The value inside one, where a check or a pass has proved what it holds
+    /// (LR18.1, LR25.3).
     DynValue {
         value: Value,
     },

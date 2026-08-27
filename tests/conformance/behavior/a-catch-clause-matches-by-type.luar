@@ -1,0 +1,24 @@
+--- expect: run
+--- exit: 7
+--- spec: LR25.3
+struct Timeout
+    seconds: int
+end
+
+struct Refused
+    port: int
+end
+
+function connect(): int
+    throw Timeout { seconds = 7 }
+end
+
+export function main(): int
+    try
+        return connect()
+    catch error: Refused
+        return error.port
+    catch error: Timeout
+        return error.seconds
+    end
+end

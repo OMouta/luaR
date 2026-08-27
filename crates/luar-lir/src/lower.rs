@@ -6,9 +6,10 @@ mod names;
 
 mod body;
 mod derived;
+mod throws;
 
 use std::cell::Cell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use luar_ast::{Binding, Function as AstFunction, Item, Member, Module, Semantics};
 use luar_diagnostics::Span;
@@ -56,11 +57,13 @@ pub fn lower(graph: &Graph, table: &Table, facts: &Facts) -> Lowered {
         properties: HashMap::new(),
         bodies: Vec::new(),
         derived: Vec::new(),
+        throwing: HashSet::new(),
         gaps: Vec::new(),
     };
 
     lowering.name_types();
     lowering.build_types();
+    lowering.find_throwing();
     lowering.declare_functions();
     lowering.declare_properties();
     lowering.declare_derived();
@@ -98,6 +101,9 @@ struct Lowering<'a> {
     bodies: Vec<Pending>,
     /// The members `@derive` wrote, waiting for a body (LR75).
     derived: Vec<(FuncId, Span, Type, String)>,
+    /// The declarations an exception can escape, by the span of each
+    /// (LR25.3).
+    throwing: HashSet<Span>,
     gaps: Vec<Gap>,
 }
 
@@ -112,6 +118,9 @@ pub(super) struct Callee {
     /// for each, and passes its arguments at the parameter types with those
     /// put in place (LR19).
     pub type_params: Vec<String>,
+    /// Whether an exception can escape it, which is what makes the call give
+    /// back what it threw as well as what it returned (LR25.3).
+    pub throws: bool,
 }
 
 pub(super) struct Parameter {
@@ -137,7 +146,18 @@ struct Pending {
     id: FuncId,
     /// What the entry block's parameters bind to, in order.
     bindings: Vec<Binding>,
+    /// Whether an exception can escape it (LR25.3).
+    throws: bool,
     body: luar_ast::Block,
+}
+
+/// What a function an exception can escape gives back: what it returned, or
+/// what it threw (LR25.3).
+pub(super) fn thrown_or(result: Ty) -> Ty {
+    Ty::Builtin {
+        kind: crate::ty::Builtin::Result,
+        args: vec![result, Ty::Dynamic],
+    }
 }
 
 impl Lowering<'_> {
@@ -351,6 +371,17 @@ impl Lowering<'_> {
     }
 
     /// Gives every function with a body an id and a signature.
+    /// Works out which declarations an exception can escape, before any of
+    /// them takes a result type (LR25.3).
+    fn find_throwing(&mut self) {
+        let bodies: Vec<(Span, luar_ast::Block)> = self
+            .declarations()
+            .into_iter()
+            .filter_map(|(_, _, function)| Some((function.span, function.body?)))
+            .collect();
+        self.throwing = throws::escaping(&bodies, self.facts);
+    }
+
     fn declare_functions(&mut self) {
         let declarations = self.declarations();
         for (module, path, function) in declarations {
@@ -406,7 +437,16 @@ impl Lowering<'_> {
                 default: written.and_then(|param| param.default.clone()),
             });
         }
-        let result = self.convert(&signature.result, span);
+        let declared = self.convert(&signature.result, span);
+        // LR25.3: exceptions are absent from signatures, so a function an
+        // exception can escape gives back either what it returned or what it
+        // threw, and every call to it says which happened.
+        let throws = self.throwing.contains(&span);
+        let result = if throws {
+            thrown_or(declared)
+        } else {
+            declared
+        };
 
         let mut lowered = Function::new(self.qualify(module, path), params, result, span);
         lowered.type_params = type_params;
@@ -415,7 +455,7 @@ impl Lowering<'_> {
         // than returning something made up.
         lowered.block_mut(lowered.entry).term = Some(Terminator::Trap(Trap::Unreachable));
 
-        let declared = lowered.type_params.clone();
+        let declared_params = lowered.type_params.clone();
         let id = self.program.add_function(lowered);
         self.functions.insert(
             span,
@@ -423,7 +463,8 @@ impl Lowering<'_> {
                 id,
                 takes_self: signature.takes_self,
                 params: taken,
-                type_params: declared,
+                type_params: declared_params,
+                throws,
             },
         );
 
@@ -434,6 +475,7 @@ impl Lowering<'_> {
         self.bodies.push(Pending {
             id,
             bindings,
+            throws,
             body: function.body.clone().expect("declarations carry bodies"),
         });
     }
@@ -502,6 +544,7 @@ impl Lowering<'_> {
         self.bodies.push(Pending {
             id: get,
             bindings: vec![Binding::Name("self".to_owned())],
+            throws: false,
             body: property.get.clone(),
         });
 
@@ -522,6 +565,7 @@ impl Lowering<'_> {
                     Binding::Name("self".to_owned()),
                     Binding::Name(setter.param.clone()),
                 ],
+                throws: false,
                 body: setter.body.clone(),
             });
             written
@@ -589,6 +633,16 @@ impl Lowering<'_> {
                 fitting.next().is_none().then_some(first.span)
             });
 
+            // LR25.3: a method reached through an interface is called at the
+            // slot's result type, which says nothing about throwing.
+            if found.is_some_and(|span| self.throwing.contains(&span)) {
+                self.gap(
+                    span,
+                    format!("`{name}` implementing `{method}` with a method that throws"),
+                );
+                return;
+            }
+
             let Some(found) = found
                 .and_then(|span| self.functions.get(&span))
                 .map(|held| held.id)
@@ -630,11 +684,12 @@ impl Lowering<'_> {
                 virtuals: &self.virtuals,
                 defaults: &self.defaults,
                 properties: &self.properties,
+                throwing: &self.throwing,
                 program: &self.program,
             };
             let shell = self.program.function(pending.id).clone();
-            let (function, closures, gaps) =
-                body::Body::new(context, shell).lower(&pending.bindings, &pending.body);
+            let (function, closures, gaps) = body::Body::new(context, shell, pending.throws)
+                .lower(&pending.bindings, &pending.body);
             built.push((pending.id, function, gaps));
             made.extend(closures);
         }

@@ -1169,6 +1169,7 @@ impl Checker<'_> {
                         || Type::Primitive(Primitive::Unknown),
                         |ty| self.resolve(ty),
                     );
+                    self.facts.record_type(clause.span, caught.clone());
                     self.push();
                     self.bind(&clause.name, caught);
                     self.block(&clause.body);

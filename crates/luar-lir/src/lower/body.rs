@@ -1,12 +1,12 @@
 //! Lowering one function body.
 
 use std::cell::Cell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use luar_ast::{
-    Argument, ArmBody, BinaryOp as AstBinary, Binding, Block, Branch, Expr, ExprKind, FieldInit,
-    FieldPattern, FunctionBody, MapEntry, MapKey, MatchArm, Param, Pattern, PatternKind, Payload,
-    Stmt, StmtKind, UnaryOp as AstUnary,
+    Argument, ArmBody, BinaryOp as AstBinary, Binding, Block, Branch, CatchClause, Expr, ExprKind,
+    FieldInit, FieldPattern, FunctionBody, MapEntry, MapKey, MatchArm, Param, Pattern, PatternKind,
+    Payload, Stmt, StmtKind, UnaryOp as AstUnary,
 };
 use luar_diagnostics::Span;
 use luar_sema::check::protocol_of;
@@ -17,8 +17,9 @@ use luar_sema::types::Type;
 use crate::inst::MethodId;
 use crate::inst::{BinaryOp, Const, Inst, InstKind, Target, Terminator, Trap, UnaryOp, Value};
 use crate::lower::names;
+use crate::lower::throws;
 use crate::lower::types::{self, Ids};
-use crate::lower::{Callee, Gap, Property};
+use crate::lower::{Callee, Gap, Property, thrown_or};
 use crate::program::{BlockId, FuncId, Function, Program, Shape};
 use crate::ty::{Builtin, IntTy, Ty, TypeId};
 
@@ -54,6 +55,29 @@ enum Exit {
     Continue,
 }
 
+/// What runs on the way out of a scope, in reverse order of registration
+/// (LR25.3, LR26).
+#[derive(Clone)]
+enum Cleanup {
+    Deferred(Expr),
+    Finally(Block),
+}
+
+/// Where a thrown value goes (LR25.3).
+#[derive(Clone)]
+struct Handler {
+    /// The block that decides which clause catches it. Its first parameter is
+    /// the thrown value.
+    block: BlockId,
+    /// The first scope to unwind on the way there. The scopes outside it stay
+    /// open, so a `finally` around the handler runs when the handler is done
+    /// rather than on the way to it.
+    frame: usize,
+    /// The bindings the handler's block takes after the thrown value, which
+    /// are the ones the guarded block writes to.
+    carried: Vec<Var>,
+}
+
 /// What lowering a body needs from the rest of the program.
 #[derive(Clone, Copy)]
 pub(super) struct Context<'a> {
@@ -71,6 +95,8 @@ pub(super) struct Context<'a> {
     pub defaults: &'a HashMap<(TypeId, u32), Expr>,
     /// The computed members of each type (LR43).
     pub properties: &'a HashMap<(TypeId, String), Property>,
+    /// The declarations an exception can escape (LR25.3).
+    pub throwing: &'a HashSet<Span>,
     pub program: &'a Program,
 }
 
@@ -85,9 +111,18 @@ pub(super) struct Body<'a> {
     /// The names in scope, innermost last. A name written twice in one scope
     /// shadows rather than replaces, so each scope is a list (LR53).
     scopes: Vec<Vec<(String, Var)>>,
-    /// What each open scope has deferred, in the order it was written
-    /// (LR26). One frame per entry in `scopes`.
-    deferred: Vec<Vec<Expr>>,
+    /// What each open scope runs on the way out, in the order it was written
+    /// (LR25.3, LR26). One frame per entry in `scopes`.
+    deferred: Vec<Vec<Cleanup>>,
+    /// The `try` statements open around what is being lowered, innermost
+    /// last. Empty where a thrown value leaves the function (LR25.3).
+    handlers: Vec<Handler>,
+    /// What the source says the function gives back. Where an exception can
+    /// escape it, [`Function::result`] is that or what was thrown, and this
+    /// is the half a `return` writes (LR25.3).
+    declared: Ty,
+    /// Whether an exception can escape this function (LR25.3).
+    throws: bool,
     /// The value each binding currently holds.
     defs: HashMap<Var, Value>,
     next_var: u32,
@@ -102,9 +137,19 @@ pub(super) struct Body<'a> {
 }
 
 impl<'a> Body<'a> {
-    pub(super) fn new(context: Context<'a>, mut function: Function) -> Self {
+    pub(super) fn new(context: Context<'a>, mut function: Function, throws: bool) -> Self {
         let entry = function.entry;
         function.block_mut(entry).term = None;
+        let declared = match (throws, &function.result) {
+            (
+                true,
+                Ty::Builtin {
+                    kind: Builtin::Result,
+                    args,
+                },
+            ) => args.first().cloned().unwrap_or(Ty::Unit),
+            _ => function.result.clone(),
+        };
         Self {
             context,
             function,
@@ -112,6 +157,9 @@ impl<'a> Body<'a> {
             left: false,
             scopes: vec![Vec::new()],
             deferred: vec![Vec::new()],
+            handlers: Vec::new(),
+            declared,
+            throws,
             defs: HashMap::new(),
             next_var: 0,
             loops: Vec::new(),
@@ -140,9 +188,10 @@ impl<'a> Body<'a> {
         // value where the function writes no result.
         if !self.left {
             let span = block.span;
-            let term = if self.function.result == Ty::Unit {
+            let term = if self.declared == Ty::Unit {
                 let unit = self.emit(InstKind::Const(Const::Unit), Ty::Unit, span);
-                Terminator::Return(unit)
+                let returned = self.returned(unit, span);
+                Terminator::Return(returned)
             } else {
                 Terminator::Trap(Trap::Unreachable)
             };
@@ -227,10 +276,21 @@ impl<'a> Body<'a> {
     }
 
     /// Runs what scope `frame` deferred, in reverse order of registration
-    /// (LR26).
+    /// (LR25.3, LR26).
     fn unwind(&mut self, frame: usize) {
-        for deferred in self.deferred[frame].clone().iter().rev() {
-            self.expr(deferred, None);
+        for cleanup in self.deferred[frame].clone().iter().rev() {
+            match cleanup {
+                Cleanup::Deferred(call) => {
+                    self.expr(call, None);
+                }
+                Cleanup::Finally(block) => {
+                    self.block(block);
+                    if self.left {
+                        self.gap(block.span, "a `finally` that leaves where it is written");
+                        return;
+                    }
+                }
+            }
         }
     }
 
@@ -364,7 +424,13 @@ impl<'a> Body<'a> {
                 .deferred
                 .last_mut()
                 .expect("a scope is open")
-                .push(expr.clone()),
+                .push(Cleanup::Deferred(expr.clone())),
+            StmtKind::Throw(value) => self.throw_stmt(value, stmt.span),
+            StmtKind::Try {
+                body,
+                catches,
+                finally,
+            } => self.try_stmt(body, catches, finally.as_ref(), stmt.span),
             // LR29.2: `unsafe` is a promise the checker made the caller keep.
             StmtKind::Unsafe(block) => self.block(block),
             StmtKind::Expr(expr) => {
@@ -874,6 +940,151 @@ impl<'a> Body<'a> {
         self.jump_to(block, &carried);
     }
 
+    /// LR25.3: `throw` does not complete. What it throws leaves every scope
+    /// between here and whatever catches it.
+    fn throw_stmt(&mut self, value: &Expr, span: Span) {
+        let thrown = self.expr(value, Some(&Ty::Dynamic));
+        self.raise(thrown, span);
+    }
+
+    /// Sends a thrown value to the innermost `try` around it, or out of the
+    /// function where there is none (LR25.3).
+    fn raise(&mut self, thrown: Value, span: Span) {
+        let Some(handler) = self.handlers.last().cloned() else {
+            if !self.throws {
+                self.gap(span, "a throw the call graph did not reach");
+                return;
+            }
+            // LR26: leaving the function leaves every scope it has open.
+            self.unwind_from(0);
+            let ty = self.function.result.clone();
+            let returned = self.emit(
+                InstKind::MakeEnum {
+                    ty: ty.clone(),
+                    variant: 1,
+                    payload: vec![thrown],
+                },
+                ty,
+                span,
+            );
+            self.terminate(Terminator::Return(returned));
+            return;
+        };
+
+        self.unwind_from(handler.frame);
+        let mut args = vec![thrown];
+        args.extend(handler.carried.iter().map(|var| self.defs[var]));
+        self.terminate(Terminator::Jump(Target::new(handler.block, args)));
+    }
+
+    /// LR25.3: the clauses are tried in the order they are written, the first
+    /// whose type the thrown value has runs, and the `finally` runs whichever
+    /// way the statement is left.
+    fn try_stmt(
+        &mut self,
+        body: &Block,
+        catches: &[CatchClause],
+        finally: Option<&Block>,
+        span: Span,
+    ) {
+        let carried = self.carried(body);
+        let dispatch = self.function.add_block();
+        let thrown = self.function.add_block_param(dispatch, Ty::Dynamic);
+        self.add_params(dispatch, &carried);
+        let entering = self.defs.clone();
+
+        // The `finally` belongs to a scope around the guarded block, so it
+        // runs after the handler rather than on the way to it.
+        self.open();
+        if let Some(finally) = finally {
+            self.deferred
+                .last_mut()
+                .expect("a scope is open")
+                .push(Cleanup::Finally(finally.clone()));
+        }
+
+        self.handlers.push(Handler {
+            block: dispatch,
+            frame: self.scopes.len(),
+            carried: carried.clone(),
+        });
+        self.block(body);
+        self.handlers.pop();
+
+        let mut arrivals = Vec::new();
+        if !self.left {
+            arrivals.push(Arrival {
+                block: self.current,
+                defs: self.defs.clone(),
+            });
+        }
+
+        self.switch_to(dispatch);
+        self.defs = entering;
+        self.bind_params(dispatch, &carried);
+        for clause in catches {
+            let next = self.function.add_block();
+            let caught = match &clause.ty {
+                Some(_) => {
+                    let ty = self.recorded(clause.span);
+                    let test = self.emit(
+                        InstKind::IsType {
+                            value: thrown,
+                            ty: ty.clone(),
+                        },
+                        Ty::Bool,
+                        clause.span,
+                    );
+                    let matched = self.function.add_block();
+                    self.terminate(Terminator::Branch {
+                        condition: test,
+                        then: Target::to(matched),
+                        otherwise: Target::to(next),
+                    });
+                    self.switch_to(matched);
+                    self.emit(InstKind::DynValue { value: thrown }, ty, clause.span)
+                }
+                None => thrown,
+            };
+
+            let saved = self.defs.clone();
+            self.open();
+            let var = self.declare(&clause.name);
+            self.defs.insert(var, caught);
+            for stmt in &clause.body.stmts {
+                if self.left {
+                    break;
+                }
+                self.stmt(stmt);
+            }
+            self.close();
+            if !self.left {
+                arrivals.push(Arrival {
+                    block: self.current,
+                    defs: self.defs.clone(),
+                });
+            }
+
+            self.defs = saved;
+            self.switch_to(next);
+            if clause.ty.is_none() {
+                // Nothing after a clause that catches everything is reachable,
+                // which the parser already rejected (LR0200).
+                self.terminate(Terminator::Trap(Trap::Unreachable));
+            }
+        }
+
+        // LR25.3: what no clause caught keeps going, once the `finally` around
+        // the handler has run.
+        if !self.left {
+            self.raise(thrown, span);
+        }
+
+        let done = self.function.add_block();
+        self.join(arrivals, done);
+        self.close();
+    }
+
     /// Gives `block` a parameter for each carried binding, typed as the
     /// binding is now.
     fn add_params(&mut self, block: BlockId, carried: &[Var]) {
@@ -1300,7 +1511,7 @@ impl<'a> Body<'a> {
     }
 
     fn ret(&mut self, value: Option<&Expr>, span: Span) {
-        let result = self.function.result.clone();
+        let result = self.declared.clone();
         let value = match value {
             Some(expr) => self.expr(expr, Some(&result)),
             None => self.emit(InstKind::Const(Const::Unit), Ty::Unit, span),
@@ -1308,7 +1519,26 @@ impl<'a> Body<'a> {
         // LR26: a `return` leaves every scope the function has open, so
         // everything they deferred runs, innermost first.
         self.unwind_from(0);
-        self.terminate(Terminator::Return(value));
+        let returned = self.returned(value, span);
+        self.terminate(Terminator::Return(returned));
+    }
+
+    /// What `Return` gives back for a value the function returned. Where an
+    /// exception can escape, that is one half of what it gives back (LR25.3).
+    fn returned(&mut self, value: Value, span: Span) -> Value {
+        if !self.throws {
+            return value;
+        }
+        let ty = self.function.result.clone();
+        self.emit(
+            InstKind::MakeEnum {
+                ty: ty.clone(),
+                variant: 0,
+                payload: vec![value],
+            },
+            ty,
+            span,
+        )
     }
 
     // -- expressions ------------------------------------------------------
@@ -1484,7 +1714,7 @@ impl<'a> Body<'a> {
             return self.missing(span, "a `Result` without both type arguments");
         };
 
-        let returned = self.function.result.clone();
+        let returned = self.declared.clone();
         let Ty::Builtin {
             kind: Builtin::Result,
             args: returned_args,
@@ -1536,6 +1766,7 @@ impl<'a> Body<'a> {
             span,
         );
         self.unwind_from(0);
+        let returned = self.returned(returned, span);
         self.terminate(Terminator::Return(returned));
 
         self.switch_to(succeeded);
@@ -1876,11 +2107,72 @@ impl<'a> Body<'a> {
         }
 
         let result = self.recorded(span);
+        if reached.throws {
+            let produced = self.emit(
+                InstKind::Call {
+                    callee: id,
+                    type_args,
+                    args: passed,
+                },
+                thrown_or(result.clone()),
+                span,
+            );
+            return self.caught_or_raised(produced, result, span);
+        }
+
         self.emit(
             InstKind::Call {
                 callee: id,
                 type_args,
                 args: passed,
+            },
+            result,
+            span,
+        )
+    }
+
+    /// LR25.3: a call that may have thrown says which happened, so the caller
+    /// reads what it returned on one path and sends what it threw on outward
+    /// on the other.
+    fn caught_or_raised(&mut self, produced: Value, result: Ty, span: Span) -> Value {
+        let tag = self.emit(InstKind::GetTag { value: produced }, Ty::INT, span);
+        let threw = self.emit(InstKind::Const(Const::Int(1)), Ty::INT, span);
+        let raised = self.emit(
+            InstKind::Binary {
+                op: BinaryOp::Equal,
+                left: tag,
+                right: threw,
+            },
+            Ty::Bool,
+            span,
+        );
+
+        let unwinding = self.function.add_block();
+        let returned = self.function.add_block();
+        self.terminate(Terminator::Branch {
+            condition: raised,
+            then: Target::to(unwinding),
+            otherwise: Target::to(returned),
+        });
+
+        self.switch_to(unwinding);
+        let thrown = self.emit(
+            InstKind::GetPayload {
+                value: produced,
+                variant: 1,
+                field: 0,
+            },
+            Ty::Dynamic,
+            span,
+        );
+        self.raise(thrown, span);
+
+        self.switch_to(returned);
+        self.emit(
+            InstKind::GetPayload {
+                value: produced,
+                variant: 0,
+                field: 0,
             },
             result,
             span,
@@ -2106,6 +2398,11 @@ impl<'a> Body<'a> {
         if takes.len() != params.len() {
             return self.missing(span, "a closure of a shape the checker did not agree on");
         }
+        // LR25.3: a function type says nothing about throwing, so a closure
+        // that throws has nowhere to say it does.
+        if throws::closure_escapes(body, self.context.throwing, self.context.facts) {
+            return self.missing(span, "a throw inside a closure");
+        }
 
         let written = match body {
             FunctionBody::Block(block) => block.clone(),
@@ -2143,7 +2440,7 @@ impl<'a> Body<'a> {
             *result,
             span,
         );
-        let (built, made, gaps) = Body::new(self.context, shell).lower(&bindings, &written);
+        let (built, made, gaps) = Body::new(self.context, shell, false).lower(&bindings, &written);
         self.made.push((id, built));
         self.made.extend(made);
         self.gaps.extend(gaps);
@@ -2569,12 +2866,27 @@ impl<'a> Body<'a> {
             Ty::Optional(inner) if held == **inner => {
                 self.emit(InstKind::MakeSome { value }, wanted.clone(), span)
             }
+            // LR6.3, LR25.3: what a value is is not written down, so it
+            // carries it.
+            Ty::Dynamic if held != Ty::Dynamic => self.emit(
+                InstKind::MakeDyn {
+                    interface: None,
+                    value,
+                },
+                Ty::Dynamic,
+                span,
+            ),
             // LR18.1: a value used through an interface carries which
             // implementation to dispatch to.
             _ if held != *wanted => match self.interface_id(wanted) {
-                Some(interface) => {
-                    self.emit(InstKind::MakeDyn { interface, value }, wanted.clone(), span)
-                }
+                Some(interface) => self.emit(
+                    InstKind::MakeDyn {
+                        interface: Some(interface),
+                        value,
+                    },
+                    wanted.clone(),
+                    span,
+                ),
                 None => value,
             },
             _ => value,

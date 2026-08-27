@@ -1,0 +1,34 @@
+--- expect: run
+--- exit: 3
+--- spec: LR25.3
+--- spec: LR26
+ref struct Counter
+    value: int
+
+    function bump(self)
+        self.value += 1
+    end
+end
+
+struct Fault
+    code: int
+end
+
+function guarded(fail: bool, counter: Counter)
+    try
+        if fail then
+            throw Fault { code = 1 }
+        end
+    catch error
+        counter:bump()
+    finally
+        counter:bump()
+    end
+end
+
+export function main(): int
+    local counter = Counter { value = 0 }
+    guarded(false, counter)
+    guarded(true, counter)
+    return counter.value
+end

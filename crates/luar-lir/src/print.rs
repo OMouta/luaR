@@ -190,9 +190,10 @@ fn instruction(inst: &Inst, function: &Function) -> String {
             name(*receiver),
             list(args)
         ),
-        InstKind::MakeDyn { interface, value } => {
-            format!("dyn type{} {}", interface.0, name(*value))
-        }
+        InstKind::MakeDyn { interface, value } => match interface {
+            Some(interface) => format!("dyn type{} {}", interface.0, name(*value)),
+            None => format!("dyn {}", name(*value)),
+        },
         InstKind::DynValue { value } => format!("dyn value {}", name(*value)),
         InstKind::MakeClosure { func, captures } => {
             format!("closure func{}[{}]", func.0, list(captures))
