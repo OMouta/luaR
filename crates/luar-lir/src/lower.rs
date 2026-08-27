@@ -1,14 +1,4 @@
 //! Turning a checked program into LIR.
-//!
-//! Two sweeps. The first gives every declared type and every function an id,
-//! because a declaration may name one written later or in another module. The
-//! second fills them in.
-//!
-//! Lowering never guesses. Where the checker left a type unsettled, or where
-//! a construct has no lowering yet, the program keeps its shape and lowering
-//! records a [`Gap`] naming what it did not do. A program with gaps is not one
-//! the backend may be handed, so an unfinished compiler cannot quietly emit
-//! code for a program it only half understood.
 
 pub mod types;
 
@@ -129,10 +119,6 @@ pub(super) struct Parameter {
 }
 
 /// A computed member, and the functions it reads and writes through (LR43).
-///
-/// A property is not stored, so it has no field index. It is reached with `.`
-/// like a field and runs code like a method, which is the whole point of it,
-/// so the lowering is a call at every site the syntax says is a field access.
 pub(super) struct Property {
     pub ty: Ty,
     pub get: FuncId,
@@ -157,10 +143,6 @@ impl Lowering<'_> {
     }
 
     /// How a name written in `module` reads in the whole program.
-    ///
-    /// Two modules may declare one name, so a linkage name carries the module
-    /// it came from. The graph keys modules by a resolved path, so no two
-    /// share one.
     fn qualify(&self, module: ModuleId, name: &str) -> String {
         let path = self.graph.module(module).path.with_extension("");
         format!("{}.{name}", path.display()).replace('\\', "/")
@@ -226,8 +208,8 @@ impl Lowering<'_> {
             span,
         );
 
-        // LR12.2: a field written with a default may be left out of a
-        // literal, and the default is evaluated where the literal is written.
+        // LR12.2: a field written with a default may be left out of a literal,
+        // and the default is evaluated where the literal is written.
         for (index, default) in self.written_defaults(module, name).into_iter().enumerate() {
             if let Some(default) = default {
                 let index = u32::try_from(index).expect("field count fits in u32");
@@ -299,8 +281,7 @@ impl Lowering<'_> {
         id: TypeId,
     ) -> Nominal {
         // LR18.1: the slot a `CallVirtual` names is a method's position here,
-        // so the order has to be one every module agrees on. The table holds
-        // methods by name, which is that order.
+        // so the order has to be one every module agrees on.
         let mut methods = Vec::new();
         for (method, overloads) in &interface.methods {
             for signature in overloads {
@@ -420,8 +401,8 @@ impl Lowering<'_> {
         let mut lowered = Function::new(self.qualify(module, path), params, result, span);
         lowered.type_params = type_params;
         lowered.asynchronous = signature.asynchronous;
-        // Until the body is lowered the function says it never returns,
-        // rather than returning something made up.
+        // Until the body is lowered the function says it never returns, rather
+        // than returning something made up.
         lowered.block_mut(lowered.entry).term = Some(Terminator::Trap(Trap::Unreachable));
 
         let declared = lowered.type_params.clone();
@@ -481,8 +462,8 @@ impl Lowering<'_> {
             return;
         };
 
-        // The table resolved the declared type when it built the struct, so
-        // it is read from there rather than resolved a second time.
+        // The table resolved the declared type when it built the struct, so it
+        // is read from there rather than resolved a second time.
         let declared = self
             .table
             .structure(module, owner)
@@ -539,9 +520,6 @@ impl Lowering<'_> {
 
     /// Records, for each interface, which types implement it and what each of
     /// its method slots resolves to for that type (LR18.1).
-    ///
-    /// Devirtualization counts these, and the backend dispatches through
-    /// them, so both read one table rather than working it out twice.
     fn build_vtables(&mut self) {
         let claims: Vec<(ModuleId, String, Vec<Type>)> = self
             .table
@@ -619,18 +597,13 @@ impl Lowering<'_> {
     }
 
     /// Fills in every declared function's body.
-    ///
-    /// Every function has an id by now, so a call reaching one written later
-    /// names it like any other.
     fn lower_bodies(&mut self) {
         let pending = std::mem::take(&mut self.bodies);
         let mut built = Vec::with_capacity(pending.len());
         let mut made = Vec::new();
 
         // A closure is a function nothing declared, so it takes an id after
-        // every declaration has one (LR9.8). One counter across every body
-        // keeps them apart, and taking them in order is what lets them be
-        // added in order afterwards.
+        // every declaration has one (LR9.8).
         let next = Cell::new(
             u32::try_from(self.program.functions().count()).expect("function count fits in u32"),
         );
@@ -684,7 +657,7 @@ impl Lowering<'_> {
         }
 
         // LR20: a method an extension block adds is a method of the type the
-        // block extends. The block's own name is not a type.
+        // block extends.
         let table = self.table;
         let Some(Decl::Extension { target, .. }) = table.get(module, owner) else {
             return None;

@@ -1,22 +1,4 @@
 //! Whole-program monomorphization (LR19).
-//!
-//! A generic function is a template, not code. Each set of type arguments it
-//! is called with is a different function, with different layouts and
-//! different sizes, so each one gets its own copy with the arguments put where
-//! the parameters were.
-//!
-//! This is over the whole program because a call in one module instantiates a
-//! function in another, and neither module alone knows the whole set (LR19).
-//!
-//! Types are not copied. A `Ty::Named` carries its arguments, so
-//! `Box<int>` and `Box<string>` are already told apart by the type itself and
-//! the backend works out each layout from what it holds. What has to be copied
-//! is code, because two instances of one function body are two different
-//! bodies once the sizes differ.
-//!
-//! A template that survives is one nothing called. It keeps its type
-//! parameters, which is what [`Function::is_template`] reads, and the backend
-//! emits no code for it.
 
 use std::collections::HashMap;
 
@@ -25,17 +7,14 @@ use crate::program::{FuncId, Function, Program};
 use crate::ty::Ty;
 
 /// Replaces every call to a generic function with a call to an instance of it.
-///
-/// After this, no call carries type arguments, and every function a call can
-/// reach has none of its own.
 pub fn run(program: &mut Program) {
     let mut mono = Mono {
         made: HashMap::new(),
         pending: Vec::new(),
     };
 
-    // Every function that is not a template is code the program keeps, so
-    // each one is a place a call can be waiting.
+    // Every function that is not a template is code the program keeps, so each
+    // one is a place a call can be waiting.
     let roots: Vec<FuncId> = program
         .functions()
         .filter(|(_, function)| !function.is_template())
@@ -47,8 +26,7 @@ pub fn run(program: &mut Program) {
     }
 
     // Each instance is itself code, and the calls inside it are the next
-    // round. A set of type arguments already seen makes no new work, so this
-    // ends even where a generic function calls itself.
+    // round.
     while let Some(id) = mono.pending.pop() {
         mono.rewrite(program, id);
     }
@@ -156,8 +134,8 @@ fn substitute_types(function: &mut Function, params: &[String], args: &[Ty]) {
                     *value = value.substitute(params, args);
                 }
                 // A call inside a template carries the template's own
-                // parameters in its arguments, so those are filled in too
-                // and the call becomes one this pass can instantiate.
+                // parameters in its arguments, so those are filled in too and
+                // the call becomes one this pass can instantiate.
                 InstKind::Call { type_args, .. } => {
                     for arg in type_args.iter_mut() {
                         *arg = arg.substitute(params, args);

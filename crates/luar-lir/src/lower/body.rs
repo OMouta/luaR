@@ -1,14 +1,4 @@
 //! Lowering one function body.
-//!
-//! Values are in SSA, built as the body is walked. A binding is a name for
-//! whatever value it currently holds, and assigning to it names another; the
-//! block parameters that merge two of those come in with the control flow
-//! that needs them.
-//!
-//! Every expression is emitted in the order it is written (LR55). An operand
-//! is lowered before the instruction that reads it, and where one expression
-//! holds two, the left is emitted first. That is not an optimization choice
-//! left for later: it is the order, and it is written down here once.
 
 use std::cell::Cell;
 use std::collections::HashMap;
@@ -113,8 +103,6 @@ pub(super) struct Body<'a> {
 impl<'a> Body<'a> {
     pub(super) fn new(context: Context<'a>, mut function: Function) -> Self {
         let entry = function.entry;
-        // The shell says it never returns, which is what an unlowered
-        // function is. Lowering a body replaces that.
         function.block_mut(entry).term = None;
         Self {
             context,
@@ -134,9 +122,6 @@ impl<'a> Body<'a> {
 
     /// Binds `names` to the entry block's parameters, in order, and lowers
     /// `block` into the function.
-    ///
-    /// The closures the body builds come back beside it, because a closure is
-    /// a function of the program like any other (LR9.8).
     pub(super) fn lower(
         mut self,
         names: &[String],
@@ -151,9 +136,8 @@ impl<'a> Body<'a> {
 
         self.block(block);
 
-        // LR9.1: a body that runs off its end returns nothing, which is only
-        // a value where the function writes no result. Falling off one that
-        // does is the checker's to report, and control cannot be here.
+        // LR9.1: a body that runs off its end returns nothing, which is only a
+        // value where the function writes no result.
         if !self.left {
             let span = block.span;
             let term = if self.function.result == Ty::Unit {
@@ -289,10 +273,6 @@ impl<'a> Body<'a> {
     }
 
     /// A value the checker proved holds something, ready to be read through.
-    ///
-    /// LR57: narrowing is what makes `user.id` legal after `user ~= nil`. The
-    /// checker did that proof; the value is still an optional here, and this
-    /// is where it stops being one.
     fn settled(&mut self, value: Value, span: Span) -> Value {
         let held = self.function.type_of(value).clone();
         match held {
@@ -307,12 +287,6 @@ impl<'a> Body<'a> {
     }
 
     /// The type an expression definitely has, where it has one.
-    ///
-    /// A binding is read from the value it holds, which is what lowering
-    /// already worked out and is never less than what the checker knows: a
-    /// name a pattern bound is unresolved to the checker and has a type here
-    /// (LR16.2, LR57). A literal has no type of its own until context asks
-    /// for one (LR39).
     fn known_type(&mut self, expr: &Expr) -> Option<Ty> {
         if let ExprKind::Name(name) = &expr.kind
             && let Some(var) = self.lookup(name)
@@ -335,9 +309,6 @@ impl<'a> Body<'a> {
     }
 
     /// The type both operands of an operator are read at.
-    ///
-    /// A literal takes its type from the other operand where the other one
-    /// has one, which is the same rule the checker applied (LR39).
     fn operand_type(&mut self, left: &Expr, right: &Expr) -> Ty {
         if let Some(ty) = self.known_type(left) {
             return ty;
@@ -388,15 +359,13 @@ impl<'a> Body<'a> {
             StmtKind::Break(label) => self.leave(label.as_deref(), Exit::Break, stmt.span),
             StmtKind::Continue(label) => self.leave(label.as_deref(), Exit::Continue, stmt.span),
             StmtKind::Match { scrutinee, arms } => self.match_stmt(scrutinee, arms),
-            // LR26: nothing runs here. The expression is lowered again at
-            // every way out of the scope it was written in.
+            // LR26: nothing runs here.
             StmtKind::Defer(expr) => self
                 .deferred
                 .last_mut()
                 .expect("a scope is open")
                 .push(expr.clone()),
             // LR29.2: `unsafe` is a promise the checker made the caller keep.
-            // Nothing about what the block does changes here.
             StmtKind::Unsafe(block) => self.block(block),
             StmtKind::Expr(expr) => {
                 self.expr(expr, None);
@@ -529,8 +498,8 @@ impl<'a> Body<'a> {
 
         if !self.left {
             let condition = self.expr(until, Some(&Ty::Bool));
-            // LR26: the scope ends here whichever way the branch goes, so
-            // what it deferred runs once, before either.
+            // LR26: the scope ends here whichever way the branch goes, so what
+            // it deferred runs once, before either.
             self.unwind(depth);
             let leaving: Vec<Value> = carried.iter().map(|var| self.defs[var]).collect();
             self.add_params(exit, &carried);
@@ -589,9 +558,6 @@ impl<'a> Body<'a> {
     }
 
     /// Tests one case, and where it does not hold leaves for `next`.
-    ///
-    /// Where it does hold, lowering carries on in the block the case's
-    /// bindings are in scope in.
     fn arm(&mut self, subject: Value, arm: &MatchArm, next: BlockId) {
         self.test(subject, &arm.pattern, next);
 
@@ -614,7 +580,6 @@ impl<'a> Body<'a> {
     fn test(&mut self, subject: Value, pattern: &Pattern, fail: BlockId) {
         let span = pattern.span;
         match &pattern.kind {
-            // Both match anything, so neither branches.
             PatternKind::Wildcard => {}
             PatternKind::Binding(name) => {
                 let var = self.declare(name);
@@ -897,11 +862,9 @@ impl<'a> Body<'a> {
         let depth = found.depth;
 
         let Some(block) = block else {
-            // LR10.3: a `repeat` condition reads what the body declared, so
-            // it is lowered at the end of the body rather than in a block a
-            // `continue` could jump to. Reaching it from the middle needs a
-            // rule about what a binding declared after the `continue` holds,
-            // and there is none to lower to.
+            // LR10.3: a `repeat` condition reads what the body declared, so it
+            // is lowered at the end of the body rather than in a block a
+            // `continue` could jump to.
             self.gap(span, "`continue` inside `repeat`");
             return;
         };
@@ -934,10 +897,6 @@ impl<'a> Body<'a> {
     }
 
     /// Merges the paths that reached the end of a construct into `join`.
-    ///
-    /// A binding every path agrees on carries through. One they do not
-    /// becomes a parameter of `join`, and each path passes what it holds,
-    /// which is a phi written where the jump can see it.
     fn join(&mut self, arrivals: Vec<Arrival>, join: BlockId) {
         if arrivals.is_empty() {
             // LR50: every path left, so nothing after this runs.
@@ -984,10 +943,6 @@ impl<'a> Body<'a> {
 
     /// The bindings a loop body may write to, which are the ones its blocks
     /// have to pass along (LR5.4).
-    ///
-    /// A name declared inside the body resolves to nothing out here and is
-    /// left out. A name the body shadows resolves to the outer binding, which
-    /// carries one value further than it needs to and never one too few.
     fn carried(&self, body: &Block) -> Vec<Var> {
         let mut names = Vec::new();
         assigned(body, &mut names);
@@ -1022,8 +977,7 @@ impl<'a> Body<'a> {
         };
 
         // LR5.1: a declaration with a type takes it, and one without takes
-        // what its initializer holds. The checker settled which, so lowering
-        // reads that rather than resolving the annotation again.
+        // what its initializer holds.
         let _ = ty;
         let declared = self.declared_type(span);
 
@@ -1241,9 +1195,7 @@ impl<'a> Body<'a> {
             None => self.emit(InstKind::Const(Const::Unit), Ty::Unit, span),
         };
         // LR26: a `return` leaves every scope the function has open, so
-        // everything they deferred runs, innermost first. The value is
-        // already worked out, so nothing a deferred expression does changes
-        // what is returned.
+        // everything they deferred runs, innermost first.
         self.unwind_from(0);
         self.terminate(Terminator::Return(value));
     }
@@ -1251,10 +1203,6 @@ impl<'a> Body<'a> {
     // -- expressions ------------------------------------------------------
 
     /// Lowers `expr`, and gives back the value it produces.
-    ///
-    /// `wanted` is the type context asks for, where the source states one. It
-    /// is what a literal takes (LR39) and what decides whether a value has to
-    /// be wrapped to fill an optional (LR8).
     fn expr(&mut self, expr: &Expr, wanted: Option<&Ty>) -> Value {
         let value = self.expr_value(expr, wanted);
         match wanted {
@@ -1451,10 +1399,6 @@ impl<'a> Body<'a> {
 
     /// LR9.1: a call passes an argument for every parameter, at the type that
     /// parameter takes.
-    ///
-    /// LR55: the arguments are evaluated left to right as they are written,
-    /// whatever parameter each one fills, and the defaults that fill the rest
-    /// run after them in the order their parameters were declared (LR9.4).
     fn call(
         &mut self,
         callee: &Expr,
@@ -1462,8 +1406,8 @@ impl<'a> Body<'a> {
         args: &[Argument],
         span: Span,
     ) -> Value {
-        // LR15.3: a variant with a payload is written like a call and builds
-        // a value, so it reaches no function and the checker recorded none.
+        // LR15.3: a variant with a payload is written like a call and builds a
+        // value, so it reaches no function and the checker recorded none.
         if let ExprKind::Field {
             receiver,
             name: variant,
@@ -1518,7 +1462,6 @@ impl<'a> Body<'a> {
                 Some(args) => args,
                 // A method of a generic type takes the type's parameters as
                 // well as its own, and the checker works out only its own.
-                // Guessing the rest would be a wrong call, not a missing one.
                 None => return self.missing(span, "a call whose type arguments are not all known"),
             }
         };
@@ -1612,10 +1555,6 @@ impl<'a> Body<'a> {
 
     /// LR12.1, LR12.2: a literal gives a value for every field, and a field
     /// with a default may be left out.
-    ///
-    /// LR55: the initializers run in the order they are written, whichever
-    /// field each one fills, and the defaults that fill the rest run after
-    /// them in the order the type declares them.
     fn record(
         &mut self,
         path: &[String],
@@ -1665,8 +1604,8 @@ impl<'a> Body<'a> {
 
             filled[slot] = Some(match default {
                 Some(default) => self.expr(&default, Some(held)),
-                // LR12.1: a field a record leaves out is one nothing was
-                // given for, which only an optional field may be.
+                // LR12.1: a field a record leaves out is one nothing was given
+                // for, which only an optional field may be.
                 None if held.is_optional() => {
                     self.emit(InstKind::Const(Const::Nil), held.clone(), span)
                 }
@@ -1808,10 +1747,6 @@ impl<'a> Body<'a> {
 
     /// LR9.2, LR9.8: a closure is a function of the program, plus the values
     /// it captured from the scope it was written in.
-    ///
-    /// It captures by value. LR9.8 gives a captured mutable variable shared
-    /// identity instead, which is a cell rather than a value, so a closure
-    /// over a binding anything assigns to is refused rather than copied.
     fn closure(&mut self, params: &[Param], body: &FunctionBody, span: Span) -> Value {
         let ty = self.recorded(span);
         let Ty::Function {
@@ -1879,9 +1814,6 @@ impl<'a> Body<'a> {
 
     /// The bindings a closure body reaches out of its own scope for, in the
     /// order it names them.
-    ///
-    /// `None` where one of them is a binding something assigns to, which
-    /// needs the shared identity of LR9.8 rather than a copy.
     fn captures(&mut self, body: &Block, span: Span) -> Option<Vec<(String, Var)>> {
         let _ = span;
         let mut inside = Vec::new();
@@ -1996,8 +1928,8 @@ impl<'a> Body<'a> {
             return self.missing(span, "an optional index");
         }
 
-        // LR55: the container is written before the index, so it is
-        // evaluated first.
+        // LR55: the container is written before the index, so it is evaluated
+        // first.
         let container = self.expr(receiver, None);
         let container = self.settled(container, span);
         let held = self.function.type_of(container).clone();
@@ -2097,10 +2029,6 @@ impl<'a> Body<'a> {
     }
 
     /// The fields a type stores, in the order it declares them.
-    ///
-    /// LR19: a field of `Box<int>` holds an `int`, not the `T` the
-    /// declaration writes, so the arguments the type carries go where its
-    /// parameters were.
     fn fields_of(&self, ty: &Ty) -> Option<Vec<(String, Ty)>> {
         match ty {
             Ty::Named { id, args } => {
@@ -2269,9 +2197,6 @@ impl<'a> Body<'a> {
     }
 
     /// A value put where `wanted` is asked for.
-    ///
-    /// LR8: a `T` fills a `T?` by being wrapped, which is where the wrapping
-    /// happens rather than at every site that could need it.
     fn coerce(&mut self, value: Value, wanted: &Ty, span: Span) -> Value {
         let held = self.function.type_of(value).clone();
         match wanted {
@@ -2300,11 +2225,6 @@ impl<'a> Body<'a> {
 }
 
 /// The names `block` assigns to, anywhere inside it.
-///
-/// Over-approximating is safe: a name that turns out to be shadowed or
-/// declared inside carries a value one block further than it needs to. Missing
-/// one is not, because the block that merged the paths would then read a
-/// value from the wrong pass.
 fn assigned(block: &Block, out: &mut Vec<String>) {
     for stmt in &block.stmts {
         match &stmt.kind {

@@ -1,14 +1,4 @@
 //! Every name a body writes.
-//!
-//! A closure has to be told what it captured before its body is lowered,
-//! because what it captured is what it takes (LR9.8). Working that out means
-//! reading the names its body mentions.
-//!
-//! The answer is deliberately loose: it is every name written anywhere
-//! inside, including ones the body declares for itself. The caller keeps the
-//! ones that resolve to a binding of the enclosing function, so a name that
-//! shadows one costs a capture nothing reads. Missing one would be a value
-//! the closure cannot reach at all, so the error is taken in this direction.
 
 use luar_ast::{
     ArmBody, Block, Expr, ExprKind, FunctionBody, InterpolationPart, MapKey, Stmt, StmtKind,

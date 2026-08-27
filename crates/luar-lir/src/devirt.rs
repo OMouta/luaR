@@ -1,15 +1,4 @@
 //! Devirtualization of single-implementation interface calls (LR18.1).
-//!
-//! A call through an interface dispatches at runtime because the value could
-//! be any implementation. Where the whole program has exactly one, it cannot:
-//! there is one function it can reach, and the call may name it directly.
-//!
-//! LR18.1 requires the semantics to preserve dynamic dispatch, and this does.
-//! Nothing about which function runs changes; what changes is whether the
-//! program looks it up to find that out.
-//!
-//! This is a whole-program question, like monomorphization: a second
-//! implementation in another module is what makes the answer no.
 
 use std::collections::HashMap;
 

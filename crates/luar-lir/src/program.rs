@@ -1,8 +1,4 @@
 //! A whole program in LIR: its types, its functions, and where it starts.
-//!
-//! Monomorphization and inlining are whole-program passes (LR19), so LIR is
-//! held as one program rather than one module at a time. Modules survive only
-//! in the names functions carry, which is what a linker and a backtrace read.
 
 use std::collections::BTreeMap;
 
@@ -20,9 +16,6 @@ pub struct FuncId(pub u32);
 pub struct BlockId(pub u32);
 
 /// A stack slot in one function.
-///
-/// A binding lives in a value, not a slot. A slot exists where something needs
-/// an address: `&x` (LR72), and what escape analysis decides to spill (LR29).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SlotId(pub u32);
 
@@ -108,9 +101,6 @@ pub struct Nominal {
 }
 
 /// A run of instructions with one entry and one exit.
-///
-/// The order of `insts` is the order the program runs them in, which is what
-/// LR55 requires of every pass that touches it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Block {
     /// The values this block receives from whoever jumped to it. These take
@@ -194,8 +184,6 @@ impl Function {
     }
 
     /// # Panics
-    ///
-    /// Panics if `value` came from another function.
     #[must_use]
     pub fn type_of(&self, value: Value) -> &Ty {
         self.values
@@ -214,8 +202,6 @@ impl Function {
     /// block receives.
     ///
     /// # Panics
-    ///
-    /// Panics if `block` came from another function.
     pub fn add_block_param(&mut self, block: BlockId, ty: Ty) -> Value {
         let value = self.add_value(ty);
         self.block_mut(block).params.push(value);
@@ -230,8 +216,6 @@ impl Function {
     }
 
     /// # Panics
-    ///
-    /// Panics if `slot` came from another function.
     #[must_use]
     pub fn slot_type(&self, slot: SlotId) -> &Ty {
         self.slots
@@ -240,8 +224,6 @@ impl Function {
     }
 
     /// # Panics
-    ///
-    /// Panics if `block` came from another function.
     #[must_use]
     pub fn block(&self, block: BlockId) -> &Block {
         self.blocks
@@ -250,8 +232,6 @@ impl Function {
     }
 
     /// # Panics
-    ///
-    /// Panics if `block` came from another function.
     pub fn block_mut(&mut self, block: BlockId) -> &mut Block {
         self.blocks
             .get_mut(block.0 as usize)
@@ -313,8 +293,6 @@ impl Program {
     }
 
     /// # Panics
-    ///
-    /// Panics if `id` came from another program.
     #[must_use]
     pub fn nominal(&self, id: TypeId) -> &Nominal {
         self.types
@@ -323,8 +301,6 @@ impl Program {
     }
 
     /// # Panics
-    ///
-    /// Panics if `id` came from another program.
     pub fn nominal_mut(&mut self, id: TypeId) -> &mut Nominal {
         self.types
             .get_mut(id.0 as usize)
@@ -344,8 +320,6 @@ impl Program {
     }
 
     /// # Panics
-    ///
-    /// Panics if `id` came from another program.
     #[must_use]
     pub fn function(&self, id: FuncId) -> &Function {
         self.functions
@@ -354,8 +328,6 @@ impl Program {
     }
 
     /// # Panics
-    ///
-    /// Panics if `id` came from another program.
     pub fn function_mut(&mut self, id: FuncId) -> &mut Function {
         self.functions
             .get_mut(id.0 as usize)

@@ -1,22 +1,8 @@
 //! The types an LIR value carries (LR6).
-//!
-//! A frontend type answers "may this go there". An LIR type answers "what is
-//! this value made of", which is a smaller question with fewer answers. The
-//! literal types the checker uses while it works out what a `1` is (LR39) do
-//! not survive into LIR: by the time a value exists here, context has already
-//! said what it is. Neither do intersections, which describe what a value
-//! satisfies rather than what it holds.
-//!
-//! What does survive is a type parameter, because monomorphization runs over
-//! LIR and needs something to substitute (LR19).
 
 use std::fmt;
 
 /// A width and a signedness (LR4.3).
-///
-/// `int` and `uint` are spellings of `i64` and `u64`, so they are not
-/// separate members. `isize` and `usize` are, because they are distinct types
-/// whose width the target decides.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum IntTy {
     I8,
@@ -187,9 +173,6 @@ pub enum Ty {
         result: Box<Ty>,
     },
     /// A type parameter of the function or type being lowered (LR19).
-    ///
-    /// Monomorphization substitutes it. Nothing downstream of that pass may
-    /// see one, which is what makes the pass checkable.
     Parameter(String),
 }
 
@@ -215,9 +198,6 @@ impl Ty {
 
     /// This type with each of `params` replaced by the argument filling it
     /// (LR19).
-    ///
-    /// A parameter `params` does not name is left alone, which is what keeps
-    /// an inner generic's own parameters out of an outer one's substitution.
     #[must_use]
     pub fn substitute(&self, params: &[String], args: &[Ty]) -> Self {
         if params.is_empty() {

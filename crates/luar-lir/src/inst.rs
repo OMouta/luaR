@@ -1,11 +1,4 @@
 //! Instructions, and what ends a block.
-//!
-//! Every instruction produces at most one value, and every operand names a
-//! value some earlier instruction produced. That is what makes the order of a
-//! block the order the program runs in, which is the property LR55 asks every
-//! later pass to preserve. An instruction says what it does besides producing
-//! its result, through [`InstKind::effect`], so a pass can tell what it is
-//! allowed to move.
 
 use luar_diagnostics::Span;
 
@@ -53,12 +46,6 @@ pub enum UnaryOp {
 }
 
 /// A binary operator, once the checker has settled what its operands are.
-///
-/// `and`, `or`, `??`, and optional chaining are absent: they short-circuit
-/// (LR56), so they lower to branches rather than to one instruction.
-///
-/// `/` is absent on integers, which the checker rejects (LR11.1); `Divide`
-/// here is the floating-point one, and `IntegerDivide` is `//`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinaryOp {
     // LR11.1
@@ -106,8 +93,6 @@ impl BinaryOp {
 
 /// One method of an interface, by the slot it occupies in the interface's
 /// method table (LR18.1).
-///
-/// A name would not do, because overloads share one (LR40).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MethodId {
     pub interface: TypeId,
@@ -115,8 +100,6 @@ pub struct MethodId {
 }
 
 /// What ends a program where it stands (LR4.3, LR11.1, LR50, LR70).
-///
-/// The names are the ones a conformance test writes after `trap:`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Trap {
     /// An integer operation left the range of its type (LR4.3).
@@ -184,9 +167,6 @@ pub enum InstKind {
     },
 
     /// A call to a function named at compile time (LR9.1).
-    ///
-    /// `type_args` fill the callee's parameters, and monomorphization reads
-    /// them (LR19). They are empty for a call to an ordinary function.
     Call {
         callee: FuncId,
         type_args: Vec<Ty>,
@@ -207,11 +187,6 @@ pub enum InstKind {
 
     /// A value used through an interface, carrying which implementation to
     /// dispatch to (LR18.1).
-    ///
-    /// LR18.1 leaves the runtime representation open and requires only that
-    /// dispatch stay dynamic, so what this becomes is the backend's to decide.
-    /// What it says here is which value is inside and which interface it is
-    /// being seen through.
     MakeDyn {
         interface: TypeId,
         value: Value,
@@ -223,11 +198,6 @@ pub enum InstKind {
     },
 
     /// A closure, over the values it captured (LR9.8).
-    ///
-    /// `func` takes what it captured as its first parameters, before the ones
-    /// it declares, so a [`InstKind::CallIndirect`] through the closure passes
-    /// only the declared arguments and the captures come from the closure
-    /// itself.
     MakeClosure {
         func: FuncId,
         captures: Vec<Value>,
@@ -302,9 +272,6 @@ pub enum InstKind {
     },
 
     /// A present optional, from the value inside it (LR8).
-    ///
-    /// The absent one is `Const(Nil)` at an optional type, so there is no
-    /// instruction for it.
     MakeSome {
         value: Value,
     },
@@ -346,11 +313,6 @@ pub enum InstKind {
 
 impl InstKind {
     /// What the instruction does besides producing its result (LR55).
-    ///
-    /// Where the answer depends on something this stage does not know, it is
-    /// the stronger one: an arithmetic instruction reports [`Effect::Trap`]
-    /// whether or not its operands are integers, because a pass that assumes
-    /// otherwise and is wrong moves a trap.
     #[must_use]
     pub fn effect(&self) -> Effect {
         match self {

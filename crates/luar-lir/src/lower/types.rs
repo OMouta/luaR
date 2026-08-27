@@ -1,14 +1,4 @@
 //! Turning a checked type into an LIR type.
-//!
-//! The checker's types answer "may this go there" and carry the state it was
-//! in while it worked that out: a literal that context has not typed yet, an
-//! intersection describing what a value satisfies, a type it could not settle
-//! at all. An LIR type answers "what is this value made of", so this is where
-//! those go away.
-//!
-//! A type this cannot turn into a representation is refused rather than
-//! guessed at, and the caller records where it was written. The backend must
-//! never be handed a program the compiler only half understood.
 
 use std::collections::HashMap;
 
@@ -26,9 +16,6 @@ pub type Ids = HashMap<(ModuleId, String), TypeId>;
 /// The LIR type a value of type `ty` is made of.
 ///
 /// # Errors
-///
-/// Returns why the type has no representation: the checker never settled it,
-/// or it is a shape this stage does not lower yet.
 pub fn convert(ty: &Type, ids: &Ids) -> Result<Ty, Refused> {
     let converted = match ty {
         Type::Primitive(primitive) => primitive_type(*primitive),
@@ -92,8 +79,7 @@ pub fn convert(ty: &Type, ids: &Ids) -> Result<Ty, Refused> {
         },
 
         // An intersection says what a value satisfies rather than what it
-        // holds (LR17.3). Deciding its representation waits for the one
-        // interfaces get.
+        // holds (LR17.3).
         Type::Intersection(_) => return Err("an intersection type"),
         Type::Unresolved => return Err("a type the checker could not work out"),
     };

@@ -1,8 +1,4 @@
 //! Writing a program out, for reading.
-//!
-//! The text has no reader and nothing depends on its exact shape. It exists so
-//! that a person can see what a pass did, which is the only way to check the
-//! middle of a compiler that has no backend under it yet.
 
 use std::fmt::Write as _;
 
