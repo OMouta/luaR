@@ -1857,6 +1857,8 @@ process(file)
 
 Deferred expressions execute in reverse order of registration.
 
+The expression is evaluated where the scope exits, not where the `defer` is written. It reads whatever the bindings it names hold at that point.
+
 They execute when leaving scope through:
 
 - normal completion;
