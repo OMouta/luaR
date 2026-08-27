@@ -740,6 +740,7 @@ impl Checker<'_> {
                     None => value_type.map_or(Type::Unresolved, |(value, _)| settle(value)),
                 };
 
+                self.facts.record_binding(stmt.span, held.clone());
                 self.declare(binding, held);
 
                 // LR5.1: a binding declared with no value holds nothing until
@@ -763,6 +764,7 @@ impl Checker<'_> {
                     None => settle(held),
                 };
 
+                self.facts.record_binding(stmt.span, held.clone());
                 self.declare(binding, held);
                 self.bind_constant(binding);
                 self.evaluable(value);

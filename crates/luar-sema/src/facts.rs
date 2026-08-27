@@ -20,6 +20,7 @@ use crate::types::Type;
 pub struct Facts {
     types: HashMap<Span, Type>,
     calls: HashMap<Span, Span>,
+    bindings: HashMap<Span, Type>,
 }
 
 impl Facts {
@@ -51,9 +52,25 @@ impl Facts {
         self.calls.get(&span).copied()
     }
 
+    /// Records the type a binding was declared with, by the span of the
+    /// statement declaring it (LR5.1).
+    ///
+    /// This is the settled type, not what the initializer was worth on its
+    /// own: `local x: u8 = 200` records `u8`, because that is what the
+    /// binding holds.
+    pub fn record_binding(&mut self, span: Span, ty: Type) {
+        self.bindings.insert(span, ty);
+    }
+
+    #[must_use]
+    pub fn binding(&self, span: Span) -> Option<&Type> {
+        self.bindings.get(&span)
+    }
+
     /// Takes everything `other` recorded.
     pub fn absorb(&mut self, other: Self) {
         self.types.extend(other.types);
         self.calls.extend(other.calls);
+        self.bindings.extend(other.bindings);
     }
 }
