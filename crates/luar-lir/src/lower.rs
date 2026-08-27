@@ -362,19 +362,19 @@ impl Lowering<'_> {
 
         // LR65: a method takes its receiver as the first argument, which is
         // what `self` is once the call is written out in full.
-        if signature.takes_self
-            && let Some((owner, owner_params)) = self.owner_of(module, path)
-        {
-            names.push("self".to_owned());
-            for param in &owner_params {
-                if !type_params.contains(param) {
-                    type_params.insert(0, param.clone());
+        if signature.takes_self {
+            match self.self_type(module, path) {
+                Some((receiver, owner_params)) => {
+                    names.push("self".to_owned());
+                    for param in owner_params.iter().rev() {
+                        if !type_params.contains(param) {
+                            type_params.insert(0, param.clone());
+                        }
+                    }
+                    params.push(receiver);
                 }
+                None => self.gap(span, "a method whose receiver has no type"),
             }
-            params.push(Ty::Named {
-                id: owner,
-                args: owner_params.into_iter().map(Ty::Parameter).collect(),
-            });
         }
 
         let mut taken = Vec::new();
@@ -463,12 +463,35 @@ impl Lowering<'_> {
             .cloned()
     }
 
-    /// The type a method written at `path` belongs to, and its type
-    /// parameters (LR19).
-    fn owner_of(&self, module: ModuleId, path: &str) -> Option<(TypeId, Vec<String>)> {
+    /// The type `self` takes in a method written at `path`, and the type
+    /// parameters that type brings with it (LR19, LR65).
+    fn self_type(&self, module: ModuleId, path: &str) -> Option<(Ty, Vec<String>)> {
         let owner = path.rsplit_once('.')?.0;
-        let id = self.ids.get(&(module, owner.to_owned())).copied()?;
-        Some((id, self.program.nominal(id).type_params.clone()))
+
+        if let Some(id) = self.ids.get(&(module, owner.to_owned())).copied() {
+            let params = self.program.nominal(id).type_params.clone();
+            let args = params.iter().cloned().map(Ty::Parameter).collect();
+            return Some((Ty::Named { id, args }, params));
+        }
+
+        // LR20: a method an extension block adds is a method of the type the
+        // block extends. The block's own name is not a type.
+        let table = self.table;
+        let Some(Decl::Extension { target, .. }) = table.get(module, owner) else {
+            return None;
+        };
+        let target = types::convert(target, &self.ids).ok()?;
+        let params = match &target {
+            Ty::Named { args, .. } => args
+                .iter()
+                .filter_map(|arg| match arg {
+                    Ty::Parameter(name) => Some(name.clone()),
+                    _ => None,
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+        Some((target, params))
     }
 
     /// Every function declaration in the program that has a body, with the
