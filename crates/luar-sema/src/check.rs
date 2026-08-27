@@ -2467,6 +2467,13 @@ impl Checker<'_> {
         args: &[Argument],
         span: Span,
     ) -> Type {
+        if result_variant(callee).is_some() && !self.shadowed("Result") && written.len() != 2 {
+            for argument in args {
+                self.expr(&argument.value);
+            }
+            return Type::Unresolved;
+        }
+
         let resolved = self.signature_of(callee, method, receiver, span);
 
         // The arguments are expressions whoever is being called, and whatever
@@ -3025,6 +3032,35 @@ impl Checker<'_> {
         // block.
         if self.shadowed(owner) {
             return None;
+        }
+
+        if owner == "Result" && matches!(name, "Ok" | "Err") {
+            let params = vec!["T".to_owned(), "E".to_owned()];
+            let carried = usize::from(name == "Err");
+            return Some(Callee {
+                name: format!("Result.{name}"),
+                overloads: vec![Signature {
+                    asynchronous: false,
+                    type_params: params.clone(),
+                    constraints: Vec::new(),
+                    params: vec![crate::table::Param {
+                        name: "value".to_owned(),
+                        ty: Type::Parameter(params[carried].clone()),
+                        optional: false,
+                        variadic: false,
+                    }],
+                    result: Type::Builtin {
+                        kind: Builtin::Result,
+                        args: params.into_iter().map(Type::Parameter).collect(),
+                    },
+                    takes_self: false,
+                    visibility: None,
+                    span,
+                    inferred: false,
+                    unsafe_: false,
+                }],
+                receiver: None,
+            });
         }
 
         // LR15.3: `Enum.Variant(...)` builds a value of the enum, and its
@@ -4497,6 +4533,16 @@ fn article(ty: &Type) -> String {
         Type::IntegerLiteral(_) | Type::FloatLiteral | Type::Unresolved => ty.to_string(),
         other => format!("`{other}`"),
     }
+}
+
+fn result_variant(expr: &Expr) -> Option<&str> {
+    let ExprKind::Field { receiver, name, .. } = &expr.kind else {
+        return None;
+    };
+    let ExprKind::Name(owner) = &receiver.kind else {
+        return None;
+    };
+    (owner == "Result" && matches!(name.as_str(), "Ok" | "Err")).then_some(name)
 }
 
 /// The type of the member called `name`, or unresolved where the type has no

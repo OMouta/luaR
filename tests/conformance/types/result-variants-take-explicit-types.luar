@@ -1,0 +1,10 @@
+--- expect: compile-ok
+--- spec: LR25.1
+--- spec: LR25.2
+function accepted(): Result<int, string>
+    return Result.Ok<int, string>(1)
+end
+
+function rejected(): Result<int, string>
+    return Result.Err<int, string>("failed")
+end
