@@ -1,0 +1,283 @@
+//! The types an LIR value carries (LR6).
+//!
+//! A frontend type answers "may this go there". An LIR type answers "what is
+//! this value made of", which is a smaller question with fewer answers. The
+//! literal types the checker uses while it works out what a `1` is (LR39) do
+//! not survive into LIR: by the time a value exists here, context has already
+//! said what it is. Neither do intersections, which describe what a value
+//! satisfies rather than what it holds.
+//!
+//! What does survive is a type parameter, because monomorphization runs over
+//! LIR and needs something to substitute (LR19).
+
+use std::fmt;
+
+/// A width and a signedness (LR4.3).
+///
+/// `int` and `uint` are spellings of `i64` and `u64`, so they are not
+/// separate members. `isize` and `usize` are, because they are distinct types
+/// whose width the target decides.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum IntTy {
+    I8,
+    I16,
+    I32,
+    I64,
+    U8,
+    U16,
+    U32,
+    U64,
+    Isize,
+    Usize,
+}
+
+impl IntTy {
+    /// Whether the type is signed, which decides what overflows and how a
+    /// shift and a division behave (LR4.3, LR11.1).
+    #[must_use]
+    pub fn is_signed(self) -> bool {
+        matches!(
+            self,
+            Self::I8 | Self::I16 | Self::I32 | Self::I64 | Self::Isize
+        )
+    }
+
+    /// How wide the type is, or `None` for the two whose width the target
+    /// decides.
+    #[must_use]
+    pub fn bits(self) -> Option<u32> {
+        let bits = match self {
+            Self::I8 | Self::U8 => 8,
+            Self::I16 | Self::U16 => 16,
+            Self::I32 | Self::U32 => 32,
+            Self::I64 | Self::U64 => 64,
+            Self::Isize | Self::Usize => return None,
+        };
+        Some(bits)
+    }
+
+    #[must_use]
+    pub fn spelling(self) -> &'static str {
+        match self {
+            Self::I8 => "i8",
+            Self::I16 => "i16",
+            Self::I32 => "i32",
+            Self::I64 => "i64",
+            Self::U8 => "u8",
+            Self::U16 => "u16",
+            Self::U32 => "u32",
+            Self::U64 => "u64",
+            Self::Isize => "isize",
+            Self::Usize => "usize",
+        }
+    }
+}
+
+/// A binary floating-point width (LR4.4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FloatTy {
+    F32,
+    F64,
+}
+
+impl FloatTy {
+    #[must_use]
+    pub fn bits(self) -> u32 {
+        match self {
+            Self::F32 => 32,
+            Self::F64 => 64,
+        }
+    }
+
+    #[must_use]
+    pub fn spelling(self) -> &'static str {
+        match self {
+            Self::F32 => "f32",
+            Self::F64 => "f64",
+        }
+    }
+}
+
+/// A nominal type declared somewhere in the program: a struct, an enum, or an
+/// interface. Indexes the program's type table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct TypeId(pub u32);
+
+/// A generic type the language names without an import (LR54.1), kept apart
+/// from user declarations because the backend knows their representation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Builtin {
+    Result,
+    List,
+    Map,
+    Set,
+    FrozenList,
+    FrozenMap,
+    FrozenSet,
+}
+
+impl Builtin {
+    #[must_use]
+    pub fn spelling(self) -> &'static str {
+        match self {
+            Self::Result => "Result",
+            Self::List => "List",
+            Self::Map => "Map",
+            Self::Set => "Set",
+            Self::FrozenList => "FrozenList",
+            Self::FrozenMap => "FrozenMap",
+            Self::FrozenSet => "FrozenSet",
+        }
+    }
+}
+
+/// What an LIR value is made of.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Ty {
+    /// What a function with no declared result gives back (LR9.1). It holds
+    /// no information, so the backend gives it no storage.
+    Unit,
+    /// The type `nil` alone inhabits (LR4.1). A value that may be absent is
+    /// an [`Ty::Optional`], not this.
+    Nil,
+    Bool,
+    Int(IntTy),
+    Float(FloatTy),
+    /// One Unicode scalar value (LR6.1).
+    Char,
+    /// An immutable UTF-8 string (LR4.5).
+    Str,
+    /// An immutable byte string (LR4.7).
+    Bytes,
+    /// A struct, enum, or interface, with its type arguments in the order
+    /// they were declared (LR19).
+    Named {
+        id: TypeId,
+        args: Vec<Ty>,
+    },
+    Builtin {
+        kind: Builtin,
+        args: Vec<Ty>,
+    },
+    /// A structural record, by field name in declaration order (LR12.1).
+    Record(Vec<(String, Ty)>),
+    Tuple(Vec<Ty>),
+    /// `T?`: a `T`, or nothing (LR8). Never nested, because a chain of
+    /// optional accesses gives one absent value rather than one per link.
+    Optional(Box<Ty>),
+    /// A value that is one of several types, and carries which (LR17.2).
+    Union(Vec<Ty>),
+    /// `[T; N]` (LR71). The length is a constant expression, so it waits for
+    /// `const` evaluation to reach array sizes (LR24).
+    Array(Box<Ty>),
+    /// `*const T` or `*mut T` (LR72).
+    Pointer {
+        mutable: bool,
+        target: Box<Ty>,
+    },
+    /// A closure or a function value (LR9.2, LR9.8).
+    Function {
+        params: Vec<Ty>,
+        result: Box<Ty>,
+    },
+    /// A type parameter of the function or type being lowered (LR19).
+    ///
+    /// Monomorphization substitutes it. Nothing downstream of that pass may
+    /// see one, which is what makes the pass checkable.
+    Parameter(String),
+}
+
+impl Ty {
+    /// `int`, which is `i64` on every target (LR4.3).
+    pub const INT: Self = Self::Int(IntTy::I64);
+
+    /// Whether the type still mentions a parameter, and so has no layout
+    /// until monomorphization has run (LR19).
+    #[must_use]
+    pub fn is_generic(&self) -> bool {
+        match self {
+            Self::Parameter(_) => true,
+            Self::Named { args, .. } | Self::Builtin { args, .. } | Self::Union(args) => {
+                args.iter().any(Self::is_generic)
+            }
+            Self::Tuple(members) => members.iter().any(Self::is_generic),
+            Self::Record(fields) => fields.iter().any(|(_, ty)| ty.is_generic()),
+            Self::Optional(inner) | Self::Array(inner) => inner.is_generic(),
+            Self::Pointer { target, .. } => target.is_generic(),
+            Self::Function { params, result } => {
+                params.iter().any(Self::is_generic) || result.is_generic()
+            }
+            _ => false,
+        }
+    }
+}
+
+impl fmt::Display for Ty {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Unit => f.write_str("()"),
+            Self::Nil => f.write_str("nil"),
+            Self::Bool => f.write_str("bool"),
+            Self::Int(int) => f.write_str(int.spelling()),
+            Self::Float(float) => f.write_str(float.spelling()),
+            Self::Char => f.write_str("char"),
+            Self::Str => f.write_str("string"),
+            Self::Bytes => f.write_str("bytes"),
+            Self::Named { id, args } => {
+                write!(f, "type{}", id.0)?;
+                arguments(f, args)
+            }
+            Self::Builtin { kind, args } => {
+                f.write_str(kind.spelling())?;
+                arguments(f, args)
+            }
+            Self::Record(fields) => {
+                f.write_str("{ ")?;
+                for (i, (name, ty)) in fields.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str(", ")?;
+                    }
+                    write!(f, "{name}: {ty}")?;
+                }
+                f.write_str(" }")
+            }
+            Self::Tuple(members) => {
+                f.write_str("(")?;
+                join(f, members, ", ")?;
+                f.write_str(")")
+            }
+            Self::Optional(inner) => write!(f, "{inner}?"),
+            Self::Union(members) => join(f, members, " | "),
+            Self::Array(element) => write!(f, "[{element}; N]"),
+            Self::Pointer { mutable, target } => {
+                let qualifier = if *mutable { "mut" } else { "const" };
+                write!(f, "*{qualifier} {target}")
+            }
+            Self::Function { params, result } => {
+                f.write_str("(")?;
+                join(f, params, ", ")?;
+                write!(f, ") -> {result}")
+            }
+            Self::Parameter(name) => f.write_str(name),
+        }
+    }
+}
+
+fn arguments(f: &mut fmt::Formatter<'_>, args: &[Ty]) -> fmt::Result {
+    if args.is_empty() {
+        return Ok(());
+    }
+    f.write_str("<")?;
+    join(f, args, ", ")?;
+    f.write_str(">")
+}
+
+fn join(f: &mut fmt::Formatter<'_>, types: &[Ty], separator: &str) -> fmt::Result {
+    for (i, ty) in types.iter().enumerate() {
+        if i > 0 {
+            f.write_str(separator)?;
+        }
+        write!(f, "{ty}")?;
+    }
+    Ok(())
+}
