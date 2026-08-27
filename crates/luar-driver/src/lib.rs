@@ -45,11 +45,11 @@ pub fn lower(sources: &mut SourceMap, root: FileId) -> Result<Lowered, Vec<Diagn
     if checked.diagnostics.iter().any(Diagnostic::is_error) {
         return Err(checked.diagnostics);
     }
-    Ok(luar_lir::lower::lower(
-        &checked.graph,
-        &checked.table,
-        &checked.facts,
-    ))
+    let mut lowered = luar_lir::lower::lower(&checked.graph, &checked.table, &checked.facts);
+    // LR19: a generic function is a template until a call says what fills it,
+    // so this runs over the whole program rather than one module at a time.
+    luar_lir::mono::run(&mut lowered.program);
+    Ok(lowered)
 }
 
 /// What the frontend produced: everything a later stage reads, and what it

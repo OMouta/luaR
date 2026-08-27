@@ -2010,37 +2010,50 @@ impl<'a> Body<'a> {
         )
     }
 
-    /// What a variant carries, in the order the enum declares it (LR15.2).
+    /// What a variant carries, in the order the enum declares it (LR15.2),
+    /// with the arguments the type carries where its parameters were (LR19).
     fn payload_of(&self, ty: &Ty, variant: u32) -> Option<Vec<Ty>> {
         let Ty::Named { id, args } = ty else {
             return None;
         };
-        if !args.is_empty() {
-            // LR19: the payload of a generic enum is written in its type
-            // parameters, and putting the arguments in their place is
-            // monomorphization's job.
-            return None;
-        }
-        let Shape::Enum(enumeration) = &self.context.program.nominal(*id).shape else {
+        let nominal = self.context.program.nominal(*id);
+        let Shape::Enum(enumeration) = &nominal.shape else {
             return None;
         };
         let held = enumeration.variants.get(variant as usize)?;
-        Some(held.fields.iter().map(|field| field.ty.clone()).collect())
+        Some(
+            held.fields
+                .iter()
+                .map(|field| field.ty.substitute(&nominal.type_params, args))
+                .collect(),
+        )
     }
 
     /// The fields a type stores, in the order it declares them.
+    ///
+    /// LR19: a field of `Box<int>` holds an `int`, not the `T` the
+    /// declaration writes, so the arguments the type carries go where its
+    /// parameters were.
     fn fields_of(&self, ty: &Ty) -> Option<Vec<(String, Ty)>> {
         match ty {
-            Ty::Named { id, .. } => match &self.context.program.nominal(*id).shape {
-                Shape::Struct(structure) => Some(
+            Ty::Named { id, args } => {
+                let nominal = self.context.program.nominal(*id);
+                let Shape::Struct(structure) = &nominal.shape else {
+                    return None;
+                };
+                Some(
                     structure
                         .fields
                         .iter()
-                        .map(|field| (field.name.clone(), field.ty.clone()))
+                        .map(|field| {
+                            (
+                                field.name.clone(),
+                                field.ty.substitute(&nominal.type_params, args),
+                            )
+                        })
                         .collect(),
-                ),
-                _ => None,
-            },
+                )
+            }
             Ty::Record(fields) => Some(fields.clone()),
             _ => None,
         }

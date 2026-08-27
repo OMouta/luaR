@@ -132,7 +132,7 @@ impl Builtin {
 }
 
 /// What an LIR value is made of.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Ty {
     /// What a function with no declared result gives back (LR9.1). It holds
     /// no information, so the backend gives it no storage.

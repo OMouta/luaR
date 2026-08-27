@@ -256,6 +256,24 @@ impl Function {
             .map(|(i, block)| (BlockId(i as u32), block))
     }
 
+    pub fn blocks_mut(&mut self) -> impl Iterator<Item = &mut Block> {
+        self.blocks.iter_mut()
+    }
+
+    /// Whether the function is a template rather than code: something a call
+    /// instantiates rather than jumps to (LR19).
+    #[must_use]
+    pub fn is_template(&self) -> bool {
+        !self.type_params.is_empty()
+    }
+
+    /// Replaces `params` with `args` in the type of every value and slot.
+    pub fn substitute_values(&mut self, params: &[String], args: &[Ty]) {
+        for ty in self.values.iter_mut().chain(&mut self.slots) {
+            *ty = ty.substitute(params, args);
+        }
+    }
+
     #[must_use]
     pub fn slots(&self) -> &[Ty] {
         &self.slots
