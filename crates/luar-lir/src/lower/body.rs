@@ -27,7 +27,7 @@ use crate::inst::MethodId;
 use crate::inst::{BinaryOp, Const, Inst, InstKind, Target, Terminator, Trap, UnaryOp, Value};
 use crate::lower::names;
 use crate::lower::types::{self, Ids};
-use crate::lower::{Callee, Gap};
+use crate::lower::{Callee, Gap, Property};
 use crate::program::{BlockId, FuncId, Function, Program, Shape};
 use crate::ty::{Builtin, IntTy, Ty, TypeId};
 
@@ -78,6 +78,8 @@ pub(super) struct Context<'a> {
     pub virtuals: &'a HashMap<Span, MethodId>,
     /// The default written beside a field (LR12.2).
     pub defaults: &'a HashMap<(TypeId, u32), Expr>,
+    /// The computed members of each type (LR43).
+    pub properties: &'a HashMap<(TypeId, String), Property>,
     pub program: &'a Program,
 }
 
@@ -1074,6 +1076,13 @@ impl<'a> Body<'a> {
                 let object = self.expr(receiver, None);
                 let object = self.settled(object, span);
                 let held = self.function.type_of(object).clone();
+
+                // LR43: writing a property runs its setter, where it has one.
+                if self.property(&held, name).is_some() {
+                    self.write_property(object, &held, name, op, value, span);
+                    return;
+                }
+
                 let (Some(index), Some(fields)) =
                     (self.field_index(&held, name), self.fields_of(&held))
                 else {
@@ -1155,6 +1164,49 @@ impl<'a> Body<'a> {
 
             _ => self.gap(span, "an assignment to this target"),
         }
+    }
+
+    /// LR43: writing a property runs its setter. A compound assignment reads
+    /// through the getter first, which is the same target evaluated once
+    /// (LR5.4, LR55).
+    fn write_property(
+        &mut self,
+        object: Value,
+        held: &Ty,
+        name: &str,
+        op: Option<AstBinary>,
+        value: &Expr,
+        span: Span,
+    ) {
+        let Some((get, ty)) = self.getter(held, name) else {
+            self.gap(span, "a property the compiler could not read");
+            return;
+        };
+        let Some(set) = self.property(held, name).and_then(|held| held.set) else {
+            self.gap(span, "an assignment to a property with no setter");
+            return;
+        };
+
+        let read = op.map(|_| {
+            self.emit(
+                InstKind::Call {
+                    callee: get,
+                    type_args: Vec::new(),
+                    args: vec![object],
+                },
+                ty.clone(),
+                span,
+            )
+        });
+        let written = self.written_into(read, &ty, op, value, span);
+        self.emit_void(
+            InstKind::Call {
+                callee: set,
+                type_args: Vec::new(),
+                args: vec![object, written],
+            },
+            span,
+        );
     }
 
     /// What an assignment writes: the value, or what the operator makes of
@@ -1661,6 +1713,21 @@ impl<'a> Body<'a> {
         if !optional {
             let object = self.settled(object, span);
             let held = self.function.type_of(object).clone();
+
+            // LR43: a property reads like a field and runs code, so a read of
+            // one is a call to its getter.
+            if let Some((get, ty)) = self.getter(&held, name) {
+                return self.emit(
+                    InstKind::Call {
+                        callee: get,
+                        type_args: Vec::new(),
+                        args: vec![object],
+                    },
+                    ty,
+                    span,
+                );
+            }
+
             let Some(index) = self.field_index(&held, name) else {
                 return self.missing(span, "a member that is not a stored field");
             };
@@ -2057,6 +2124,32 @@ impl<'a> Body<'a> {
             Ty::Record(fields) => Some(fields.clone()),
             _ => None,
         }
+    }
+
+    /// The property `name` names on `ty`, if it names one (LR43).
+    fn property(&self, ty: &Ty, name: &str) -> Option<&Property> {
+        let Ty::Named { id, .. } = ty else {
+            return None;
+        };
+        self.context.properties.get(&(*id, name.to_owned()))
+    }
+
+    /// The function a read of `name` goes through, and what it gives back.
+    fn getter(&self, ty: &Ty, name: &str) -> Option<(FuncId, Ty)> {
+        let Ty::Named { args, .. } = ty else {
+            return None;
+        };
+        let held = self.property(ty, name)?;
+        // LR19: a property of `Box<int>` gives back what `T` is filled with.
+        let params = self.owner_params(ty)?;
+        Some((held.get, held.ty.substitute(&params, args)))
+    }
+
+    fn owner_params(&self, ty: &Ty) -> Option<Vec<String>> {
+        let Ty::Named { id, .. } = ty else {
+            return None;
+        };
+        Some(self.context.program.nominal(*id).type_params.clone())
     }
 
     fn field_index(&self, ty: &Ty, name: &str) -> Option<u32> {

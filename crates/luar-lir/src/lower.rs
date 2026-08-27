@@ -61,6 +61,7 @@ pub fn lower(graph: &Graph, table: &Table, facts: &Facts) -> Lowered {
         functions: HashMap::new(),
         virtuals: HashMap::new(),
         defaults: HashMap::new(),
+        properties: HashMap::new(),
         bodies: Vec::new(),
         gaps: Vec::new(),
     };
@@ -68,6 +69,7 @@ pub fn lower(graph: &Graph, table: &Table, facts: &Facts) -> Lowered {
     lowering.name_types();
     lowering.build_types();
     lowering.declare_functions();
+    lowering.declare_properties();
     lowering.lower_bodies();
 
     Lowered {
@@ -92,6 +94,9 @@ struct Lowering<'a> {
     /// The default written beside a field, by the type and the field it
     /// belongs to (LR12.2).
     defaults: HashMap<(TypeId, u32), luar_ast::Expr>,
+    /// The computed members of each type, by the type and the name they are
+    /// reached under (LR43).
+    properties: HashMap<(TypeId, String), Property>,
     /// The bodies waiting to be lowered, once every function has an id for
     /// the calls between them to name.
     bodies: Vec<Pending>,
@@ -119,6 +124,18 @@ pub(super) struct Parameter {
     /// Evaluated at the call site when the call leaves the argument out
     /// (LR9.4).
     pub default: Option<luar_ast::Expr>,
+}
+
+/// A computed member, and the functions it reads and writes through (LR43).
+///
+/// A property is not stored, so it has no field index. It is reached with `.`
+/// like a field and runs code like a method, which is the whole point of it,
+/// so the lowering is a call at every site the syntax says is a field access.
+pub(super) struct Property {
+    pub ty: Ty,
+    pub get: FuncId,
+    /// Absent where the property is read-only. Setters are explicit (LR43).
+    pub set: Option<FuncId>,
 }
 
 /// A declared function whose body has not been lowered yet.
@@ -428,6 +445,96 @@ impl Lowering<'_> {
         });
     }
 
+    /// Gives every computed member the functions it is read and written
+    /// through (LR43).
+    fn declare_properties(&mut self) {
+        let mut found = Vec::new();
+        for (module, node) in self.graph.modules() {
+            for item in &node.ast.items {
+                let Item::Struct(structure) = item else {
+                    continue;
+                };
+                for member in &structure.members {
+                    if let Member::Property(property) = member {
+                        found.push((module, structure.name.clone(), property.clone()));
+                    }
+                }
+            }
+        }
+
+        for (module, owner, property) in found {
+            self.declare_property(module, &owner, &property);
+        }
+    }
+
+    fn declare_property(&mut self, module: ModuleId, owner: &str, property: &luar_ast::Property) {
+        let path = format!("{owner}.{}", property.name);
+        let span = property.span;
+
+        let (Some(id), Some((receiver, type_params))) = (
+            self.ids.get(&(module, owner.to_owned())).copied(),
+            self.self_type(module, &path),
+        ) else {
+            self.gap(span, "a property whose type the compiler could not find");
+            return;
+        };
+
+        // The table resolved the declared type when it built the struct, so
+        // it is read from there rather than resolved a second time.
+        let declared = self
+            .table
+            .structure(module, owner)
+            .and_then(|structure| {
+                structure
+                    .properties
+                    .iter()
+                    .find(|held| held.name == property.name)
+            })
+            .map(|held| held.ty.clone());
+        let Some(declared) = declared else {
+            self.gap(span, "a property the declaration table does not hold");
+            return;
+        };
+        let ty = self.convert(&declared, span);
+
+        let mut get = Function::new(
+            self.qualify(module, &path),
+            vec![receiver.clone()],
+            ty.clone(),
+            span,
+        );
+        get.type_params.clone_from(&type_params);
+        get.block_mut(get.entry).term = Some(Terminator::Trap(Trap::Unreachable));
+        let get = self.program.add_function(get);
+        self.bodies.push(Pending {
+            id: get,
+            names: vec!["self".to_owned()],
+            body: property.get.clone(),
+        });
+
+        // LR43: a setter is written or the property is read-only.
+        let set = property.set.as_ref().map(|setter| {
+            let mut written = Function::new(
+                self.qualify(module, &format!("{path}=")),
+                vec![receiver, ty.clone()],
+                Ty::Unit,
+                setter.span,
+            );
+            written.type_params.clone_from(&type_params);
+            written.block_mut(written.entry).term = Some(Terminator::Trap(Trap::Unreachable));
+            let written = self.program.add_function(written);
+            self.bodies.push(Pending {
+                id: written,
+                names: vec!["self".to_owned(), setter.param.clone()],
+                body: setter.body.clone(),
+            });
+            written
+        });
+
+        self.properties
+            .insert((id, property.name.clone()), Property { ty, get, set });
+    }
+
     /// Fills in every declared function's body.
     ///
     /// Every function has an id by now, so a call reaching one written later
@@ -453,6 +560,7 @@ impl Lowering<'_> {
                 callees: &self.functions,
                 virtuals: &self.virtuals,
                 defaults: &self.defaults,
+                properties: &self.properties,
                 program: &self.program,
             };
             let shell = self.program.function(pending.id).clone();
