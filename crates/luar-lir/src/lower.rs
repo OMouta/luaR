@@ -12,6 +12,8 @@
 
 pub mod types;
 
+mod body;
+
 use std::collections::HashMap;
 
 use luar_ast::{Function as AstFunction, Item, Member, Module, Semantics};
@@ -47,19 +49,21 @@ pub struct Lowered {
 /// Lowers every module in `graph`, which the checker has already accepted.
 #[must_use]
 pub fn lower(graph: &Graph, table: &Table, facts: &Facts) -> Lowered {
-    let _ = facts;
     let mut lowering = Lowering {
         graph,
         table,
+        facts,
         program: Program::default(),
         ids: Ids::new(),
         functions: HashMap::new(),
+        bodies: Vec::new(),
         gaps: Vec::new(),
     };
 
     lowering.name_types();
     lowering.build_types();
     lowering.declare_functions();
+    lowering.lower_bodies();
 
     Lowered {
         program: lowering.program,
@@ -70,13 +74,25 @@ pub fn lower(graph: &Graph, table: &Table, facts: &Facts) -> Lowered {
 struct Lowering<'a> {
     graph: &'a Graph,
     table: &'a Table,
+    facts: &'a Facts,
     program: Program,
     ids: Ids,
     /// The function each declaration was given, by the span of the
     /// declaration. That span is what tells two overloads of one name apart
     /// (LR40) and what the checker recorded a call as reaching (LR76).
     functions: HashMap<Span, FuncId>,
+    /// The bodies waiting to be lowered, once every function has an id for
+    /// the calls between them to name.
+    bodies: Vec<Pending>,
     gaps: Vec<Gap>,
+}
+
+/// A declared function whose body has not been lowered yet.
+struct Pending {
+    id: FuncId,
+    /// The names the entry block's parameters bind to, in order.
+    names: Vec<String>,
+    body: luar_ast::Block,
 }
 
 impl Lowering<'_> {
@@ -291,12 +307,14 @@ impl Lowering<'_> {
 
         let mut type_params = signature.type_params.clone();
         let mut params = Vec::new();
+        let mut names = Vec::new();
 
         // LR65: a method takes its receiver as the first argument, which is
         // what `self` is once the call is written out in full.
         if signature.takes_self
             && let Some((owner, owner_params)) = self.owner_of(module, path)
         {
+            names.push("self".to_owned());
             for param in &owner_params {
                 if !type_params.contains(param) {
                     type_params.insert(0, param.clone());
@@ -310,14 +328,15 @@ impl Lowering<'_> {
 
         for param in &signature.params {
             params.push(self.convert(&param.ty, span));
+            names.push(param.name.clone());
         }
         let result = self.convert(&signature.result, span);
 
         let mut lowered = Function::new(self.qualify(module, path), params, result, span);
         lowered.type_params = type_params;
         lowered.asynchronous = signature.asynchronous;
-        // The body is the next pass's job. Until it runs, the function says
-        // it never returns rather than returning something made up.
+        // Until the body is lowered the function says it never returns,
+        // rather than returning something made up.
         lowered.block_mut(lowered.entry).term = Some(Terminator::Trap(Trap::Unreachable));
 
         let id = self.program.add_function(lowered);
@@ -327,7 +346,26 @@ impl Lowering<'_> {
             self.program.entry = Some(id);
         }
 
-        self.gap(span, "a function body");
+        self.bodies.push(Pending {
+            id,
+            names,
+            body: function.body.clone().expect("declarations carry bodies"),
+        });
+    }
+
+    /// Fills in every declared function's body.
+    fn lower_bodies(&mut self) {
+        for pending in std::mem::take(&mut self.bodies) {
+            let context = body::Context {
+                facts: self.facts,
+                ids: &self.ids,
+            };
+            let shell = self.program.function(pending.id).clone();
+            let (built, gaps) =
+                body::Body::new(context, shell).lower(&pending.names, &pending.body);
+            *self.program.function_mut(pending.id) = built;
+            self.gaps.extend(gaps);
+        }
     }
 
     /// The signature the table built for the declaration at `span`.
