@@ -1,0 +1,42 @@
+--- expect: compile-ok
+--- spec: LR29.1
+--- spec: LR32
+import { identical } from "std/mem"
+
+interface Readable
+    function read(self): int
+end
+
+ref struct Box implements Readable
+    value: int
+
+    function read(self): int
+        return self.value
+    end
+end
+
+function compareCollections(
+    set: Set<int>,
+    frozenList: FrozenList<int>,
+    frozenMap: FrozenMap<string, int>,
+    frozenSet: FrozenSet<int>,
+): bool
+    return identical(set, frozenList) and identical(frozenMap, frozenSet)
+end
+
+export function main()
+    local box = Box { value = 1 }
+    local alias = box
+    local list = [1]
+    local map = Map { key = 1 }
+    local closure = function(): int
+        return 1
+    end
+    local readable: Readable = box
+
+    print(
+        identical(box, alias),
+        identical(list, map),
+        identical(closure, readable)
+    )
+end

@@ -1,0 +1,10 @@
+--- expect: compile-ok
+--- spec: LR32
+import { identical } from "std/mem"
+
+export function main()
+    local identical = function(left: int, right: int): bool
+        return left == right
+    end
+    print(identical(1, 1))
+end

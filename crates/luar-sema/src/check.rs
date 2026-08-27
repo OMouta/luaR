@@ -72,6 +72,7 @@ fn walk(
 
     for (id, node) in graph.modules() {
         let mut checker = Checker {
+            graph,
             names,
             table,
             types: Resolver::new(names, table.kinds(), table.aliases(), id),
@@ -99,6 +100,7 @@ fn walk(
 }
 
 struct Checker<'a> {
+    graph: &'a Graph,
     names: &'a Names,
     /// What every declaration is. A type written in a declaration was
     /// resolved when the table was built, so the checker reads it from there
@@ -2223,6 +2225,25 @@ impl Checker<'_> {
             .map(|argument| self.expr(&argument.value))
             .collect();
 
+        // LR32: `identical` takes only values with observable identity.
+        if self.is_identical(callee) {
+            for (argument, held) in args.iter().zip(&held) {
+                let held = settle(held.clone());
+                if !self.has_identity(&held) {
+                    self.diagnostics.push(
+                        Diagnostic::error(
+                            codes::IDENTITY_REQUIRED,
+                            argument.value.span,
+                            format!("`identical` cannot take {}", article(&held)),
+                        )
+                        .note(
+                            "Identity is observable on reference types, closures, interface values, and reference-backed collections (LR32).",
+                        ),
+                    );
+                }
+            }
+        }
+
         let Some(resolved) = resolved else {
             return Type::Unresolved;
         };
@@ -2680,6 +2701,52 @@ impl Checker<'_> {
         };
 
         self.table.overloads(module, &name).cloned()
+    }
+
+    fn is_identical(&self, callee: &Expr) -> bool {
+        let ExprKind::Name(name) = &callee.kind else {
+            return false;
+        };
+        if self.shadowed(name) {
+            return false;
+        }
+        let Some(Origin::Imported { module, name }) = self
+            .names
+            .scope(self.scope)
+            .get(name)
+            .map(|binding| &binding.origin)
+        else {
+            return false;
+        };
+
+        name == "identical" && self.graph.module(*module).path == std::path::Path::new("std/mem")
+    }
+
+    fn has_identity(&self, ty: &Type) -> bool {
+        match ty {
+            Type::Unresolved | Type::Primitive(Primitive::Any | Primitive::Never) => true,
+            Type::Builtin {
+                kind:
+                    Builtin::List
+                    | Builtin::Map
+                    | Builtin::Set
+                    | Builtin::FrozenList
+                    | Builtin::FrozenMap
+                    | Builtin::FrozenSet,
+                ..
+            }
+            | Type::Function { .. } => true,
+            Type::Named { module, name, .. } => {
+                matches!(
+                    self.table.get(*module, name),
+                    Some(Decl::Struct(structure)) if structure.semantics == Semantics::Ref
+                ) || matches!(self.table.get(*module, name), Some(Decl::Interface(_)))
+            }
+            Type::Union(members) | Type::Intersection(members) => {
+                !members.is_empty() && members.iter().all(|member| self.has_identity(member))
+            }
+            _ => false,
+        }
     }
 
     /// What `Owner.name(...)` calls: a member of the type `Owner` names, or a

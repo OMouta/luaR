@@ -242,6 +242,8 @@ registry! {
         "A finalizer takes no explicit parameters, returns `()`, and is not async or generic.";
     active 192 => DUPLICATE_FINALIZER, "LR51",
         "A `ref struct` declares at most one finalizer.";
+    active 193 => IDENTITY_REQUIRED, "LR32",
+        "`identical` takes values with observable identity.";
 }
 
 #[cfg(test)]

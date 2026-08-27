@@ -8,6 +8,8 @@ use luar_ast::{Import, Item};
 use luar_diagnostics::{Diagnostic, FileId, SourceMap, Span, codes};
 use luar_sema::modules::{Edge, Graph, Missing, ModuleId, Target};
 
+const STD_MEM: &str = "export function identical<A, B>(left: A, right: B): bool\nend\n";
+
 /// Reads and parses `root` and everything reachable from it.
 pub(crate) fn build(sources: &mut SourceMap, root: FileId) -> (Graph, Vec<Diagnostic>) {
     let mut graph = Graph::default();
@@ -67,6 +69,25 @@ fn read(
     // A path the parser could not read is already reported, and guessing at
     // what was meant would report it twice.
     let path = import.path.as_deref()?;
+
+    if path == "std/mem" {
+        let file = Path::new(path).to_path_buf();
+        if let Some(known) = graph.find(&file) {
+            return Some(known);
+        }
+
+        let id = sources.add(file.clone(), STD_MEM);
+        let mut parsed = luar_parser::module(sources.file(id).text(), id);
+        diagnostics.extend(parsed.diagnostics);
+        let Some(Item::Function(function)) = parsed.tree.items.first_mut() else {
+            unreachable!("std/mem declares identical")
+        };
+        function.body = None;
+
+        let module = graph.insert(id, file, parsed.tree);
+        queue.push_back(module);
+        return Some(module);
+    }
 
     let file = match luar_sema::modules::resolve(path, importer) {
         Target::File(file) => file,

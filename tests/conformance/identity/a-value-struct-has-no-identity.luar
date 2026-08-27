@@ -1,0 +1,19 @@
+--- expect: compile-error
+--- code: LR0193
+--- span: 18:21
+--- spec: LR32
+import { identical } from "std/mem"
+
+struct Value
+    number: int
+end
+
+ref struct Reference
+    number: int
+end
+
+export function main()
+    local value = Value { number = 1 }
+    local reference = Reference { number = 1 }
+    print(identical(value, reference))
+end

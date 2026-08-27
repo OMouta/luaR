@@ -1,0 +1,16 @@
+--- expect: run
+--- exit: 0
+--- stdout: "true\n"
+--- spec: LR29.1
+--- spec: LR32
+import { identical } from "std/mem"
+
+ref struct Box
+    value: int
+end
+
+export function main()
+    local original = Box { value = 1 }
+    local alias = original
+    print(identical(original, alias))
+end
