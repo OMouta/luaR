@@ -1,0 +1,20 @@
+--- expect: compile-ok
+--- spec: LR5.1
+--- spec: LR10.2
+--- spec: LR10.3
+--- spec: LR10.6
+function readLine(): string?
+    return nil
+end
+
+export function main()
+    repeat
+        local line = readLine()
+        while line ~= nil do
+            continue
+        end
+        if line ~= nil then
+            continue
+        end
+    until line == nil
+end

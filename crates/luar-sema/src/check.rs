@@ -78,6 +78,7 @@ fn walk(
             values: vec![HashMap::new()],
             constants: vec![HashSet::new()],
             unwritten: HashSet::new(),
+            loops: Vec::new(),
             unsafely: 0,
             extensions: extensions(names, table, id),
             bodies: Vec::new(),
@@ -114,6 +115,8 @@ struct Checker<'a> {
     /// Bindings declared with a type and no value, which nothing has written
     /// to yet (LR5.1).
     unwritten: HashSet<String>,
+    /// Loops in the current function, outermost first.
+    loops: Vec<LoopFlow>,
     /// How many `unsafe` contexts are open around what is being walked
     /// (LR29.2). An `unsafe` function opens one for its whole body.
     unsafely: usize,
@@ -154,6 +157,18 @@ struct Narrowing {
     name: String,
     when_true: Type,
     when_false: Type,
+}
+
+struct LoopFlow {
+    label: Option<String>,
+    body_depth: usize,
+    repeat_scope: Option<usize>,
+    continues: Vec<ContinueFlow>,
+}
+
+struct ContinueFlow {
+    unwritten: HashSet<String>,
+    declared: HashSet<String>,
 }
 
 /// What a call resolved to.
@@ -853,30 +868,48 @@ impl Checker<'_> {
                 self.unwritten = ways.into_iter().reduce(union).unwrap_or_default();
             }
             StmtKind::While {
-                condition, body, ..
+                label,
+                condition,
+                body,
             } => {
                 self.condition(condition);
                 let facts = self.facts(condition);
 
                 self.narrow(&facts, true);
+                self.enter_loop(label.clone(), None);
                 self.block(body);
+                self.loops.pop();
                 self.widen();
             }
-            StmtKind::Repeat { body, until, .. } => {
+            StmtKind::Repeat { label, body, until } => {
                 // `until` reads the body's bindings, so it is checked inside
                 // the body's scope (LR10.3).
+                let outer_unwritten = self.unwritten.clone();
                 self.push();
+                let repeat_scope = self.values.len() - 1;
+                self.enter_loop(label.clone(), Some(repeat_scope));
                 for stmt in &body.stmts {
                     self.stmt(stmt);
                 }
+
+                let flow = self.loops.pop().expect("the repeat loop is open");
+                let locals: HashSet<String> = self.values[repeat_scope].keys().cloned().collect();
+                for continued in flow.continues {
+                    let mut path = continued.unwritten;
+                    path.extend(locals.difference(&continued.declared).cloned());
+                    self.unwritten = union(self.unwritten.clone(), path);
+                }
+
                 self.condition(until);
+                self.unwritten
+                    .retain(|name| !locals.contains(name) || outer_unwritten.contains(name));
                 self.pop();
             }
             StmtKind::For {
+                label,
                 bindings,
                 iterable,
                 body,
-                ..
             } => {
                 self.expr(iterable);
                 self.push();
@@ -885,7 +918,9 @@ impl Checker<'_> {
                     // (LR35), which is not resolved here.
                     self.declare(binding, Type::Unresolved);
                 }
+                self.enter_loop(label.clone(), None);
                 self.block(body);
+                self.loops.pop();
                 self.pop();
             }
             StmtKind::Conditional {
@@ -938,8 +973,38 @@ impl Checker<'_> {
             StmtKind::Expr(expr) => {
                 self.expr(expr);
             }
-            StmtKind::Break(_) | StmtKind::Continue(_) | StmtKind::Error => {}
+            StmtKind::Continue(label) => self.record_continue(label.as_deref()),
+            StmtKind::Break(_) | StmtKind::Error => {}
         }
+    }
+
+    fn enter_loop(&mut self, label: Option<String>, repeat_scope: Option<usize>) {
+        self.loops.push(LoopFlow {
+            label,
+            body_depth: self.bodies.len(),
+            repeat_scope,
+            continues: Vec::new(),
+        });
+    }
+
+    /// LR10.3: a `continue` targeting `repeat` reaches its condition with the
+    /// initialization state at the jump.
+    fn record_continue(&mut self, label: Option<&str>) {
+        let depth = self.bodies.len();
+        let target = self.loops.iter().rposition(|flow| {
+            flow.body_depth == depth
+                && label.is_none_or(|label| flow.label.as_deref() == Some(label))
+        });
+        let Some(target) = target else { return };
+        let Some(scope) = self.loops[target].repeat_scope else {
+            return;
+        };
+
+        let declared = self.values[scope].keys().cloned().collect();
+        self.loops[target].continues.push(ContinueFlow {
+            unwritten: self.unwritten.clone(),
+            declared,
+        });
     }
 
     /// LR16.4: a match over a closed type covers every value it can hold, and
