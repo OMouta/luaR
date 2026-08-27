@@ -817,6 +817,8 @@ Division by zero traps for integers. Floating-point division follows IEEE-754.
 
 Silently truncating `10 / 3` to `3` is the kind of lossy implicit behavior LR4.4 rules out for conversions, so it is ruled out here too.
 
+Both operands are numbers of one type (LR39). A type these are not built in for takes them through the protocol each names (LR36).
+
 ### 11.2 Concatenation
 
 String concatenation uses `..`.
@@ -873,6 +875,8 @@ local label = if ok then "yes" else "no"      -- was: ok and "yes" or "no"
 ```
 
 Where `~` is unary bitwise NOT when used with one operand and inequality remains `~=`.
+
+Both operands are integers of one type (LR39). A type these are not built in for takes them through the protocol each names (LR36).
 
 ### 11.6 Pipeline Operator
 
