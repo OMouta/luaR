@@ -15,7 +15,7 @@ use crate::annotations::Resolver;
 use crate::facts::Facts;
 use crate::modules::{Graph, ModuleId};
 use crate::names::{Names, Origin, bound};
-use crate::table::{Decl, Field, Overloads, Signature, Table, Variant};
+use crate::table::{Decl, Field, Overloads, SELF, Signature, Table, Variant};
 use crate::types::{Builtin, Primitive, Type};
 
 /// Checks the types of every module in `graph`, and gives back what it worked
@@ -344,7 +344,7 @@ fn infer(params: &[String], wanted: &Type, held: &Type, bound: &mut BTreeMap<Str
 
 /// Overloads with the type arguments of the receiver put where the type
 /// declares its parameters (LR19).
-fn filled(overloads: &Overloads, params: &[String], args: &[Type]) -> Overloads {
+fn filled(overloads: &[Signature], params: &[String], args: &[Type]) -> Overloads {
     overloads
         .iter()
         .map(|signature| Signature {
@@ -360,6 +360,18 @@ fn filled(overloads: &Overloads, params: &[String], args: &[Type]) -> Overloads 
             ..signature.clone()
         })
         .collect()
+}
+
+/// One signature an interface requires, with `Self` standing for the type
+/// being checked against it (LR65).
+fn against(required: &Signature, implementor: &Type) -> Signature {
+    filled(
+        std::slice::from_ref(required),
+        &[SELF.to_owned()],
+        std::slice::from_ref(implementor),
+    )
+    .pop()
+    .unwrap_or_else(|| required.clone())
 }
 
 /// Whether the overloads of one method take `self`, which every overload of
@@ -453,6 +465,9 @@ impl Checker<'_> {
                     _ => (Type::Unresolved, BTreeMap::new()),
                 };
 
+                // LR65: `Self` in an extension block is the type it extends.
+                self.types.enter_enclosing(target.clone());
+
                 for function in &extend.functions {
                     let name = function.name.last();
                     if let Some(name) = name {
@@ -465,6 +480,8 @@ impl Checker<'_> {
                     let signature = written(name.and_then(|name| methods.get(name)), function.span);
                     self.body(function, signature, receiver);
                 }
+
+                self.types.leave_enclosing();
             }
             // Nothing of these is written outside their own types, which the
             // table already read.
@@ -523,6 +540,8 @@ impl Checker<'_> {
         let receiver = self.receiver(&structure.name);
 
         self.types.enter(&structure.type_params);
+        // LR65: `Self` is that same type, written down.
+        self.types.enter_enclosing(receiver.clone());
 
         for member in &structure.members {
             match member {
@@ -548,6 +567,7 @@ impl Checker<'_> {
             }
         }
 
+        self.types.leave_enclosing();
         self.types.leave();
     }
 
@@ -1412,9 +1432,10 @@ impl Checker<'_> {
 
         for (member, required) in &interface.methods {
             for required in required {
-                let held = self
-                    .methods_of(claimed, member)
-                    .is_some_and(|had| had.iter().any(|had| same_signature(had, required)));
+                let held = self.methods_of(claimed, member).is_some_and(|had| {
+                    let required = against(required, claimed);
+                    had.iter().any(|had| same_signature(had, &required))
+                });
                 if held {
                     continue;
                 }
@@ -1501,8 +1522,10 @@ impl Checker<'_> {
         if interface.structural {
             return interface.methods.iter().all(|(member, required)| {
                 required.iter().all(|required| {
-                    self.methods_of(held, member)
-                        .is_some_and(|had| had.iter().any(|had| same_signature(had, required)))
+                    self.methods_of(held, member).is_some_and(|had| {
+                        let required = against(required, held);
+                        had.iter().any(|had| same_signature(had, &required))
+                    })
                 })
             });
         }
@@ -2270,6 +2293,18 @@ impl Checker<'_> {
     /// The same search, reporting nothing where no method has the name. An
     /// operator says for itself what it was looking for (LR36).
     fn find_method(&mut self, receiver: &Type, name: &str, span: Span) -> Option<Overloads> {
+        let found = self.lookup_method(receiver, name, span)?;
+
+        // LR65: `Self` in what an interface requires is the type that reached
+        // the method, which for a constrained parameter is the parameter.
+        Some(filled(
+            &found,
+            &[SELF.to_owned()],
+            std::slice::from_ref(receiver),
+        ))
+    }
+
+    fn lookup_method(&mut self, receiver: &Type, name: &str, span: Span) -> Option<Overloads> {
         // LR19: inside the body, a type parameter has whatever `where` says it
         // has, and nothing else is known about it.
         if let Type::Parameter(parameter) = receiver {
@@ -2281,7 +2316,9 @@ impl Checker<'_> {
                 .cloned();
 
             return match bound {
-                Some(bound) => self.find_method(&bound, name, span),
+                // Not `find_method`, so that `Self` is still standing when the
+                // caller fills it with the parameter rather than its bound.
+                Some(bound) => self.lookup_method(&bound, name, span),
                 None => None,
             };
         }

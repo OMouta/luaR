@@ -485,6 +485,20 @@ fn kinds_of(items: &[Item], module: ModuleId, kinds: &mut Kinds) {
     }
 }
 
+/// The name `Self` stands under while an interface is waiting to learn which
+/// type implements it (LR65).
+pub const SELF: &str = "Self";
+
+/// The type `Self` names inside a declaration: the declaration itself, with
+/// its own type parameters standing where its arguments go (LR65).
+fn itself(module: ModuleId, name: &str, type_params: &[String]) -> Type {
+    Type::Named {
+        module,
+        name: name.to_owned(),
+        args: type_params.iter().cloned().map(Type::Parameter).collect(),
+    }
+}
+
 fn declare(
     items: &[Item],
     module: ModuleId,
@@ -514,6 +528,7 @@ fn declare(
         let (name, decl) = match item {
             Item::Struct(structure) => {
                 resolver.enter(&structure.type_params);
+                resolver.enter_enclosing(itself(module, &structure.name, &structure.type_params));
 
                 let mut fields = Vec::new();
                 let mut properties = Vec::new();
@@ -587,6 +602,7 @@ fn declare(
                     .map(|ty| resolver.resolve(ty, diagnostics))
                     .collect();
 
+                resolver.leave_enclosing();
                 resolver.leave();
 
                 (
@@ -604,6 +620,11 @@ fn declare(
             }
             Item::Enum(enumeration) => {
                 resolver.enter(&enumeration.type_params);
+                resolver.enter_enclosing(itself(
+                    module,
+                    &enumeration.name,
+                    &enumeration.type_params,
+                ));
 
                 let mut variants = BTreeMap::new();
                 for variant in &enumeration.variants {
@@ -630,6 +651,7 @@ fn declare(
                     variants.insert(variant.name.clone(), payload);
                 }
 
+                resolver.leave_enclosing();
                 resolver.leave();
 
                 (
@@ -642,6 +664,9 @@ fn declare(
             }
             Item::Interface(interface) => {
                 resolver.enter(&interface.type_params);
+                // LR65: inside an interface `Self` is whichever type
+                // implements it, and conformance checking is what fills it in.
+                resolver.enter_enclosing(Type::Parameter(SELF.to_owned()));
 
                 let mut methods = BTreeMap::new();
                 let mut properties = Vec::new();
@@ -686,6 +711,7 @@ fn declare(
                     }
                 }
 
+                resolver.leave_enclosing();
                 resolver.leave();
 
                 (
@@ -714,6 +740,8 @@ fn declare(
             }
             Item::Extend(extend) => {
                 let target = resolver.resolve(&extend.target, diagnostics);
+                resolver.enter_enclosing(target.clone());
+
                 let mut methods: BTreeMap<String, Overloads> = BTreeMap::new();
                 for function in &extend.functions {
                     if let Some(name) = function.name.last() {
@@ -726,6 +754,8 @@ fn declare(
                         );
                     }
                 }
+
+                resolver.leave_enclosing();
 
                 (extend.name.clone(), Decl::Extension { target, methods })
             }

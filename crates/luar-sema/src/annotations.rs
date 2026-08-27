@@ -22,6 +22,9 @@ pub struct Resolver<'a> {
     /// The type parameters of the declarations being walked, innermost last
     /// (LR19).
     parameters: Vec<HashSet<String>>,
+    /// What `Self` names in the declarations being walked, innermost last
+    /// (LR65).
+    enclosing: Vec<Type>,
 }
 
 impl<'a> Resolver<'a> {
@@ -33,7 +36,18 @@ impl<'a> Resolver<'a> {
             aliases,
             module,
             parameters: Vec::new(),
+            enclosing: Vec::new(),
         }
+    }
+
+    /// Makes `Self` name `ty` until the matching [`Self::leave_enclosing`]
+    /// (LR65).
+    pub fn enter_enclosing(&mut self, ty: Type) {
+        self.enclosing.push(ty);
+    }
+
+    pub fn leave_enclosing(&mut self) {
+        self.enclosing.pop();
     }
 
     /// Brings the type parameters of a declaration into scope.
@@ -106,6 +120,13 @@ impl<'a> Resolver<'a> {
         };
 
         if segments.len() == 1 {
+            // LR65: `Self` is the declaration this is written inside, with
+            // that declaration's own type parameters already in place.
+            if first == "Self"
+                && let Some(enclosing) = self.enclosing.last()
+            {
+                return enclosing.clone();
+            }
             if let Some(primitive) = Primitive::from_name(first) {
                 return Type::Primitive(primitive);
             }

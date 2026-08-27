@@ -1,0 +1,20 @@
+--- expect: compile-ok
+--- spec: LR65
+struct Counter
+    n: int
+
+    function bump(self): Self
+        local next: Self = Counter { n = self.n + 1 }
+        return next
+    end
+end
+
+extend Doubling for Counter
+    function twice(self): Self
+        return Counter { n = self.n * 2 }
+    end
+end
+
+export function use(): int
+    return Counter { n = 1 }:bump():twice().n
+end
