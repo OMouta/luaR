@@ -100,6 +100,7 @@ pub enum Builtin {
     FrozenList,
     FrozenMap,
     FrozenSet,
+    Task,
 }
 
 impl Builtin {
@@ -113,6 +114,7 @@ impl Builtin {
             Self::FrozenList => "FrozenList",
             Self::FrozenMap => "FrozenMap",
             Self::FrozenSet => "FrozenSet",
+            Self::Task => "Task",
         }
     }
 }

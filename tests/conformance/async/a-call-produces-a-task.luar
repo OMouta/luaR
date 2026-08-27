@@ -1,0 +1,11 @@
+--- expect: compile-ok
+--- spec: LR27
+--- spec: LR54.1
+async function load(id: int): int
+    return id
+end
+
+export function main()
+    local pending: Task<int> = load(1)
+    print(pending)
+end

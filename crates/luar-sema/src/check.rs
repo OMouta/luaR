@@ -2581,6 +2581,15 @@ impl Checker<'_> {
         let signature = self.specialize(signature, written, &held, span);
 
         self.arguments(&signature, args, &held, span);
+
+        // LR27: calling an async function produces a task, and `await` is
+        // what takes the result out of it.
+        if signature.asynchronous {
+            return Type::Builtin {
+                kind: Builtin::Task,
+                args: vec![settle(signature.result)],
+            };
+        }
         signature.result
     }
 

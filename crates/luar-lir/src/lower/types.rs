@@ -124,5 +124,6 @@ fn builtin(kind: SemaBuiltin) -> Builtin {
         SemaBuiltin::FrozenList => Builtin::FrozenList,
         SemaBuiltin::FrozenMap => Builtin::FrozenMap,
         SemaBuiltin::FrozenSet => Builtin::FrozenSet,
+        SemaBuiltin::Task => Builtin::Task,
     }
 }

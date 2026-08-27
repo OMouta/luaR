@@ -150,6 +150,8 @@ pub enum Builtin {
     FrozenList,
     FrozenMap,
     FrozenSet,
+    /// `Task<T>`, what calling an async function produces (LR27).
+    Task,
 }
 
 impl Builtin {
@@ -163,6 +165,7 @@ impl Builtin {
             "FrozenList" => Self::FrozenList,
             "FrozenMap" => Self::FrozenMap,
             "FrozenSet" => Self::FrozenSet,
+            "Task" => Self::Task,
             _ => return None,
         };
         Some(builtin)
@@ -178,6 +181,7 @@ impl Builtin {
             Self::FrozenList => "FrozenList",
             Self::FrozenMap => "FrozenMap",
             Self::FrozenSet => "FrozenSet",
+            Self::Task => "Task",
         }
     }
 }
