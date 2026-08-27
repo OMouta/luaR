@@ -24,10 +24,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # rust-toolchain.toml names the version, the components, and the
+      # profile, so this installs what the repository asks for rather than
+      # whatever `stable` happens to be today.
       - name: Install Rust
-        run: |
-          rustup toolchain install stable --profile minimal -c clippy -c rustfmt
-          rustup default stable
+        run: rustup toolchain install
 
       - name: Format
         run: cargo fmt --all --check

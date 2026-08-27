@@ -6,7 +6,9 @@ changes it, and changing it is its own commit.
 
 ## Setup
 
-Rust 1.85 or newer builds everything.
+Rust 1.85 or newer builds everything. `rust-toolchain.toml` pins the version
+CI uses, and rustup installs it on the first `cargo` command, so your clippy
+reports what CI's does.
 
 ```sh
 git clone https://github.com/OMouta/luaR
