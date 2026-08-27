@@ -356,10 +356,7 @@ impl Translator<'_, '_> {
                 self.gap("`/`");
                 return None;
             }
-            BinaryOp::Power => {
-                self.gap("`**`");
-                return None;
-            }
+            BinaryOp::Power => return self.power(signed, a, b),
             BinaryOp::Concat => {
                 self.gap("`..`");
                 return None;
@@ -367,6 +364,60 @@ impl Translator<'_, '_> {
             _ => unreachable!("every comparison was answered above"),
         };
         Some(produced)
+    }
+
+    /// LR11.1: exponentiation, as repeated multiplication, so LR4.3 decides
+    /// what an overflow does. An exponent below zero has no integer answer
+    /// and leaves the range of the type.
+    fn power(&mut self, signed: bool, base: ir::Value, exponent: ir::Value) -> Option<ir::Value> {
+        let width = self.builder.func.dfg.value_type(base);
+        if signed {
+            let zero = self.builder.ins().iconst(width, 0);
+            let below = self
+                .builder
+                .ins()
+                .icmp(IntCC::SignedLessThan, exponent, zero);
+            self.trap_if(below, Trap::IntegerOverflow);
+        }
+
+        let header = self.builder.create_block();
+        let body = self.builder.create_block();
+        let done = self.builder.create_block();
+        self.builder.append_block_param(header, width);
+        self.builder.append_block_param(header, width);
+        self.builder.append_block_param(done, width);
+
+        let one = self.builder.ins().iconst(width, 1);
+        self.builder.ins().jump(
+            header,
+            &[ir::BlockArg::Value(one), ir::BlockArg::Value(exponent)],
+        );
+
+        self.builder.switch_to_block(header);
+        let running = self.builder.block_params(header)[0];
+        let left = self.builder.block_params(header)[1];
+        let zero = self.builder.ins().iconst(width, 0);
+        let more = self.builder.ins().icmp(IntCC::NotEqual, left, zero);
+        self.builder
+            .ins()
+            .brif(more, body, &[], done, &[ir::BlockArg::Value(running)]);
+
+        self.builder.switch_to_block(body);
+        let (product, overflow) = if signed {
+            self.builder.ins().smul_overflow(running, base)
+        } else {
+            self.builder.ins().umul_overflow(running, base)
+        };
+        self.trap_if(overflow, Trap::IntegerOverflow);
+        let one = self.builder.ins().iconst(width, 1);
+        let next = self.builder.ins().isub(left, one);
+        self.builder.ins().jump(
+            header,
+            &[ir::BlockArg::Value(product), ir::BlockArg::Value(next)],
+        );
+
+        self.builder.switch_to_block(done);
+        Some(self.builder.block_params(done)[0])
     }
 
     fn checked(

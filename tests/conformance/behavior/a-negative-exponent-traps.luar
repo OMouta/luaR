@@ -1,0 +1,9 @@
+--- expect: run
+--- exit: 101
+--- trap: integer-overflow
+--- spec: LR11.1
+--- spec: LR4.3
+export function main(): int
+    local exponent: int = -1
+    return 2 ** exponent
+end
