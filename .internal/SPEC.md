@@ -3282,6 +3282,22 @@ Derivation expands into ordinary conforming implementations.
 
 Generated implementations are visible to diagnostics and tooling.
 
+`@derive` applies to a `struct` or an `enum`. Each name in it is a protocol (LR35), and the compiler derives these:
+
+```text
+Eq          function eq(self, other: Self): bool
+Hash        function hash(self): u64
+Display     function display(self): string
+```
+
+`Eq` compares every field, and for an enum the variant before its payload. `Hash` combines those same fields, so two values `eq` holds for hash alike. `Display` writes a struct the way its literal is written and an enum as the variant path, carrying the payload where there is one.
+
+Deriving a protocol requires every field, and every payload of every variant, to have it already. A primitive has all three. Any other field type must have the member the protocol names, and one that does not is an error naming that field.
+
+A derived member and a member of the same name written by hand collide. Deriving `Eq` for a type that already declares `eq` is an error, not an override, because either could be the one the author meant.
+
+A name `@derive` does not recognize belongs to the package defining it (LR23.1). Until that package expands it, the type has members the compiler cannot enumerate, and reading one is not an error.
+
 ---
 
 ## 76. Method Resolution
