@@ -1,0 +1,12 @@
+--- expect: compile-error
+--- code: LR0156
+--- span: 10:9
+--- spec: LR29.2
+--- spec: LR72
+--- spec: LR76
+function replace(value: int)
+    unsafe
+        local pointer = &value
+        pointer:write(0)
+    end
+end

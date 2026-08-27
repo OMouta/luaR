@@ -2514,6 +2514,10 @@ impl Checker<'_> {
             };
         }
 
+        if let Some(signature) = unsafe_memory_method(receiver, name, span) {
+            return Some(vec![signature]);
+        }
+
         if let Type::Named {
             module,
             name: declared,
@@ -2589,6 +2593,15 @@ impl Checker<'_> {
     /// Reports a method nothing offers, where every place one could come from
     /// is known (LR76).
     fn no_such_method(&mut self, receiver: &Type, name: &str, span: Span) {
+        if unavailable_unsafe_memory_method(receiver, name) {
+            self.diagnostics.push(Diagnostic::error(
+                codes::NO_SUCH_METHOD,
+                span,
+                format!("`{receiver}` has no method `{name}`"),
+            ));
+            return;
+        }
+
         let Type::Named {
             module,
             name: declared,
@@ -3631,6 +3644,110 @@ impl Checker<'_> {
             scope.remove(name);
         }
     }
+}
+
+/// The unchecked collection and raw-pointer operations (LR29.2, LR70, LR72).
+fn unsafe_memory_method(receiver: &Type, name: &str, span: Span) -> Option<Signature> {
+    let int = Type::Primitive(Primitive::I64);
+    let isize = Type::Primitive(Primitive::Isize);
+    let unit = Type::Tuple(Vec::new());
+
+    let (params, result) = match (receiver, name) {
+        (Type::Array(element), "unchecked") => {
+            (vec![memory_param("index", int)], element.as_ref().clone())
+        }
+        (
+            Type::Builtin {
+                kind: Builtin::List | Builtin::FrozenList,
+                args,
+            },
+            "unchecked",
+        ) => (
+            vec![memory_param("index", int)],
+            args.first().cloned().unwrap_or(Type::Unresolved),
+        ),
+        (Type::Array(element), "uncheckedSet") => (
+            vec![
+                memory_param("index", int),
+                memory_param("value", element.as_ref().clone()),
+            ],
+            unit,
+        ),
+        (
+            Type::Builtin {
+                kind: Builtin::List,
+                args,
+            },
+            "uncheckedSet",
+        ) => (
+            vec![
+                memory_param("index", int),
+                memory_param("value", args.first().cloned().unwrap_or(Type::Unresolved)),
+            ],
+            unit,
+        ),
+        (Type::Primitive(Primitive::Bytes), "unchecked") => (
+            vec![memory_param("index", int)],
+            Type::Primitive(Primitive::U8),
+        ),
+        (Type::Primitive(Primitive::Bytes), "uncheckedSet") => (
+            vec![
+                memory_param("index", int),
+                memory_param("value", Type::Primitive(Primitive::U8)),
+            ],
+            unit,
+        ),
+        (Type::Pointer { target, .. }, "read") => (Vec::new(), target.as_ref().clone()),
+        (
+            Type::Pointer {
+                mutable: true,
+                target,
+            },
+            "write",
+        ) => (vec![memory_param("value", target.as_ref().clone())], unit),
+        (Type::Pointer { .. }, "add") => (vec![memory_param("offset", isize)], receiver.clone()),
+        _ => return None,
+    };
+
+    Some(Signature {
+        asynchronous: false,
+        type_params: Vec::new(),
+        constraints: Vec::new(),
+        params,
+        result,
+        takes_self: true,
+        visibility: None,
+        span,
+        inferred: false,
+        unsafe_: true,
+    })
+}
+
+fn memory_param(name: &str, ty: Type) -> crate::table::Param {
+    crate::table::Param {
+        name: name.to_owned(),
+        ty,
+        optional: false,
+        variadic: false,
+    }
+}
+
+fn unavailable_unsafe_memory_method(receiver: &Type, name: &str) -> bool {
+    let memory_receiver = matches!(
+        receiver,
+        Type::Array(_)
+            | Type::Pointer { .. }
+            | Type::Primitive(Primitive::Bytes)
+            | Type::Builtin {
+                kind: Builtin::List | Builtin::FrozenList,
+                ..
+            }
+    );
+    memory_receiver
+        && matches!(
+            name,
+            "unchecked" | "uncheckedSet" | "read" | "write" | "add"
+        )
 }
 
 /// The name a `x == nil` or `x ~= nil` test is about, whichever side the

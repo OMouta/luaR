@@ -1,0 +1,8 @@
+--- expect: compile-error
+--- code: LR0177
+--- span: 7:12
+--- spec: LR29.2
+--- spec: LR70
+function first(values: List<int>): int
+    return values:unchecked(0)
+end

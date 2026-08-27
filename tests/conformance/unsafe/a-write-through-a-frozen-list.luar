@@ -1,0 +1,11 @@
+--- expect: compile-error
+--- code: LR0156
+--- span: 9:9
+--- spec: LR29.2
+--- spec: LR70
+--- spec: LR76
+function replace(values: FrozenList<int>)
+    unsafe
+        values:uncheckedSet(0, 1)
+    end
+end

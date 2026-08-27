@@ -1,0 +1,34 @@
+--- expect: compile-ok
+--- spec: LR29.2
+--- spec: LR70
+--- spec: LR72
+export function main()
+    local values: List<int> = [10, 20]
+    local array: [int; 2] = [30, 40]
+    local raw: bytes = b"ab"
+    local frozen: FrozenList<int> = unreachable()
+    local value = 50
+
+    unsafe
+        local fromList: int = values:unchecked(0)
+        values:uncheckedSet(1, fromList)
+
+        local fromArray: int = array:unchecked(0)
+        array:uncheckedSet(1, fromArray)
+
+        local fromBytes: u8 = raw:unchecked(0)
+        raw:uncheckedSet(1, fromBytes)
+
+        local fromFrozen: int = frozen:unchecked(0)
+
+        local mutable = &mut value
+        local read: int = mutable:read()
+        mutable:write(read)
+        local advanced: *mut int = mutable:add(1)
+
+        local constant = &value
+        local observed: int = constant:read()
+        local shifted: *const int = constant:add(1)
+        print(advanced, fromFrozen, observed, shifted)
+    end
+end
