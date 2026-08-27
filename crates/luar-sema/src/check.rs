@@ -2561,6 +2561,39 @@ impl Checker<'_> {
         ));
     }
 
+    /// LR11.1, LR11.5: an operand a built-in operator does not take, reported
+    /// where it is written. `integers` is what tells bitwise from arithmetic.
+    fn built_in_operand(
+        &mut self,
+        spelling: &str,
+        integers: bool,
+        held: &Type,
+        span: Span,
+    ) -> bool {
+        let fits = if integers {
+            is_integer(held)
+        } else {
+            is_numeric(held)
+        };
+        if fits || opaque(held) {
+            return true;
+        }
+
+        let (code, wanted) = if integers {
+            (codes::BITWISE_OPERANDS, "integers")
+        } else {
+            (codes::ARITHMETIC_OPERANDS, "numbers")
+        };
+
+        self.diagnostics.push(Diagnostic::error(
+            code,
+            span,
+            format!("`{spelling}` takes {wanted}, and this is {}", article(held)),
+        ));
+
+        false
+    }
+
     /// LR36: an operator on a type it is not built in for calls the protocol
     /// method it names, found the way any other method is (LR76). Dispatch is
     /// on the left operand, and neither side is converted first.
@@ -2802,6 +2835,11 @@ impl Checker<'_> {
             UnaryOp::BitNot if !is_numeric(&held) => {
                 self.overloaded("~", "BitNot", "bitNot", &held, None, operand.span)
             }
+            // LR11.5: a number that is not an integer has no bit pattern this
+            // operator is defined over.
+            UnaryOp::BitNot if !self.built_in_operand("~", true, &held, operand.span) => {
+                Type::Unresolved
+            }
             UnaryOp::Negate | UnaryOp::BitNot => held,
         }
     }
@@ -2832,6 +2870,9 @@ impl Checker<'_> {
                 Some((&held_right, right.span)),
                 op_span,
             ),
+            BinaryOp::Divide if !self.built_in_operand("/", false, &held_right, right.span) => {
+                Type::Unresolved
+            }
             BinaryOp::Divide => {
                 if is_integer(&held_left) && is_integer(&held_right) {
                     self.diagnostics.push(
@@ -2961,7 +3002,23 @@ impl Checker<'_> {
                     Some((&held_right, right.span)),
                     op_span,
                 ),
-                _ => self.arithmetic(op, &held_left, &held_right, op_span),
+                _ => {
+                    // LR11.1, LR11.5: both sides are numbers, and bitwise
+                    // narrows that to integers.
+                    let spelling = protocol_of(op).map_or("", |(spelling, _, _)| spelling);
+                    let integers = bitwise(op);
+                    let fits = [(&held_left, left.span), (&held_right, right.span)]
+                        .into_iter()
+                        .fold(true, |fits, (held, at)| {
+                            self.built_in_operand(spelling, integers, held, at) && fits
+                        });
+
+                    if fits {
+                        self.arithmetic(op, &held_left, &held_right, op_span)
+                    } else {
+                        Type::Unresolved
+                    }
+                }
             },
         }
     }
@@ -3397,6 +3454,19 @@ fn opaque(ty: &Type) -> bool {
     matches!(
         ty,
         Type::Unresolved | Type::Primitive(Primitive::Any | Primitive::Unknown)
+    )
+}
+
+/// Whether an operator is bitwise, which narrows its operands from numbers to
+/// integers (LR11.5).
+fn bitwise(op: BinaryOp) -> bool {
+    matches!(
+        op,
+        BinaryOp::BitAnd
+            | BinaryOp::BitOr
+            | BinaryOp::BitXor
+            | BinaryOp::ShiftLeft
+            | BinaryOp::ShiftRight
     )
 }
 

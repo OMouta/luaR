@@ -224,6 +224,10 @@ registry! {
         "An operator on a type it is not built in for calls the protocol method it names.";
     active 183 => CONCAT_OPERANDS, "LR11.2",
         "`..` joins two strings, and nothing is stringified on its way in.";
+    active 184 => ARITHMETIC_OPERANDS, "LR11.1",
+        "Arithmetic is on numbers of one type.";
+    active 185 => BITWISE_OPERANDS, "LR11.5",
+        "A bitwise operator is on integers of one type.";
 }
 
 #[cfg(test)]
