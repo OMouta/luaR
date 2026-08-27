@@ -125,7 +125,9 @@ fn in_expr(expr: &Expr, out: &mut Vec<String>) {
             in_expr(receiver, out);
             in_expr(index, out);
         }
-        ExprKind::Try(inner) | ExprKind::AddressOf { operand: inner, .. } => in_expr(inner, out),
+        ExprKind::Try(inner)
+        | ExprKind::Await(inner)
+        | ExprKind::AddressOf { operand: inner, .. } => in_expr(inner, out),
         ExprKind::Cast { value, .. } | ExprKind::TypeTest { value, .. } => in_expr(value, out),
         ExprKind::Tuple(members) | ExprKind::List(members) => {
             for member in members {

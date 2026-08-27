@@ -306,10 +306,29 @@ fn power(cursor: &mut Cursor) -> Expr {
     )
 }
 
-/// Calls, indexing, field and method access, and `?` (LR8, LR12.2, LR25.2, LR37).
+/// Calls, indexing, field and method access, `?`, and `await`
+/// (LR8, LR12.2, LR25.2, LR27, LR37).
 fn postfix(cursor: &mut Cursor) -> Expr {
-    let mut value = primary(cursor);
+    if cursor.kind() == TokenKind::Keyword(Keyword::Await) {
+        let start = cursor.span();
+        cursor.advance();
 
+        // LR11.7: `await` binds looser than the other postfix operators and
+        // tighter than `?`, so a `?` after it propagates the awaited value.
+        let operand = primary(cursor);
+        let task = postfix_operators(cursor, operand, false);
+        let span = start.to(task.span);
+        let awaited = Expr::new(ExprKind::Await(Box::new(task)), span);
+        return postfix_operators(cursor, awaited, true);
+    }
+
+    let value = primary(cursor);
+    postfix_operators(cursor, value, true)
+}
+
+/// The postfix chain over `value`. `propagation` is false while reading the
+/// operand of an `await`, which a `?` ends.
+fn postfix_operators(cursor: &mut Cursor, mut value: Expr, propagation: bool) -> Expr {
     loop {
         // LR89.1: `name <` opens type arguments only when what follows parses
         // as a type list and a `(` comes straight after the `>`.
@@ -371,6 +390,7 @@ fn postfix(cursor: &mut Cursor) -> Expr {
                 cursor.advance();
                 index(cursor, value, true)
             }
+            TokenKind::Question if !propagation => return value,
             TokenKind::Question => {
                 let span = value.span.to(cursor.span());
                 cursor.advance();

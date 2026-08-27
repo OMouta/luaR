@@ -436,8 +436,9 @@ fn has_effect(expr: &Expr) -> bool {
     match &expr.kind {
         ExprKind::Call { .. } | ExprKind::Error => true,
         // `f(x)?` is the call, and the propagation says what to do with what
-        // it returned (LR25.2).
-        ExprKind::Try(inner) => has_effect(inner),
+        // it returned (LR25.2). `await f(x)` is the call and what waits for
+        // it (LR27).
+        ExprKind::Try(inner) | ExprKind::Await(inner) => has_effect(inner),
         _ => false,
     }
 }

@@ -1669,6 +1669,7 @@ impl<'a> Body<'a> {
             }
 
             ExprKind::Try(inner) => self.propagate(inner, span),
+            ExprKind::Await(_) => self.missing(span, "await"),
 
             ExprKind::Cast { value, .. } => {
                 // LR33: `as` converts between numeric types, and the type it

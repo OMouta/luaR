@@ -80,6 +80,8 @@ pub enum ExprKind {
     },
     /// `x?`, propagating the error branch of a `Result` (LR25.2).
     Try(Box<Expr>),
+    /// `await x`, suspending until the task completes (LR27).
+    Await(Box<Expr>),
     /// `x as T` (LR33).
     Cast { value: Box<Expr>, ty: Type },
     /// `x is T` (LR57).

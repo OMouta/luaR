@@ -1,0 +1,10 @@
+--- expect: compile-ok
+--- spec: LR27
+async function load(id: int): int
+    return id
+end
+
+export async function main(): int
+    local loaded: int = await load(1)
+    return loaded
+end

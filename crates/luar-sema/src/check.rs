@@ -87,6 +87,7 @@ fn walk(
             collected: HashMap::new(),
             constraints: Vec::new(),
             returns: Vec::new(),
+            asynchronously: Vec::new(),
             narrowed: Vec::new(),
             mutations: Vec::new(),
             closures: Vec::new(),
@@ -138,6 +139,9 @@ struct Checker<'a> {
     /// What the function being walked declares it returns, innermost last
     /// (LR9.1). `None` where nothing was written down to check against.
     returns: Vec<Option<Type>>,
+    /// Whether each of those bodies is async, which is where `await` may be
+    /// written (LR27).
+    asynchronously: Vec<bool>,
     /// What conditions have proved about names in scope, innermost last
     /// (LR57). Kept apart from `values` so that a name declared again inside
     /// a branch is a new name rather than the narrowed one.
@@ -778,9 +782,11 @@ impl Checker<'_> {
         self.push();
         self.bind("self", receiver.clone());
         self.returns.push(Some(held.clone()));
+        self.asynchronously.push(false);
         self.mutations.push(assigned(&property.get));
         self.block(&property.get);
         self.mutations.pop();
+        self.asynchronously.pop();
         self.returns.pop();
         self.pop();
 
@@ -789,9 +795,11 @@ impl Checker<'_> {
             self.bind("self", receiver);
             self.bind(&setter.param, held);
             self.returns.push(Some(Type::Tuple(Vec::new())));
+            self.asynchronously.push(false);
             self.mutations.push(assigned(&setter.body));
             self.block(&setter.body);
             self.mutations.pop();
+            self.asynchronously.pop();
             self.returns.pop();
             self.pop();
         }
@@ -863,6 +871,7 @@ impl Checker<'_> {
 
         self.constraints.push(constraints);
         self.returns.push(returns);
+        self.asynchronously.push(function.asynchronous);
         self.bodies.push(Some(function.span));
         self.mutations
             .push(function.body.as_ref().map_or_else(HashSet::new, assigned));
@@ -873,6 +882,7 @@ impl Checker<'_> {
         }
         self.mutations.pop();
         self.bodies.pop();
+        self.asynchronously.pop();
         self.returns.pop();
         self.constraints.pop();
         self.unsafely -= unsafely;
@@ -1527,6 +1537,10 @@ impl Checker<'_> {
                 let held = self.expr(inner);
                 self.propagated(&held, expr.span)
             }
+            ExprKind::Await(inner) => {
+                let held = self.expr(inner);
+                self.awaited(&held, expr.span)
+            }
             ExprKind::Cast { value, ty } => {
                 let held = self.expr(value);
                 let wanted = self.resolve(ty);
@@ -1620,6 +1634,7 @@ impl Checker<'_> {
                 };
 
                 self.returns.push(result.as_ref().map(|_| returns.clone()));
+                self.asynchronously.push(*asynchronous);
                 self.bodies.push(None);
 
                 match body.as_ref() {
@@ -1636,6 +1651,7 @@ impl Checker<'_> {
                 self.mutations.pop();
                 let captures = self.closures.pop().expect("a closure is open");
                 self.bodies.pop();
+                self.asynchronously.pop();
                 self.returns.pop();
                 self.pop();
 
@@ -1705,6 +1721,37 @@ impl Checker<'_> {
         self.diagnostics.push(reported);
 
         Type::Unresolved
+    }
+
+    /// LR27: `await` takes a `Task<T>` and produces the `T`, in the body of
+    /// an async function and nowhere else.
+    fn awaited(&mut self, held: &Type, span: Span) -> Type {
+        if !self.asynchronously.last().copied().unwrap_or(false) {
+            self.diagnostics.push(
+                Diagnostic::error(
+                    codes::AWAIT_OUTSIDE_ASYNC,
+                    span,
+                    "this function is not async",
+                )
+                .note("`await` is written in the body of an async function (LR27)."),
+            );
+        }
+
+        let Type::Builtin {
+            kind: Builtin::Task,
+            args,
+        } = held
+        else {
+            if !matches!(held, Type::Unresolved) {
+                self.diagnostics.push(
+                    Diagnostic::error(codes::AWAIT_OPERAND, span, format!("cannot await {held}"))
+                        .note("`await` takes the `Task` an async call produces (LR27)."),
+                );
+            }
+            return Type::Unresolved;
+        };
+
+        args.first().cloned().unwrap_or(Type::Unresolved)
     }
 
     fn propagated(&mut self, held: &Type, span: Span) -> Type {
@@ -4057,6 +4104,7 @@ impl Checker<'_> {
             ExprKind::Index { .. } => "reads an element, which needs the value it is read from",
             ExprKind::Function { .. } => "is a function, which has no value until it runs",
             ExprKind::Try(_) => "propagates an error, which needs something to have run",
+            ExprKind::Await(_) => "suspends, which is not something compiling does",
             _ => "is not one of the forms a `const` is worked out from",
         };
 

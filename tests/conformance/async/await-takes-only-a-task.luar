@@ -1,0 +1,8 @@
+--- expect: compile-error
+--- code: LR0202
+--- span: 6:15
+--- spec: LR27
+export async function main()
+    local a = await 1
+    print(a)
+end

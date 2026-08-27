@@ -1,0 +1,15 @@
+--- expect: compile-ok
+--- spec: LR11.7
+--- spec: LR27
+struct Failure
+    code: int
+end
+
+async function load(id: int): Result<int, Failure>
+    return Result.Ok<int, Failure>(id)
+end
+
+export async function main(): Result<int, Failure>
+    local loaded: int = await load(1)?
+    return Result.Ok<int, Failure>(loaded)
+end

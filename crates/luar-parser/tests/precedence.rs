@@ -106,6 +106,7 @@ fn render(expr: &Expr) -> String {
             render(index)
         ),
         ExprKind::Try(value) => format!("({}?)", render(value)),
+        ExprKind::Await(value) => format!("(await {})", render(value)),
         ExprKind::Cast { value, ty } => format!("({} as {})", render(value), name_of(ty)),
         ExprKind::TypeTest { value, ty } => format!("({} is {})", render(value), name_of(ty)),
         ExprKind::AddressOf { mutable, operand } => format!(
@@ -224,6 +225,18 @@ fn concatenation_coalescing_and_power_associate_to_the_right() {
     assert_eq!(shape("a .. b .. c"), "(a .. (b .. c))");
     assert_eq!(shape("a ?? b ?? c"), "(a ?? (b ?? c))");
     assert_eq!(shape("2 ** 3 ** 2"), "(2 ** (3 ** 2))");
+}
+
+/// LR11.7: `await` takes the postfix chain after it, and a `?` written after
+/// it propagates the awaited value.
+#[test]
+fn await_binds_looser_than_a_call_and_tighter_than_propagation() {
+    assert_eq!(
+        shape("await client:get(url)"),
+        "(await (call client:get url))"
+    );
+    assert_eq!(shape("await load(id)?"), "((await (call load id))?)");
+    assert_eq!(shape("await task ** 2"), "((await task) ** 2)");
 }
 
 /// LR11.7: `**` binds tighter than a prefix operator, so the power is negated

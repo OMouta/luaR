@@ -258,6 +258,10 @@ registry! {
         "The propagated error converts into the enclosing `Result` error type through `Into`.";
     active 200 => UNREACHABLE_CATCH, "LR25.3",
         "A `catch` clause with no type is written last, and only one is written.";
+    active 201 => AWAIT_OUTSIDE_ASYNC, "LR27",
+        "`await` is written in the body of an async function.";
+    active 202 => AWAIT_OPERAND, "LR27",
+        "`await` applies only to a `Task`.";
 }
 
 #[cfg(test)]
