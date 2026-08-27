@@ -2813,7 +2813,7 @@ local print = collect
 
 Predeclared names are not a module. They cannot be imported from, renamed, or re-exported. Everything else the standard library provides is imported like any other module (LR21.1, LR60).
 
-Type names work the same way. The primitive types (LR6) need no import, and neither do the collection types the language builds from its own literal syntax (LR13, LR59):
+Type names work the same way. The primitive types (LR6) need no import, and neither do the collection types the language builds from its own literal syntax (LR13, LR59) or the `Task` every async call produces (LR27):
 
 ```text
 List
@@ -2822,11 +2822,12 @@ Set
 FrozenList
 FrozenMap
 FrozenSet
+Task
 ```
 
 Every other name in a type is declared by the module or imported (LR21.1). The standard protocols (LR35) are library names and are imported like any other.
 
-The set is closed. A name belongs in it only because it cannot be written as an ordinary declaration, or because every program needs it to state a signature. `assert` and `debugAssert` depend on compilation mode (LR49), `unreachable` has type `never` (LR50), and `panic` does not return (LR25.4). `Result` names the type of every fallible signature (LR25.1). `print` is neither, and is predeclared so that writing a line of output does not require an import.
+The set is closed. A name belongs in it only because it cannot be written as an ordinary declaration, or because every program needs it to state a signature. `assert` and `debugAssert` depend on compilation mode (LR49), `unreachable` has type `never` (LR50), and `panic` does not return (LR25.4). `Result` names the type of every fallible signature (LR25.1), and `Task` the type every async call produces (LR27). `print` is neither, and is predeclared so that writing a line of output does not require an import.
 
 ---
 
