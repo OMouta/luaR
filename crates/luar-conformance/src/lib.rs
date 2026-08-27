@@ -114,10 +114,6 @@ pub fn run_suite(root: &Path) -> io::Result<Vec<(PathBuf, Outcome)>> {
 }
 
 fn check(path: &Path, source: String, directives: &Directives) -> Outcome {
-    if directives.expect == Expect::Run {
-        return Outcome::Skipped("run expectations need the backend".to_owned());
-    }
-
     let mut sources = SourceMap::new();
     let file = sources.add(path, source);
 
@@ -161,7 +157,19 @@ fn check(path: &Path, source: String, directives: &Directives) -> Outcome {
                 ))
             }
         }
-        Expect::Run => unreachable!("handled above"),
+        // Running it needs the backend. Compiling it does not, and a `run`
+        // test whose program stops compiling is a regression now rather than
+        // a surprise on the day the backend lands.
+        Expect::Run => {
+            if errors.is_empty() {
+                Outcome::Skipped("run expectations need the backend".to_owned())
+            } else {
+                Outcome::Failed(format!(
+                    "expected the program to compile and run, got {}",
+                    describe(&sources, &errors)
+                ))
+            }
+        }
     }
 }
 
