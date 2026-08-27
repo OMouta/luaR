@@ -1,0 +1,10 @@
+--- expect: run
+--- exit: 6
+--- spec: LR5.3
+export function main(): int
+    local add = function((left, right): (int, int)): int
+        return left + right
+    end
+    local (first, (second, third)) = (1, (2, 3))
+    return add((first, second)) + third
+end

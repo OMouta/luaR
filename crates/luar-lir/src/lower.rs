@@ -10,7 +10,7 @@ mod derived;
 use std::cell::Cell;
 use std::collections::HashMap;
 
-use luar_ast::{Function as AstFunction, Item, Member, Module, Semantics};
+use luar_ast::{Binding, Function as AstFunction, Item, Member, Module, Semantics};
 use luar_diagnostics::Span;
 use luar_sema::facts::Facts;
 use luar_sema::modules::{Graph, ModuleId};
@@ -135,8 +135,8 @@ pub(super) struct Property {
 /// A declared function whose body has not been lowered yet.
 struct Pending {
     id: FuncId,
-    /// The names the entry block's parameters bind to, in order.
-    names: Vec<String>,
+    /// What the entry block's parameters bind to, in order.
+    bindings: Vec<Binding>,
     body: luar_ast::Block,
 }
 
@@ -368,14 +368,14 @@ impl Lowering<'_> {
 
         let mut type_params = signature.type_params.clone();
         let mut params = Vec::new();
-        let mut names = Vec::new();
+        let mut bindings = Vec::new();
 
         // LR65: a method takes its receiver as the first argument, which is
         // what `self` is once the call is written out in full.
         if signature.takes_self {
             match self.self_type(module, path) {
                 Some((receiver, owner_params)) => {
-                    names.push("self".to_owned());
+                    bindings.push(Binding::Name("self".to_owned()));
                     for param in owner_params.iter().rev() {
                         if !type_params.contains(param) {
                             type_params.insert(0, param.clone());
@@ -389,17 +389,21 @@ impl Lowering<'_> {
 
         let mut taken = Vec::new();
         for (index, param) in signature.params.iter().enumerate() {
+            let written = function
+                .params
+                .get(index + usize::from(signature.takes_self));
             let ty = self.convert(&param.ty, span);
             params.push(ty.clone());
-            names.push(param.name.clone());
+            bindings.push(
+                written
+                    .map(|param| param.binding.clone())
+                    .unwrap_or_else(|| Binding::Name(param.name.clone())),
+            );
             taken.push(Parameter {
                 name: param.name.clone(),
                 ty,
                 variadic: param.variadic,
-                default: function
-                    .params
-                    .get(index)
-                    .and_then(|written| written.default.clone()),
+                default: written.and_then(|param| param.default.clone()),
             });
         }
         let result = self.convert(&signature.result, span);
@@ -429,7 +433,7 @@ impl Lowering<'_> {
 
         self.bodies.push(Pending {
             id,
-            names,
+            bindings,
             body: function.body.clone().expect("declarations carry bodies"),
         });
     }
@@ -497,7 +501,7 @@ impl Lowering<'_> {
         let get = self.program.add_function(get);
         self.bodies.push(Pending {
             id: get,
-            names: vec!["self".to_owned()],
+            bindings: vec![Binding::Name("self".to_owned())],
             body: property.get.clone(),
         });
 
@@ -514,7 +518,10 @@ impl Lowering<'_> {
             let written = self.program.add_function(written);
             self.bodies.push(Pending {
                 id: written,
-                names: vec!["self".to_owned(), setter.param.clone()],
+                bindings: vec![
+                    Binding::Name("self".to_owned()),
+                    Binding::Name(setter.param.clone()),
+                ],
                 body: setter.body.clone(),
             });
             written
@@ -627,7 +634,7 @@ impl Lowering<'_> {
             };
             let shell = self.program.function(pending.id).clone();
             let (function, closures, gaps) =
-                body::Body::new(context, shell).lower(&pending.names, &pending.body);
+                body::Body::new(context, shell).lower(&pending.bindings, &pending.body);
             built.push((pending.id, function, gaps));
             made.extend(closures);
         }

@@ -1,0 +1,18 @@
+--- expect: run
+--- exit: 12
+--- spec: LR5.3
+struct User
+    name: string
+    score: int
+end
+
+function score({ score }: User): int
+    return score
+end
+
+export function main(): int
+    local user = User { name = "Ada", score = 5 }
+    local { score as points } = user
+    local { bonus } = { bonus = 2 }
+    return points + score(user) + bonus
+end

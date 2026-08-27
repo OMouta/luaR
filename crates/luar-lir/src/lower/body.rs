@@ -121,18 +121,17 @@ impl<'a> Body<'a> {
         }
     }
 
-    /// Binds `names` to the entry block's parameters, in order, and lowers
-    /// `block` into the function.
+    /// Binds the entry block's parameters in order and lowers `block` into the
+    /// function.
     pub(super) fn lower(
         mut self,
-        names: &[String],
+        bindings: &[Binding],
         block: &Block,
     ) -> (Function, Vec<(FuncId, Function)>, Vec<Gap>) {
         assigned(block, &mut self.mutated);
         let params: Vec<Value> = self.function.block(self.function.entry).params.clone();
-        for (name, value) in names.iter().zip(params) {
-            let var = self.declare(name);
-            self.defs.insert(var, value);
+        for (binding, value) in bindings.iter().zip(params) {
+            self.bind_value(binding, value, block.span);
         }
 
         self.block(block);
@@ -972,11 +971,6 @@ impl<'a> Body<'a> {
         value: Option<&Expr>,
         span: Span,
     ) {
-        let Binding::Name(name) = binding else {
-            self.gap(span, "a destructuring binding");
-            return;
-        };
-
         // LR5.1: a declaration with a type takes it, and one without takes
         // what its initializer holds.
         let _ = ty;
@@ -985,14 +979,98 @@ impl<'a> Body<'a> {
         match value {
             Some(value) => {
                 let held = self.expr(value, declared.as_ref());
-                let var = self.declare(name);
-                self.defs.insert(var, held);
+                self.bind_value(binding, held, span);
             }
             None => {
                 // LR5.1: nothing has been written yet, and the checker proved
                 // nothing reads it before something does.
+                self.declare_binding(binding);
+            }
+        }
+    }
+
+    fn bind_value(&mut self, binding: &Binding, value: Value, span: Span) {
+        match binding {
+            Binding::Name(name) => {
+                let var = self.declare(name);
+                self.defs.insert(var, value);
+            }
+            Binding::Record(fields) => {
+                let held = self.function.type_of(value).clone();
+                let Some(declared) = self.fields_of(&held) else {
+                    self.gap(span, "a record binding over a type with no fields");
+                    self.declare_binding(binding);
+                    return;
+                };
+
+                for written in fields {
+                    let Some(index) = declared.iter().position(|(name, _)| name == &written.field)
+                    else {
+                        self.gap(
+                            written.span,
+                            "a record binding field the compiler could not find",
+                        );
+                        continue;
+                    };
+                    let field = u32::try_from(index).expect("field count fits in u32");
+                    let field_value = self.emit(
+                        InstKind::GetField {
+                            object: value,
+                            field,
+                        },
+                        declared[index].1.clone(),
+                        written.span,
+                    );
+                    let name = written.bound_as.as_ref().unwrap_or(&written.field);
+                    let var = self.declare(name);
+                    self.defs.insert(var, field_value);
+                }
+            }
+            Binding::Tuple(bindings) => {
+                let Ty::Tuple(members) = self.function.type_of(value).clone() else {
+                    self.gap(span, "a tuple binding over a value that is not a tuple");
+                    self.declare_binding(binding);
+                    return;
+                };
+                if bindings.len() != members.len() {
+                    self.gap(span, "a tuple binding of another length");
+                    self.declare_binding(binding);
+                    return;
+                }
+
+                for (index, (binding, member)) in bindings.iter().zip(members).enumerate() {
+                    let index = u32::try_from(index).expect("tuple length fits in u32");
+                    let member = self.emit(
+                        InstKind::GetElement {
+                            tuple: value,
+                            index,
+                        },
+                        member,
+                        span,
+                    );
+                    self.bind_value(binding, member, span);
+                }
+            }
+            Binding::Error => {}
+        }
+    }
+
+    fn declare_binding(&mut self, binding: &Binding) {
+        match binding {
+            Binding::Name(name) => {
                 self.declare(name);
             }
+            Binding::Record(fields) => {
+                for field in fields {
+                    self.declare(field.bound_as.as_ref().unwrap_or(&field.field));
+                }
+            }
+            Binding::Tuple(bindings) => {
+                for binding in bindings {
+                    self.declare_binding(binding);
+                }
+            }
+            Binding::Error => {}
         }
     }
 
@@ -1884,16 +1962,16 @@ impl<'a> Body<'a> {
             return self.missing(span, "a closure capturing a binding something assigns to");
         };
 
-        let mut names: Vec<String> = captures.iter().map(|(name, _)| name.clone()).collect();
+        let mut bindings: Vec<Binding> = captures
+            .iter()
+            .map(|(name, _)| Binding::Name(name.clone()))
+            .collect();
         let mut taken: Vec<Ty> = captures
             .iter()
             .map(|(_, var)| self.function.type_of(self.defs[var]).clone())
             .collect();
         for (param, ty) in params.iter().zip(takes) {
-            let Binding::Name(name) = &param.binding else {
-                return self.missing(span, "a closure with a destructuring parameter");
-            };
-            names.push(name.clone());
+            bindings.push(param.binding.clone());
             taken.push(ty);
         }
 
@@ -1906,7 +1984,7 @@ impl<'a> Body<'a> {
             *result,
             span,
         );
-        let (built, made, gaps) = Body::new(self.context, shell).lower(&names, &written);
+        let (built, made, gaps) = Body::new(self.context, shell).lower(&bindings, &written);
         self.made.push((id, built));
         self.made.extend(made);
         self.gaps.extend(gaps);
