@@ -6,9 +6,6 @@ changes it, and changing it is its own commit.
 
 ## Setup
 
-`rust-toolchain.toml` names the toolchain. rustup installs it on your first
-`cargo` command, so you and CI lint with the same clippy.
-
 ```sh
 git clone https://github.com/OMouta/luaR
 cd luaR

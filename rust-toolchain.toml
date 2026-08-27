@@ -1,13 +1,5 @@
-# The toolchain this repository builds with, pinned.
-#
-# Clippy gains lints every release and a warning fails the build here
-# (CONTRIBUTING.md), so a floating `stable` means a green build can turn red
-# with no commit behind it. That happened. Pinning makes the toolchain move
-# when someone decides it should, and makes a contributor's clippy agree with
-# CI's.
-#
-# `rust-version` in Cargo.toml is the oldest release the crates support and is
-# a different question from the one this file answers.
+# Pinned because a floating `stable` turned a green build red with no commit
+# behind it. Bump it deliberately.
 
 [toolchain]
 channel = "1.98.0"
