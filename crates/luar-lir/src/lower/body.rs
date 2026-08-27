@@ -178,6 +178,16 @@ impl<'a> Body<'a> {
         result
     }
 
+    /// Emits an instruction that produces no value: one that is there for
+    /// what it does.
+    fn emit_void(&mut self, kind: InstKind, span: Span) {
+        self.function.block_mut(self.current).insts.push(Inst {
+            result: None,
+            kind,
+            span,
+        });
+    }
+
     fn terminate(&mut self, term: Terminator) {
         let block = self.function.block_mut(self.current);
         if block.term.is_none() {
@@ -1041,35 +1051,135 @@ impl<'a> Body<'a> {
         }
     }
 
+    /// LR55: an assignment evaluates its target before its value, and a
+    /// compound assignment evaluates the target once.
     fn assign(&mut self, target: &Expr, op: Option<AstBinary>, value: &Expr, span: Span) {
-        let ExprKind::Name(name) = &target.kind else {
-            self.gap(span, "an assignment to something other than a name");
-            return;
-        };
-        let Some(var) = self.lookup(name) else {
-            self.gap(span, "an assignment to a name from another scope");
-            return;
-        };
-
-        let wanted = self.function.type_of(self.defs[&var]).clone();
-
-        let held = match op {
-            // LR5.4: a compound assignment reads the target, applies the
-            // operator, and writes the result back.
-            Some(op) => {
-                let left = self.defs[&var];
-                let right = self.expr(value, Some(&wanted));
-                match binary_op(op) {
-                    Some(op) => {
-                        self.emit(InstKind::Binary { op, left, right }, wanted.clone(), span)
-                    }
-                    None => self.missing(span, "a compound assignment with this operator"),
-                }
+        match &target.kind {
+            ExprKind::Name(name) => {
+                let Some(var) = self.lookup(name) else {
+                    self.gap(span, "an assignment to a name from another scope");
+                    return;
+                };
+                let held = self.defs[&var];
+                let written = self.written(held, op, value, span);
+                self.defs.insert(var, written);
             }
-            None => self.expr(value, Some(&wanted)),
-        };
 
-        self.defs.insert(var, held);
+            // LR12.2, LR59: writing a field of a mutable struct.
+            ExprKind::Field {
+                receiver,
+                name,
+                optional: false,
+            } => {
+                let object = self.expr(receiver, None);
+                let object = self.settled(object, span);
+                let held = self.function.type_of(object).clone();
+                let (Some(index), Some(fields)) =
+                    (self.field_index(&held, name), self.fields_of(&held))
+                else {
+                    self.gap(span, "an assignment to a member that is not a stored field");
+                    return;
+                };
+
+                let ty = fields[index as usize].1.clone();
+                let read = op.map(|_| {
+                    self.emit(
+                        InstKind::GetField {
+                            object,
+                            field: index,
+                        },
+                        ty.clone(),
+                        span,
+                    )
+                });
+                let written = self.written_into(read, &ty, op, value, span);
+                self.emit_void(
+                    InstKind::SetField {
+                        object,
+                        field: index,
+                        value: written,
+                    },
+                    span,
+                );
+            }
+
+            // LR37: writing an element of a container.
+            ExprKind::Index {
+                receiver,
+                index,
+                optional: false,
+            } => {
+                let container = self.expr(receiver, None);
+                let container = self.settled(container, span);
+                let held = self.function.type_of(container).clone();
+                let Ty::Builtin { args, .. } = &held else {
+                    self.gap(
+                        span,
+                        "an assignment into something the compiler cannot index",
+                    );
+                    return;
+                };
+                let (key, element) = match &held {
+                    Ty::Builtin {
+                        kind: Builtin::Map | Builtin::FrozenMap,
+                        ..
+                    } => (args.first().cloned(), args.get(1).cloned()),
+                    _ => (Some(Ty::Int(IntTy::Usize)), args.first().cloned()),
+                };
+                let Some(element) = element else {
+                    self.gap(span, "an assignment into a container with no element type");
+                    return;
+                };
+
+                let index = self.expr(index, key.as_ref());
+                let read = op.map(|_| {
+                    self.emit(
+                        InstKind::GetIndex {
+                            receiver: container,
+                            index,
+                        },
+                        element.clone(),
+                        span,
+                    )
+                });
+                let written = self.written_into(read, &element, op, value, span);
+                self.emit_void(
+                    InstKind::SetIndex {
+                        receiver: container,
+                        index,
+                        value: written,
+                    },
+                    span,
+                );
+            }
+
+            _ => self.gap(span, "an assignment to this target"),
+        }
+    }
+
+    /// What an assignment writes: the value, or what the operator makes of
+    /// what the target already held and the value (LR5.4).
+    fn written(&mut self, held: Value, op: Option<AstBinary>, value: &Expr, span: Span) -> Value {
+        let wanted = self.function.type_of(held).clone();
+        self.written_into(Some(held), &wanted, op, value, span)
+    }
+
+    fn written_into(
+        &mut self,
+        held: Option<Value>,
+        wanted: &Ty,
+        op: Option<AstBinary>,
+        value: &Expr,
+        span: Span,
+    ) -> Value {
+        let right = self.expr(value, Some(wanted));
+        let (Some(left), Some(op)) = (held, op) else {
+            return right;
+        };
+        match binary_op(op) {
+            Some(op) => self.emit(InstKind::Binary { op, left, right }, wanted.clone(), span),
+            None => self.missing(span, "a compound assignment with this operator"),
+        }
     }
 
     fn ret(&mut self, value: Option<&Expr>, span: Span) {
