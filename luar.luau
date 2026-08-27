@@ -14,6 +14,7 @@ usage:
   lute luar check <file>...   read files and report what is wrong with them
   lute luar coverage          spec sections no test cites
   lute luar run <file>        run a program
+  lute luar lir <file>        print what a program lowers to
   lute luar build             build the workspace
   lute luar unit              run the Rust tests
   lute luar fmt               format everything
@@ -61,6 +62,9 @@ local commands: { [string]: (rest: { string }) -> number } = {
 	end,
 	run = function(rest)
 		return luarc("run", rest)
+	end,
+	lir = function(rest)
+		return luarc("lir", rest)
 	end,
 
 	build = function()

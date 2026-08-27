@@ -57,6 +57,7 @@ them.
 | `lute luar test [filter]` | `cargo run -q -p luarc -- test [filter]` |
 | `lute luar coverage` | `cargo run -q -p luarc -- coverage` |
 | `lute luar run file.luar` | `cargo run -q -p luarc -- run file.luar` |
+| `lute luar lir file.luar` | `cargo run -q -p luarc -- lir file.luar` |
 | `lute luar build` | `cargo build --workspace` |
 | `lute luar unit` | `cargo test --workspace` |
 | `lute luar fmt` | `cargo fmt --all` |
@@ -118,4 +119,5 @@ to them.
 | `luar-conformance` | The suite runner and the coverage report |
 | `luarc` | The command line |
 
-`luar-lir` and `luar-codegen` are empty.
+`luar-codegen` is empty. `luar-lir` lowers a checked program and reports what
+it could not lower; `luarc lir file.luar` prints the result.
