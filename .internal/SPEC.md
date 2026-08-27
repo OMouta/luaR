@@ -2739,6 +2739,16 @@ calls `a`, then `b`, then `c`, then `foo`.
 
 Record literal field initializers are evaluated in source order.
 
+An assignment evaluates its target before its value.
+
+```lua
+values[index()] = compute()
+```
+
+calls `index`, then `compute`.
+
+A compound assignment evaluates its target once, and reads and writes that one place.
+
 Optimizations must preserve observable evaluation order.
 
 ---
