@@ -11,7 +11,7 @@
 //! stages that answer them exist, and an unresolved type never causes a
 //! diagnostic. What is reported is what the compiler can be sure of today.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use luar_ast::{
     Argument, ArmBody, BinaryOp, Binding, Block, Expr, ExprKind, FieldInit, Function, FunctionBody,
@@ -91,6 +91,7 @@ fn walk(
             types: Resolver::new(names, table.kinds(), table.aliases(), id),
             scope: id,
             values: vec![HashMap::new()],
+            constants: vec![HashSet::new()],
             extensions: extensions(names, table, id),
             bodies: Vec::new(),
             collected: HashMap::new(),
@@ -118,6 +119,9 @@ struct Checker<'a> {
     scope: ModuleId,
     /// What each name in scope holds, innermost last.
     values: Vec<HashMap<String, Type>>,
+    /// Which of them `const` bound, scope for scope alongside `values`
+    /// (LR5.2).
+    constants: Vec<HashSet<String>>,
     /// The extension blocks this module may reach (LR20).
     extensions: Vec<Extension<'a>>,
     /// The declaration each body being walked belongs to, innermost last. A
@@ -730,6 +734,8 @@ impl Checker<'_> {
                 };
 
                 self.declare(binding, held);
+                self.bind_constant(binding);
+                self.evaluable(value);
             }
             StmtKind::Assign { target, value, .. } => {
                 // LR57: what a branch proved narrows what the name reads as,
@@ -742,9 +748,23 @@ impl Checker<'_> {
                 let held = self.expr(value);
                 self.expect(&wanted, &held, value.span);
 
-                // LR57: what was proved held for the value that was there,
-                // and the value that is there now was never checked.
                 if let ExprKind::Name(name) = &target.kind {
+                    // LR5.2: `const` binds once, and it is the binding that
+                    // is immutable, whatever the value it holds allows.
+                    if self.is_constant(name) {
+                        self.diagnostics.push(
+                            Diagnostic::error(
+                                codes::ASSIGN_TO_CONSTANT,
+                                target.span,
+                                format!("`{name}` is bound by `const`"),
+                            )
+                            .note("A `const` binding is never bound again (LR5.2)."),
+                        );
+                    }
+
+                    // LR57: what was proved held for the value that was
+                    // there, and the value that is there now was never
+                    // checked.
                     self.forget(name);
                 }
             }
@@ -2788,10 +2808,157 @@ impl Checker<'_> {
 
     fn push(&mut self) {
         self.values.push(HashMap::new());
+        self.constants.push(HashSet::new());
     }
 
     fn pop(&mut self) {
         self.values.pop();
+        self.constants.pop();
+    }
+
+    /// LR24: a `const` is worked out while compiling, over a pure subset:
+    /// literals, arithmetic and comparison, string operations, tuple, record
+    /// and array construction, enum construction, and other `const` values.
+    ///
+    /// What is reported is the innermost part that cannot be worked out, so
+    /// the diagnostic points at the call or the read rather than the whole
+    /// initializer.
+    fn evaluable(&mut self, value: &Expr) {
+        let reason = match &value.kind {
+            ExprKind::Nil
+            | ExprKind::Bool(_)
+            | ExprKind::Integer(_)
+            | ExprKind::Float(_)
+            | ExprKind::String(_)
+            | ExprKind::ByteString(_)
+            | ExprKind::Char(_)
+            | ExprKind::Error => return,
+
+            // A name is const only where it reads another `const` (LR79).
+            ExprKind::Name(name) => {
+                if self.is_constant(name) {
+                    return;
+                }
+                "reads a binding that is not `const`"
+            }
+
+            ExprKind::Unary { operand, .. } => return self.evaluable(operand),
+            ExprKind::Cast { value, .. } => return self.evaluable(value),
+            ExprKind::Binary { left, right, .. } => {
+                self.evaluable(left);
+                return self.evaluable(right);
+            }
+            ExprKind::Interpolation(parts) => {
+                for part in parts {
+                    if let InterpolationPart::Expr(expr) = part {
+                        self.evaluable(expr);
+                    }
+                }
+                return;
+            }
+            ExprKind::Tuple(items) | ExprKind::List(items) => {
+                for item in items {
+                    self.evaluable(item);
+                }
+                return;
+            }
+            ExprKind::Record { fields, .. } => {
+                for field in fields {
+                    self.evaluable(&field.value);
+                }
+                return;
+            }
+            ExprKind::Map(entries) => {
+                for entry in entries {
+                    if let MapKey::Computed(key) = &entry.key {
+                        self.evaluable(key);
+                    }
+                    self.evaluable(&entry.value);
+                }
+                return;
+            }
+
+            // LR15.3: building an enum variant is construction, not a call.
+            // Anything else called runs code, and running code is what a
+            // `const` cannot do.
+            ExprKind::Call {
+                callee,
+                method,
+                args,
+                ..
+            } => {
+                if method.is_none()
+                    && let ExprKind::Field { receiver, name, .. } = &callee.kind
+                    && let ExprKind::Name(owner) = &receiver.kind
+                    && self.variant(owner, name).is_some()
+                {
+                    for argument in args {
+                        self.evaluable(&argument.value);
+                    }
+                    return;
+                }
+
+                "calls a function, which is not run while compiling"
+            }
+            ExprKind::Field { receiver, name, .. } => {
+                if let ExprKind::Name(owner) = &receiver.kind
+                    && self.variant(owner, name).is_some()
+                {
+                    return;
+                }
+                "reads a member, which needs the value it is read from"
+            }
+
+            ExprKind::Index { .. } => "reads an element, which needs the value it is read from",
+            ExprKind::Function { .. } => "is a function, which has no value until it runs",
+            ExprKind::Try(_) => "propagates an error, which needs something to have run",
+            _ => "is not one of the forms a `const` is worked out from",
+        };
+
+        self.diagnostics.push(
+            Diagnostic::error(
+                codes::CONST_NOT_EVALUABLE,
+                value.span,
+                format!("this {reason}"),
+            )
+            .note(
+                "A `const` is worked out from literals, operators, and other \
+                 `const` values (LR24).",
+            ),
+        );
+    }
+
+    /// Marks the names a `const` bound, so that assigning to one is reported
+    /// (LR5.2).
+    fn bind_constant(&mut self, binding: &Binding) {
+        for name in bound(binding) {
+            self.constants
+                .last_mut()
+                .expect("a scope is open")
+                .insert(name);
+        }
+    }
+
+    /// Whether `name` reads a `const`, decided in the scope that binds the
+    /// name rather than an outer one it shadows (LR53).
+    fn is_constant(&self, name: &str) -> bool {
+        for (values, constants) in self.values.iter().zip(&self.constants).rev() {
+            if values.contains_key(name) {
+                return constants.contains(name);
+            }
+        }
+
+        // A module-level `const` is a name of the module, and stays one
+        // through an import (LR21.3, LR24).
+        let origin = self.names.scope(self.scope).get(name).map(|b| &b.origin);
+        match origin {
+            Some(Origin::Binding { constant, .. }) => *constant,
+            Some(Origin::Imported { module, name }) => matches!(
+                self.names.scope(*module).get(name).map(|b| &b.origin),
+                Some(Origin::Binding { constant: true, .. })
+            ),
+            _ => false,
+        }
     }
 
     /// What `condition` proves about the names it tests (LR57).

@@ -1,0 +1,21 @@
+--- expect: compile-ok
+--- spec: LR24
+--- spec: LR79
+enum Colour
+    Red
+    Named(string)
+end
+
+const size = 1024 * 64
+const doubled = size * 2
+const label = "buffer"
+const greeting = "hello, ${label}"
+const pair = (size, label)
+const shade = Colour.Red
+const named = Colour.Named("red")
+const wide = size as i64
+const compared = size > 10
+
+export function main()
+    print(doubled, greeting, pair, shade, named, wide, compared)
+end

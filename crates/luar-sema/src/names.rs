@@ -35,8 +35,8 @@ pub enum Origin {
     Declared { exported: bool },
     /// A module-level `local` or `const` (LR21.3), in scope from where it is
     /// written onward rather than throughout. Only a `const` is exportable
-    /// (LR52).
-    Binding { exported: bool },
+    /// (LR52), and only a `const` may be read while compiling (LR24).
+    Binding { exported: bool, constant: bool },
     /// One name from another module, under the name it has here, which `as`
     /// may have changed (LR21.1).
     Imported { module: ModuleId, name: String },
@@ -48,7 +48,7 @@ pub enum Origin {
 fn exported(origin: &Origin) -> bool {
     matches!(
         origin,
-        Origin::Declared { exported: true } | Origin::Binding { exported: true }
+        Origin::Declared { exported: true } | Origin::Binding { exported: true, .. }
     )
 }
 
@@ -180,11 +180,11 @@ fn declarations(items: &[Item], scope: &mut Scope) {
             // A module-level binding is a name of the module too (LR21.3), and
             // a `const` may be exported (LR52).
             Item::Stmt(stmt) => {
-                let (binding, exported) = match &stmt.kind {
-                    StmtKind::Local { binding, .. } => (binding, false),
+                let (binding, exported, constant) = match &stmt.kind {
+                    StmtKind::Local { binding, .. } => (binding, false, false),
                     StmtKind::Const {
                         binding, exported, ..
-                    } => (binding, *exported),
+                    } => (binding, *exported, true),
                     _ => continue,
                 };
 
@@ -192,7 +192,7 @@ fn declarations(items: &[Item], scope: &mut Scope) {
                     scope.bind(
                         name,
                         Binding {
-                            origin: Origin::Binding { exported },
+                            origin: Origin::Binding { exported, constant },
                             span: stmt.span,
                         },
                     );

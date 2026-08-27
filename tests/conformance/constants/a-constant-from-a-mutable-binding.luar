@@ -1,0 +1,10 @@
+--- expect: compile-error
+--- code: LR0176
+--- span: 8:18
+--- spec: LR24
+--- spec: LR79
+export function main()
+    local width = 10
+    const size = width
+    print(size)
+end

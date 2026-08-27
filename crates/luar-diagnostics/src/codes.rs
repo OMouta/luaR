@@ -225,6 +225,10 @@ registry! {
         "`as` converts between numeric types; there is no universal cast.";
     active 174 => MIXED_ARITHMETIC, "LR39",
         "Arithmetic is on one numeric type; mixing two means writing the conversion.";
+    active 175 => ASSIGN_TO_CONSTANT, "LR5.2",
+        "`const` binds a name once, and nothing may bind it again.";
+    active 176 => CONST_NOT_EVALUABLE, "LR24",
+        "A `const` is worked out while compiling, over the pure subset that allows.";
 }
 
 #[cfg(test)]
