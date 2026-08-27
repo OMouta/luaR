@@ -1717,10 +1717,10 @@ impl Checker<'_> {
                 Some(Type::Primitive(Primitive::I64)),
                 element.as_ref().clone(),
             ),
-            // Everything else is a container this stage does not model, and
-            // what indexing one means waits for the protocol that says so
-            // (LR36).
-            _ => return Type::Unresolved,
+            // LR36: every other type is indexed through `Index`.
+            other => {
+                return self.overloaded("[]", "Index", "index", other, Some((key, key_span)), span);
+            }
         };
 
         if let Some(wanted) = wanted

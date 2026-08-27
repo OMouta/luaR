@@ -1,0 +1,14 @@
+--- expect: compile-ok
+--- spec: LR36
+--- spec: LR37
+struct Grid
+    cells: List<int>
+
+    function index(self, at: int): int
+        return self.cells[at]
+    end
+end
+
+export function cell(grid: Grid): int
+    return grid[3]
+end
