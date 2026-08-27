@@ -13,14 +13,15 @@
 use std::collections::HashMap;
 
 use luar_ast::{
-    BinaryOp as AstBinary, Binding, Block, Expr, ExprKind, Stmt, StmtKind, UnaryOp as AstUnary,
+    ArmBody, BinaryOp as AstBinary, Binding, Block, Branch, Expr, ExprKind, Stmt, StmtKind,
+    UnaryOp as AstUnary,
 };
 use luar_diagnostics::Span;
 use luar_sema::facts::Facts;
 
 use luar_sema::types::Type;
 
-use crate::inst::{BinaryOp, Const, Inst, InstKind, Terminator, Trap, UnaryOp, Value};
+use crate::inst::{BinaryOp, Const, Inst, InstKind, Target, Terminator, Trap, UnaryOp, Value};
 use crate::lower::Gap;
 use crate::lower::types::{self, Ids};
 use crate::program::{BlockId, Function};
@@ -29,6 +30,31 @@ use crate::ty::Ty;
 /// A binding, told apart from every other one with its name (LR53).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct Var(u32);
+
+/// One path reaching the end of a construct: the block it left from, and what
+/// every binding held there.
+struct Arrival {
+    block: BlockId,
+    defs: HashMap<Var, Value>,
+}
+
+/// A loop being lowered, and where leaving it goes (LR10.6, LR10.7).
+struct Loop {
+    label: Option<String>,
+    /// Where `continue` goes. Absent for a `repeat`, whose condition is part
+    /// of its body and so has no block of its own (LR10.3).
+    again: Option<BlockId>,
+    /// Where `break` goes.
+    exit: BlockId,
+    /// The bindings both of those pass along.
+    carried: Vec<Var>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Exit {
+    Break,
+    Continue,
+}
 
 /// What lowering a body needs from the rest of the program.
 pub(super) struct Context<'a> {
@@ -50,6 +76,8 @@ pub(super) struct Body<'a> {
     /// The value each binding currently holds.
     defs: HashMap<Var, Value>,
     next_var: u32,
+    /// The loops open around what is being lowered, innermost last.
+    loops: Vec<Loop>,
     gaps: Vec<Gap>,
 }
 
@@ -67,6 +95,7 @@ impl<'a> Body<'a> {
             scopes: vec![Vec::new()],
             defs: HashMap::new(),
             next_var: 0,
+            loops: Vec::new(),
             gaps: Vec::new(),
         }
     }
@@ -223,12 +252,296 @@ impl<'a> Body<'a> {
             } => self.local(binding, ty.as_ref(), Some(value), stmt.span),
             StmtKind::Assign { target, op, value } => self.assign(target, *op, value, stmt.span),
             StmtKind::Return(value) => self.ret(value.as_ref(), stmt.span),
+            StmtKind::If {
+                branches,
+                otherwise,
+            } => self.if_stmt(branches, otherwise.as_ref()),
+            StmtKind::While {
+                label,
+                condition,
+                body,
+            } => self.while_stmt(label.as_deref(), condition, body),
+            StmtKind::Repeat { label, body, until } => {
+                self.repeat_stmt(label.as_deref(), body, until)
+            }
+            StmtKind::Break(label) => self.leave(label.as_deref(), Exit::Break, stmt.span),
+            StmtKind::Continue(label) => self.leave(label.as_deref(), Exit::Continue, stmt.span),
+            // LR29.2: `unsafe` is a promise the checker made the caller keep.
+            // Nothing about what the block does changes here.
+            StmtKind::Unsafe(block) => self.block(block),
             StmtKind::Expr(expr) => {
                 self.expr(expr, None);
             }
             StmtKind::Error => {}
             _ => self.gap(stmt.span, "a statement"),
         }
+    }
+
+    // -- control flow -----------------------------------------------------
+
+    /// LR10.1: each condition is tested in turn, and the first that holds
+    /// runs its block. What every path that reaches the end agrees on carries
+    /// through; what it does not becomes a parameter of the block they meet
+    /// in.
+    fn if_stmt(&mut self, branches: &[Branch], otherwise: Option<&Block>) {
+        let join = self.function.add_block();
+        let mut arrivals = Vec::new();
+
+        for branch in branches {
+            let condition = self.expr(&branch.condition, Some(&Ty::Bool));
+            let then = self.function.add_block();
+            let next = self.function.add_block();
+            self.terminate(Terminator::Branch {
+                condition,
+                then: Target::to(then),
+                otherwise: Target::to(next),
+            });
+
+            let saved = self.defs.clone();
+            self.switch_to(then);
+            self.block(&branch.body);
+            if !self.left {
+                arrivals.push(Arrival {
+                    block: self.current,
+                    defs: self.defs.clone(),
+                });
+            }
+
+            self.defs = saved;
+            self.switch_to(next);
+        }
+
+        if let Some(otherwise) = otherwise {
+            self.block(otherwise);
+        }
+        if !self.left {
+            arrivals.push(Arrival {
+                block: self.current,
+                defs: self.defs.clone(),
+            });
+        }
+
+        self.join(arrivals, join);
+    }
+
+    /// LR10.2: the condition is tested before each pass.
+    fn while_stmt(&mut self, label: Option<&str>, condition: &Expr, body: &Block) {
+        let carried = self.carried(body);
+        let header = self.function.add_block();
+        self.jump_to(header, &carried);
+
+        self.switch_to(header);
+        self.add_params(header, &carried);
+        self.bind_params(header, &carried);
+        let entering = self.defs.clone();
+
+        let condition = self.expr(condition, Some(&Ty::Bool));
+        let inside = self.function.add_block();
+        let exit = self.function.add_block();
+        let leaving: Vec<Value> = carried.iter().map(|var| self.defs[var]).collect();
+        self.add_params(exit, &carried);
+        self.terminate(Terminator::Branch {
+            condition,
+            then: Target::to(inside),
+            otherwise: Target::new(exit, leaving),
+        });
+
+        self.switch_to(inside);
+        self.defs = entering.clone();
+        self.loops.push(Loop {
+            label: label.map(ToOwned::to_owned),
+            again: Some(header),
+            exit,
+            carried: carried.clone(),
+        });
+        self.block(body);
+        if !self.left {
+            self.jump_to(header, &carried);
+        }
+        self.loops.pop();
+
+        self.switch_to(exit);
+        self.defs = entering;
+        self.bind_params(exit, &carried);
+    }
+
+    /// LR10.3: the body runs before the condition is tested, so the loop runs
+    /// at least once, and the condition is part of the body's scope.
+    fn repeat_stmt(&mut self, label: Option<&str>, body: &Block, until: &Expr) {
+        let carried = self.carried(body);
+        let inside = self.function.add_block();
+        self.jump_to(inside, &carried);
+
+        let exit = self.function.add_block();
+        self.add_params(inside, &carried);
+
+        self.switch_to(inside);
+        self.bind_params(inside, &carried);
+        let entering = self.defs.clone();
+
+        // LR10.3: `until` reads what the body declared, so it is lowered
+        // inside the body's scope rather than in a block of its own.
+        self.scopes.push(Vec::new());
+        self.loops.push(Loop {
+            label: label.map(ToOwned::to_owned),
+            again: None,
+            exit,
+            carried: carried.clone(),
+        });
+        for stmt in &body.stmts {
+            if self.left {
+                break;
+            }
+            self.stmt(stmt);
+        }
+
+        if !self.left {
+            let condition = self.expr(until, Some(&Ty::Bool));
+            let leaving: Vec<Value> = carried.iter().map(|var| self.defs[var]).collect();
+            self.add_params(exit, &carried);
+            self.terminate(Terminator::Branch {
+                condition,
+                then: Target::new(exit, leaving.clone()),
+                otherwise: Target::new(inside, leaving),
+            });
+        } else {
+            self.add_params(exit, &carried);
+        }
+        self.loops.pop();
+        self.scopes.pop();
+
+        self.switch_to(exit);
+        self.defs = entering;
+        self.bind_params(exit, &carried);
+    }
+
+    /// LR10.6, LR10.7: `break` leaves the loop and `continue` starts its next
+    /// pass, either the innermost one or the one a label names.
+    fn leave(&mut self, label: Option<&str>, exit: Exit, span: Span) {
+        let found = self.loops.iter().rev().find(|held| match label {
+            Some(label) => held.label.as_deref() == Some(label),
+            None => true,
+        });
+
+        let Some(found) = found else {
+            self.gap(span, "leaving a loop the compiler could not find");
+            return;
+        };
+
+        let block = match exit {
+            Exit::Break => Some(found.exit),
+            Exit::Continue => found.again,
+        };
+        let carried = found.carried.clone();
+
+        let Some(block) = block else {
+            // LR10.3: a `repeat` condition reads what the body declared, so
+            // it is lowered at the end of the body rather than in a block a
+            // `continue` could jump to. Reaching it from the middle needs a
+            // rule about what a binding declared after the `continue` holds,
+            // and there is none to lower to.
+            self.gap(span, "`continue` inside `repeat`");
+            return;
+        };
+        self.jump_to(block, &carried);
+    }
+
+    /// Gives `block` a parameter for each carried binding, typed as the
+    /// binding is now.
+    fn add_params(&mut self, block: BlockId, carried: &[Var]) {
+        for var in carried {
+            let ty = self.function.type_of(self.defs[var]).clone();
+            self.function.add_block_param(block, ty);
+        }
+    }
+
+    /// Points each carried binding at the parameter `block` receives it in.
+    fn bind_params(&mut self, block: BlockId, carried: &[Var]) {
+        let params = self.function.block(block).params.clone();
+        for (var, param) in carried.iter().zip(params) {
+            self.defs.insert(*var, param);
+        }
+    }
+
+    fn jump_to(&mut self, block: BlockId, carried: &[Var]) {
+        let args = carried.iter().map(|var| self.defs[var]).collect();
+        self.terminate(Terminator::Jump(Target::new(block, args)));
+    }
+
+    /// Merges the paths that reached the end of a construct into `join`.
+    ///
+    /// A binding every path agrees on carries through. One they do not
+    /// becomes a parameter of `join`, and each path passes what it holds,
+    /// which is a phi written where the jump can see it.
+    fn join(&mut self, arrivals: Vec<Arrival>, join: BlockId) {
+        if arrivals.is_empty() {
+            // LR50: every path left, so nothing after this runs.
+            self.switch_to(join);
+            self.terminate(Terminator::Trap(Trap::Unreachable));
+            return;
+        }
+
+        let visible: Vec<Var> = self
+            .scopes
+            .iter()
+            .flatten()
+            .map(|(_, var)| *var)
+            .filter(|var| {
+                arrivals
+                    .iter()
+                    .all(|arrival| arrival.defs.contains_key(var))
+            })
+            .collect();
+
+        let mut merged = HashMap::new();
+        let mut parameters = Vec::new();
+        for var in visible {
+            let first = arrivals[0].defs[&var];
+            if arrivals.iter().all(|arrival| arrival.defs[&var] == first) {
+                merged.insert(var, first);
+            } else {
+                let ty = self.function.type_of(first).clone();
+                let param = self.function.add_block_param(join, ty);
+                merged.insert(var, param);
+                parameters.push(var);
+            }
+        }
+
+        for arrival in &arrivals {
+            let args = parameters.iter().map(|var| arrival.defs[var]).collect();
+            self.function.block_mut(arrival.block).term =
+                Some(Terminator::Jump(Target::new(join, args)));
+        }
+
+        self.switch_to(join);
+        self.defs = merged;
+    }
+
+    /// The bindings a loop body may write to, which are the ones its blocks
+    /// have to pass along (LR5.4).
+    ///
+    /// A name declared inside the body resolves to nothing out here and is
+    /// left out. A name the body shadows resolves to the outer binding, which
+    /// carries one value further than it needs to and never one too few.
+    fn carried(&self, body: &Block) -> Vec<Var> {
+        let mut names = Vec::new();
+        assigned(body, &mut names);
+
+        let mut carried = Vec::new();
+        for name in names {
+            if let Some(var) = self.lookup(&name)
+                && self.defs.contains_key(&var)
+                && !carried.contains(&var)
+            {
+                carried.push(var);
+            }
+        }
+        carried
+    }
+
+    fn switch_to(&mut self, block: BlockId) {
+        self.current = block;
+        self.left = false;
     }
 
     fn local(
@@ -413,9 +726,8 @@ impl<'a> Body<'a> {
 
     fn binary(&mut self, op: AstBinary, left: &Expr, right: &Expr, span: Span) -> Value {
         match op {
-            AstBinary::And | AstBinary::Or | AstBinary::Coalesce => {
-                self.missing(span, "a short-circuiting operator")
-            }
+            AstBinary::And | AstBinary::Or => self.logical(op == AstBinary::And, left, right, span),
+            AstBinary::Coalesce => self.coalesce(left, right, span),
             _ => {
                 let Some(lowered) = binary_op(op) else {
                     return self.missing(span, "a binary operator");
@@ -438,6 +750,66 @@ impl<'a> Body<'a> {
         }
     }
 
+    /// LR11.4, LR56: `and` does not evaluate its right operand where the left
+    /// is false, and `or` does not where the left is true.
+    fn logical(&mut self, all: bool, left: &Expr, right: &Expr, span: Span) -> Value {
+        let left = self.expr(left, Some(&Ty::Bool));
+        let rest = self.function.add_block();
+        let join = self.function.add_block();
+        let settled = self.emit(InstKind::Const(Const::Bool(!all)), Ty::Bool, span);
+
+        let short = Target::new(join, vec![settled]);
+        self.terminate(if all {
+            Terminator::Branch {
+                condition: left,
+                then: Target::to(rest),
+                otherwise: short,
+            }
+        } else {
+            Terminator::Branch {
+                condition: left,
+                then: short,
+                otherwise: Target::to(rest),
+            }
+        });
+
+        self.switch_to(rest);
+        let right = self.expr(right, Some(&Ty::Bool));
+        self.terminate(Terminator::Jump(Target::new(join, vec![right])));
+
+        self.switch_to(join);
+        self.function.add_block_param(join, Ty::Bool)
+    }
+
+    /// LR8, LR56: `??` takes the left where it holds a value, and does not
+    /// evaluate the right at all.
+    fn coalesce(&mut self, left: &Expr, right: &Expr, span: Span) -> Value {
+        let ty = self.recorded(span);
+        let optional = Ty::Optional(Box::new(ty.clone()));
+        let left = self.expr(left, Some(&optional));
+
+        let present = self.function.add_block();
+        let absent = self.function.add_block();
+        let join = self.function.add_block();
+        let held = self.emit(InstKind::IsSome { value: left }, Ty::Bool, span);
+        self.terminate(Terminator::Branch {
+            condition: held,
+            then: Target::to(present),
+            otherwise: Target::to(absent),
+        });
+
+        self.switch_to(present);
+        let inside = self.emit(InstKind::Unwrap { value: left }, ty.clone(), span);
+        self.terminate(Terminator::Jump(Target::new(join, vec![inside])));
+
+        self.switch_to(absent);
+        let fallback = self.expr(right, Some(&ty));
+        self.terminate(Terminator::Jump(Target::new(join, vec![fallback])));
+
+        self.switch_to(join);
+        self.function.add_block_param(join, ty)
+    }
+
     /// A value put where `wanted` is asked for.
     ///
     /// LR8: a `T` fills a `T?` by being wrapped, which is where the wrapping
@@ -449,6 +821,58 @@ impl<'a> Body<'a> {
                 self.emit(InstKind::MakeSome { value }, wanted.clone(), span)
             }
             _ => value,
+        }
+    }
+}
+
+/// The names `block` assigns to, anywhere inside it.
+///
+/// Over-approximating is safe: a name that turns out to be shadowed or
+/// declared inside carries a value one block further than it needs to. Missing
+/// one is not, because the block that merged the paths would then read a
+/// value from the wrong pass.
+fn assigned(block: &Block, out: &mut Vec<String>) {
+    for stmt in &block.stmts {
+        match &stmt.kind {
+            StmtKind::Assign { target, .. } => {
+                if let ExprKind::Name(name) = &target.kind {
+                    out.push(name.clone());
+                }
+            }
+            StmtKind::If {
+                branches,
+                otherwise,
+            } => {
+                for branch in branches {
+                    assigned(&branch.body, out);
+                }
+                if let Some(otherwise) = otherwise {
+                    assigned(otherwise, out);
+                }
+            }
+            StmtKind::While { body, .. }
+            | StmtKind::Repeat { body, .. }
+            | StmtKind::For { body, .. }
+            | StmtKind::Unsafe(body) => assigned(body, out),
+            StmtKind::Match { arms, .. } => {
+                for arm in arms {
+                    if let ArmBody::Block(body) = &arm.body {
+                        assigned(body, out);
+                    }
+                }
+            }
+            StmtKind::Conditional {
+                branches,
+                otherwise,
+            } => {
+                for (_, body) in branches {
+                    assigned(body, out);
+                }
+                if let Some(otherwise) = otherwise {
+                    assigned(otherwise, out);
+                }
+            }
+            _ => {}
         }
     }
 }
