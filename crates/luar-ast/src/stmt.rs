@@ -94,6 +94,8 @@ pub enum StmtKind {
     /// LR89.1: a function declaration is not a statement, so `unsafe` here
     /// always opens a block and never modifies a declaration.
     Unsafe(Block),
+    /// `defer call()`, run when the scope it is written in is left (LR26).
+    Defer(Expr),
     /// `match value ... end`, whose cases are blocks (LR16.1).
     Match {
         scrutinee: Expr,

@@ -1,0 +1,15 @@
+--- expect: compile-ok
+--- spec: LR26
+struct File
+    handle: int
+
+    function close(self): int
+        return 0
+    end
+end
+
+export function main()
+    local file = File { handle = 1 }
+    defer file:close()
+    print(file.handle)
+end

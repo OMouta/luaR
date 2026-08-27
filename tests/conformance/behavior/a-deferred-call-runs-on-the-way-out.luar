@@ -1,0 +1,17 @@
+--- expect: run
+--- exit: 3
+--- spec: LR26
+--- spec: LR45
+struct File
+    handle: int
+
+    function close(self): int
+        return 0
+    end
+end
+
+export function main(): int
+    local file = File { handle = 3 }
+    defer file:close()
+    return file.handle
+end

@@ -858,6 +858,11 @@ impl Checker<'_> {
                 self.block(body);
                 self.unsafely -= 1;
             }
+            // LR26: a deferred call is checked where it is written, because
+            // that is the scope whose names it reads.
+            StmtKind::Defer(deferred) => {
+                self.expr(deferred);
+            }
             StmtKind::Match { scrutinee, arms } => {
                 let held = self.expr(scrutinee);
                 for arm in arms {

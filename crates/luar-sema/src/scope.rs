@@ -294,6 +294,9 @@ impl Resolver<'_> {
                 }
             }
             StmtKind::Unsafe(body) => self.block(body),
+            // LR26: what is deferred is written here and runs on the way out,
+            // so its names are the ones in scope where it is written.
+            StmtKind::Defer(deferred) => self.expr(deferred),
             StmtKind::Match { scrutinee, arms } => {
                 self.expr(scrutinee);
                 for arm in arms {

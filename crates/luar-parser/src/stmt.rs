@@ -75,6 +75,7 @@ pub(crate) fn statement(cursor: &mut Cursor) -> Stmt {
         TokenKind::Keyword(Keyword::For) => for_loop(cursor, None),
         TokenKind::Keyword(Keyword::Match) => match_statement(cursor),
         TokenKind::Keyword(Keyword::Unsafe) => unsafe_block(cursor),
+        TokenKind::Keyword(Keyword::Defer) => defer(cursor),
         // LR48: conditional compilation selects statements here, declarations
         // where declarations go.
         TokenKind::Hash if cursor.at_directive(Keyword::If) => conditional_compilation(cursor),
@@ -551,6 +552,28 @@ fn match_statement(cursor: &mut Cursor) -> StmtKind {
 /// LR89.1: a function declaration is not a statement, so `unsafe` in statement
 /// position always opens a block. The modifier form is read where
 /// declarations are.
+/// `defer call()`, which runs on the way out of the scope it is written in
+/// (LR26).
+///
+/// What is deferred is a call, for the same reason an expression statement is
+/// one: anything else computes a value that nothing will read (LR89.1).
+fn defer(cursor: &mut Cursor) -> StmtKind {
+    cursor.advance();
+
+    let deferred = expr::expression(cursor);
+    if !has_effect(&deferred) {
+        cursor
+            .error(
+                codes::STATEMENT_WITHOUT_EFFECT,
+                deferred.span,
+                "this computes a value and then discards it",
+            )
+            .note("`defer` schedules a call, which is what has something to undo (LR26).");
+    }
+
+    StmtKind::Defer(deferred)
+}
+
 fn unsafe_block(cursor: &mut Cursor) -> StmtKind {
     let opened = cursor.span();
     cursor.advance();
