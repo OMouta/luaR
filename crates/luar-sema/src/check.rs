@@ -2952,7 +2952,7 @@ impl Checker<'_> {
                         _ => (">=", "Comparable", "compare"),
                     };
 
-                    self.overloaded(
+                    let produced = self.overloaded(
                         spelling,
                         protocol,
                         method,
@@ -2960,6 +2960,31 @@ impl Checker<'_> {
                         Some((&held_right, right.span)),
                         op_span,
                     );
+
+                    // LR36: the operator answers `bool` whatever the method
+                    // answers, so the protocol is what pins the method down.
+                    let wanted = if protocol == "Eq" {
+                        Type::BOOL
+                    } else {
+                        Type::Primitive(Primitive::I64)
+                    };
+
+                    if !matches!(produced, Type::Unresolved) && !wanted.accepts(&produced) {
+                        self.diagnostics.push(
+                            Diagnostic::error(
+                                codes::PROTOCOL_RESULT,
+                                op_span,
+                                format!(
+                                    "`{method}` returns {}, and `{protocol}` returns `{wanted}`",
+                                    article(&produced)
+                                ),
+                            )
+                            .note(format!(
+                                "`{spelling}` answers a `bool` however `{method}` \
+                                 answers, so the protocol fixes it (LR36)."
+                            )),
+                        );
+                    }
                 }
 
                 Type::BOOL

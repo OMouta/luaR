@@ -228,6 +228,8 @@ registry! {
         "Arithmetic is on numbers of one type.";
     active 185 => BITWISE_OPERANDS, "LR11.5",
         "A bitwise operator is on integers of one type.";
+    active 186 => PROTOCOL_RESULT, "LR36",
+        "A protocol method returns what the operator calling it needs.";
 }
 
 #[cfg(test)]
