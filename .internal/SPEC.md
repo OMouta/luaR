@@ -2,6 +2,8 @@
 
 > Working specification for a compiled, general-purpose language derived from the syntax and ergonomics of Luau.
 
+<!-- normative: LR1-LR81, LR89.1, LR89.2 -->
+
 ## 1. Overview
 
 LuaR is a statically compiled, general-purpose programming language inspired by Luau and Lua. It is not a Luau implementation and does not aim for Luau compatibility.
@@ -9,6 +11,8 @@ LuaR is a statically compiled, general-purpose programming language inspired by 
 LuaR keeps the parts of Luau that make code concise and readable: lightweight syntax, first-class functions, table-like literals, type inference, structural types, expression-oriented programming, and familiar control flow. It extends that foundation with features intended for general-purpose software development, including native value types, records, enums, pattern matching, decorators, modules, explicit error handling, async programming, interfaces, generics, package-aware imports, and native interoperability.
 
 A conforming implementation compiles source code before execution. LuaR does not define an interpreter execution model.
+
+Sections LR1 through LR81, LR89.1, and LR89.2 are normative. LR82 through LR91 are examples, summaries, grammar notes, and design history except for the two normative LR89 subsections named above. The `normative` directive at the top of this file is the machine-readable source for conformance coverage.
 
 LuaR is designed around the following properties:
 
@@ -684,6 +688,17 @@ The condition is part of the body's scope and reads the bindings it declares.
 repeat
     local line = readLine()
 until line == nil
+```
+
+`continue` targeting a `repeat` loop transfers control to its condition. Definite-initialization analysis includes that edge. Reading a binding in the condition is an error when a `continue` can bypass the binding's initialization.
+
+```lua
+repeat
+    if shouldSkip() then
+        continue
+    end
+    local line = readLine()
+until line == nil              -- error: line may be uninitialized
 ```
 
 ### 10.4 Ranges
@@ -1721,6 +1736,22 @@ Decorators are expanded before final type checking of generated declarations.
 
 Decorator expansion must be deterministic for a fixed compiler environment and package graph.
 
+Packages declare decorators at module level. A decorator declaration has an implicit compile-time execution context and no runtime value:
+
+```lua
+export decorator Json(target: TypeDeclaration, options: JsonOptions = JsonOptions {})
+    target:addImplementation("Serialize", serializerFor(target, options))
+end
+```
+
+The first parameter accepts a compiler metadata type for the declaration kinds the decorator supports. Arguments written at the use site fill the remaining parameters. Applying `@Json(options)` calls the declaration with the decorated declaration as `target`.
+
+Decorator declarations return `()` and may not be `async`, `unsafe`, generic, nested, or overloaded. Their bodies may use ordinary control flow, compile-time values from their defining module, and the typed decorator API. They may not perform runtime I/O, inspect the process environment, call FFI, mutate module state, or depend on time or randomness.
+
+Decorator names use ordinary module resolution. A package decorator must be imported before use. Several decorators on one declaration expand from top to bottom, and each sees changes made by the decorators above it. Generated members carry the application span and the decorator declaration span for diagnostics.
+
+The decorator API exposes typed declaration metadata and builders for members, implementations, attributes, and diagnostics. It does not accept source text and cannot create a top-level declaration. `@derive(Name)` resolves `Name` as a built-in derivation or an imported decorator declaration, then applies it to the attached type under the same restrictions.
+
 ### 23.2 Built-In Attributes
 
 LuaR reserves built-in decorators for ABI and compiler semantics.
@@ -1734,6 +1765,7 @@ Examples:
 @cold
 @repr("C")
 @test
+@finalizer
 ```
 
 Compiler-specific decorators must use a namespaced form rather than polluting ordinary source syntax.
@@ -1946,16 +1978,22 @@ LuaR permits native threads through the standard library.
 
 Ordinary heap objects are not automatically safe for concurrent mutation.
 
-Types may implement marker interfaces such as:
+The standard marker interfaces are `std/thread.Send` and `std/thread.Sync`:
 
 ```text
 Send
 Sync
 ```
 
-or equivalent language-defined traits controlling whether values can cross thread boundaries or be shared.
+`Send` permits a value to cross into another thread. `Sync` permits shared access from several threads. Thread creation requires a `Send` closure. A shared handle exposed to several threads requires `Sync`.
 
-The exact names are subject to standard-library design, but compile-time concurrency checking should prevent obviously unsafe transfers where the type system can express the constraint.
+The compiler derives these markers. User source may use them as constraints but may not name them in an `implements` clause.
+
+Primitive values and strings are `Send` and `Sync`. A tuple, array, value struct, or enum has a marker when every value it contains has that marker. A frozen collection has a marker when its keys and values do. A closure is `Send` when every capture is by value and `Send`; a closure with a mutable captured cell is not `Send`.
+
+Mutable collections, ordinary `ref struct` values, raw pointers, and interface values without the marker in their static type are neither `Send` nor `Sync`. Standard synchronization types and thread-owned handles may carry compiler-declared marker conformance.
+
+Sending a value never creates an unsynchronized alias to mutable state. Standard APIs use ownership transfer, copying, frozen values, channels, or synchronization types to cross the boundary. A program that cannot prove the required marker is rejected at the call that crosses or shares the value.
 
 Synchronization primitives include standard abstractions such as:
 
@@ -2008,6 +2046,10 @@ Unsafe capabilities may include:
 - unchecked casts.
 
 Unsafe code does not disable type checking outside the operations explicitly defined as unsafe.
+
+LuaR uses calls rather than extra operators for unsafe memory operations. Arrays, lists, byte strings, and slices provide `unchecked(index)` for a read and `uncheckedSet(index, value)` for a write. Raw pointers provide `read()`, `write(value)`, and `add(offset)`. `std/mem.reinterpret<T>(value)` reinterprets the bits of a plain ABI-representable value or raw pointer as `T`.
+
+Each operation requires an `unsafe` context. `reinterpret` requires source and target to have the same size. It does not convert managed references. The caller must satisfy bounds, alignment, provenance, initialization, and target-validity requirements. Violating one of those requirements has undefined behavior.
 
 ---
 
@@ -2635,7 +2677,24 @@ An unsafe unchecked-unreachable primitive, if provided, must be separately named
 
 Managed objects do not have deterministic destructors tied to lexical scope.
 
-A type may define a finalizer for last-resort cleanup of managed resources, but:
+A `ref struct` declares at most one finalizer by applying `@finalizer` to an instance function:
+
+```lua
+ref struct NativeHandle
+    handle: *mut u8
+
+    @finalizer
+    function release(self)
+        unsafe
+            native_release(self.handle)
+        end
+    end
+end
+```
+
+The function has no explicit parameters, returns `()`, and is not async, generic, fallible, or throwing. It is not an ordinary callable member. The runtime may invoke it once after the object becomes unreachable and keeps the object valid for the duration of the call. Resurrection does not schedule it a second time.
+
+Finalizers are for last-resort cleanup of managed resources, and:
 
 - finalization timing is unspecified;
 - finalizers may never run at process termination;
@@ -3160,6 +3219,8 @@ local item = values:get(index)
 
 Unsafe unchecked indexing requires an explicit unsafe operation.
 
+The source forms are `container:unchecked(index)` and `container:uncheckedSet(index, value)` inside `unsafe` (LR29.2). They perform no bounds check. An out-of-range access has undefined behavior.
+
 The compiler may eliminate bounds checks when it can prove an access is safe.
 
 ---
@@ -3221,6 +3282,8 @@ Taking the address of a temporary, of a `const` binding through `&mut`, or of a 
 
 Managed references are never written as raw pointers in source, and there is no operator that converts one into the other outside `unsafe` reinterpretation.
 
+Pointer dereference and arithmetic use the unsafe methods `read()`, `write(value)`, and `add(offset)` (LR29.2). `std/mem.reinterpret<T>(value)` accepts plain ABI-representable values and raw pointers, never managed references.
+
 ---
 
 ## 73. ABI-Stable Layout
@@ -3260,7 +3323,17 @@ struct User
 end
 ```
 
-The exact derives belong to libraries.
+Serialization derives belong to packages. The package exports a decorator declaration, and the program imports its name before passing it to `@derive` (LR23.1).
+
+```lua
+import { Json } from "encoding/json"
+
+@derive(Json)
+struct User
+    id: u64
+    name: string
+end
+```
 
 LuaR provides sufficient compile-time metadata support for these libraries without requiring runtime reflection everywhere.
 
@@ -3375,7 +3448,13 @@ Whether a constant occupies storage is not observable unless its address is expl
 
 ## 80. Error Diagnostics as a Language Requirement
 
-A conforming compiler should produce source-oriented diagnostics with:
+A compile-time rejection required by a normative rule has a stable diagnostic code. Codes use the form `LRdddd`. Once assigned, a number is never reused. Removing or combining a diagnostic retires its number.
+
+One code names one failure category. The same category may enforce rules in several spec sections. Its registry entry cites the primary normative section defining the category. Each compiler use and conformance test cites the exact section whose rule rejected the program.
+
+Changing a category's meaning requires a new code. Improving its wording, notes, secondary spans, or rendering does not.
+
+A conforming compiler produces source-oriented diagnostics with:
 
 - exact source ranges;
 - expected and actual types;
@@ -3384,7 +3463,7 @@ A conforming compiler should produce source-oriented diagnostics with:
 - decorator expansion context;
 - generic instantiation context.
 
-Diagnostic wording is not standardized, but source semantics should be designed so common failures can be explained without exposing compiler internals.
+Diagnostic wording is not standardized. The code and primary source span are normative for a rejection test.
 
 ---
 
@@ -3611,10 +3690,10 @@ Safe application code should normally consume a wrapper rather than invoking for
 
 ## 86. Example Decorator
 
-A conceptual decorator declaration may look like:
+A package decorator declaration may look like:
 
 ```lua
-decorator Serializable(target: TypeDeclaration)
+export decorator Serializable(target: TypeDeclaration)
     if target.kind ~= "struct" then
         target:report("@Serializable can only be applied to structs")
         return
@@ -3624,9 +3703,7 @@ decorator Serializable(target: TypeDeclaration)
 end
 ```
 
-The exact decorator-definition API remains a language/tooling surface separate from ordinary runtime APIs.
-
-What matters semantically is that decorator expansion is compile-time, typed, deterministic, inspectable, and incapable of arbitrary hidden runtime mutation.
+The typed builder methods come from the compile-time decorator API defined by LR23.1.
 
 ---
 
@@ -3727,6 +3804,7 @@ module          = { import_decl | declaration | statement } ;
 
 declaration     = function_decl
                 | extern_decl
+                | decorator_decl
                 | struct_decl
                 | enum_decl
                 | interface_decl
@@ -3738,6 +3816,15 @@ declaration     = function_decl
 decorated_decl  = { decorator } declaration ;
 
 decorator       = "@" identifier [ "(" argument_list ")" ] ;
+
+decorator_decl  = [ "export" ]
+                  "decorator"
+                  identifier
+                  "("
+                  parameter_list
+                  ")"
+                  block
+                  "end" ;
 
 function_decl   = [ "export" ]
                   [ "async" ]
@@ -4011,6 +4098,15 @@ The rule cannot take a comparison away from a program that has one. `a < b > (c)
 **Foreign declarations.** `extern_decl` is its own production with no body, so a bodiless signature is not a malformed `function_decl`.
 
 **Unsafe blocks versus the `unsafe` modifier.** A function declaration is not a statement, so it cannot open a block. `unsafe` followed by `function` or `static` is therefore always the modifier on a declaration (LR46), and `unsafe` followed by anything else opens a block that runs to its `end` (LR29.2).
+
+### 89.2 Parser Rejection Rules
+
+These parser rules are normative even though the grammar sketch above is illustrative.
+
+- A position that requires an expression, type, pattern, or declaration rejects a token sequence that cannot begin one.
+- Every opening `(`, `[`, and `{` is closed by the matching delimiter before its containing construct ends.
+- An assignment target is a name, field access, or index expression.
+- A syntax diagnostic points at the token that cannot satisfy the required construct. An unclosed-delimiter diagnostic points at its opening delimiter.
 
 ---
 
