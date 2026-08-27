@@ -804,6 +804,22 @@ impl<'a> Body<'a> {
         args: &[Argument],
         span: Span,
     ) -> Value {
+        // LR15.3: a variant with a payload is written like a call and builds
+        // a value, so it reaches no function and the checker recorded none.
+        if let ExprKind::Field {
+            receiver,
+            name: variant,
+            ..
+        } = &callee.kind
+            && let ExprKind::Name(written) = &receiver.kind
+            && self.lookup(written).is_none()
+        {
+            let ty = self.recorded(span);
+            if let Some(tag) = self.variant_of(&ty, variant) {
+                return self.construct(ty, tag, args, span);
+            }
+        }
+
         let Some(declaration) = self.context.facts.call(span) else {
             return self.missing(span, "a call the checker did not resolve");
         };
@@ -1040,6 +1056,50 @@ impl<'a> Body<'a> {
 
         self.switch_to(join);
         self.function.add_block_param(join, result)
+    }
+
+    /// LR15.3: building an enum value from the payload the variant carries.
+    fn construct(&mut self, ty: Ty, variant: u32, args: &[Argument], span: Span) -> Value {
+        let Some(carried) = self.payload_of(&ty, variant) else {
+            return self.missing(span, "a variant whose payload has no type");
+        };
+        if carried.len() != args.len() {
+            return self.missing(span, "a variant given a payload of another length");
+        }
+
+        let payload = args
+            .iter()
+            .zip(&carried)
+            .map(|(argument, held)| self.expr(&argument.value, Some(held)))
+            .collect();
+
+        self.emit(
+            InstKind::MakeEnum {
+                ty: ty.clone(),
+                variant,
+                payload,
+            },
+            ty,
+            span,
+        )
+    }
+
+    /// What a variant carries, in the order the enum declares it (LR15.2).
+    fn payload_of(&self, ty: &Ty, variant: u32) -> Option<Vec<Ty>> {
+        let Ty::Named { id, args } = ty else {
+            return None;
+        };
+        if !args.is_empty() {
+            // LR19: the payload of a generic enum is written in its type
+            // parameters, and putting the arguments in their place is
+            // monomorphization's job.
+            return None;
+        }
+        let Shape::Enum(enumeration) = &self.context.program.nominal(*id).shape else {
+            return None;
+        };
+        let held = enumeration.variants.get(variant as usize)?;
+        Some(held.fields.iter().map(|field| field.ty.clone()).collect())
     }
 
     /// The fields a type stores, in the order it declares them.
