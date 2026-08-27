@@ -2,6 +2,7 @@
 
 mod check;
 mod lir;
+mod run;
 mod test;
 
 use std::process::ExitCode;
@@ -33,7 +34,7 @@ fn main() -> ExitCode {
         "check" => check::run(rest),
         "test" => test::run(rest.first().map(String::as_str)),
         "coverage" => test::coverage(),
-        "run" => run(rest),
+        "run" => run::run(rest),
         "lir" => lir::run(rest),
         "help" | "--help" | "-h" => {
             print!("{USAGE}");
@@ -45,20 +46,4 @@ fn main() -> ExitCode {
             ExitCode::from(2)
         }
     }
-}
-
-/// Running a program needs a backend, and there is none yet.
-fn run(args: &[String]) -> ExitCode {
-    if args.is_empty() {
-        eprintln!("luarc run: expected a file");
-        return ExitCode::from(2);
-    }
-
-    let checked = check::run(args);
-    if checked != ExitCode::SUCCESS {
-        return checked;
-    }
-
-    eprintln!("luarc run: the file is a valid program, and there is no backend to run it on yet.");
-    ExitCode::from(2)
 }

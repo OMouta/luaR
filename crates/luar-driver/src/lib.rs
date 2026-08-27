@@ -2,6 +2,8 @@
 
 mod graph;
 
+use std::path::Path;
+
 use luar_diagnostics::{Diagnostic, FileId, SourceMap};
 use luar_lir::lower::Lowered;
 
@@ -34,6 +36,46 @@ pub fn lower(sources: &mut SourceMap, root: FileId) -> Result<Lowered, Vec<Diagn
     // that function, which is a question about the whole program.
     luar_lir::devirt::run(&mut lowered.program);
     Ok(lowered)
+}
+
+/// Why a build produced no executable.
+#[derive(Debug)]
+pub enum BuildError {
+    /// The program was rejected.
+    Rejected(Vec<Diagnostic>),
+    /// The program was accepted, and lowering does not cover all of it.
+    NotLowered(Vec<luar_lir::lower::Gap>),
+    /// The program lowered, and the backend does not cover all of it.
+    NotEmitted(Vec<luar_codegen::Gap>),
+    Backend(luar_codegen::Error),
+    Link(luar_codegen::LinkError),
+    Io(std::io::Error),
+}
+
+/// Compiles `root` and the modules it imports into an executable at
+/// `output`.
+///
+/// # Errors
+/// Returns [`BuildError`] where the program is rejected, where a stage does
+/// not cover all of it, or where the linker fails.
+pub fn build(sources: &mut SourceMap, root: FileId, output: &Path) -> Result<(), BuildError> {
+    let lowered = lower(sources, root).map_err(BuildError::Rejected)?;
+    if !lowered.gaps.is_empty() {
+        return Err(BuildError::NotLowered(lowered.gaps));
+    }
+
+    let object = luar_codegen::compile(&lowered.program).map_err(BuildError::Backend)?;
+    if !object.gaps.is_empty() {
+        return Err(BuildError::NotEmitted(object.gaps));
+    }
+
+    let path = output.with_extension("o");
+    std::fs::write(&path, &object.bytes).map_err(BuildError::Io)?;
+    let linked = luar_codegen::link(&path, output);
+    // The object is an intermediate, and a failed link has already said
+    // everything the file could.
+    let _ = std::fs::remove_file(&path);
+    linked.map_err(BuildError::Link)
 }
 
 /// What the frontend produced: everything a later stage reads, and what it
