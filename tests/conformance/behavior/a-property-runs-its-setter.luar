@@ -1,0 +1,22 @@
+--- expect: run
+--- exit: 8
+--- spec: LR43
+struct Boxed
+    inner: int
+
+    property value: int
+        get
+            return self.inner
+        end
+
+        set(written)
+            self.inner = written * 2
+        end
+    end
+end
+
+export function main(): int
+    local boxed = Boxed { inner = 0 }
+    boxed.value = 4
+    return boxed.value
+end
