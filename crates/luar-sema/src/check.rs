@@ -4,9 +4,10 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use luar_ast::{
-    Argument, ArmBody, BinaryOp, Binding, Block, Expr, ExprKind, FieldInit, Function, FunctionBody,
-    InterpolationPart, Item, MapKey, MatchArm, Member, Module, Param, Pattern, PatternKind,
-    Payload, Property, Stmt, StmtKind, Struct, UnaryOp, Visibility,
+    Argument, ArmBody, BinaryOp, Binding, Block, Decorator, Expr, ExprKind, FieldInit, Function,
+    FunctionBody, InterfaceMember, InterpolationPart, Item, MapKey, MatchArm, Member, Module,
+    Param, Pattern, PatternKind, Payload, Property, Semantics, Stmt, StmtKind, Struct, UnaryOp,
+    Visibility,
 };
 use luar_diagnostics::{Diagnostic, Span, codes};
 
@@ -457,6 +458,8 @@ impl Checker<'_> {
             // A declaration the table holds was resolved when the table was
             // built, so its body is checked against what is recorded there.
             Item::Function(function) => {
+                self.reject_finalizers(&function.decorators);
+
                 // LR20: a qualified name writes a member of the type it names,
                 // so its body reads `self` as that type.
                 let (overloads, receiver) = match function.name.as_slice() {
@@ -471,10 +474,15 @@ impl Checker<'_> {
                 };
 
                 let signature = written(overloads, function.span).cloned();
-                self.body(function, signature.as_ref(), receiver);
+                self.body(function, signature.as_ref(), receiver, false);
             }
             Item::Struct(structure) => self.structure(structure),
             Item::Extend(extend) => {
+                self.reject_finalizers(&extend.decorators);
+                for function in &extend.functions {
+                    self.reject_finalizers(&function.decorators);
+                }
+
                 let (target, methods) = match self.table.get(self.scope, &extend.name) {
                     Some(Decl::Extension { target, methods }) => (target.clone(), methods.clone()),
                     _ => (Type::Unresolved, BTreeMap::new()),
@@ -493,14 +501,23 @@ impl Checker<'_> {
                         target => Some(target.clone()),
                     };
                     let signature = written(name.and_then(|name| methods.get(name)), function.span);
-                    self.body(function, signature, receiver);
+                    self.body(function, signature, receiver, false);
                 }
 
                 self.types.leave_enclosing();
             }
             // Nothing of these is written outside their own types, which the
             // table already read.
-            Item::Enum(_) | Item::Interface(_) | Item::TypeAlias(_) => {}
+            Item::Enum(enumeration) => self.reject_finalizers(&enumeration.decorators),
+            Item::Interface(interface) => {
+                self.reject_finalizers(&interface.decorators);
+                for member in &interface.members {
+                    if let InterfaceMember::Function(function) = member {
+                        self.reject_finalizers(&function.decorators);
+                    }
+                }
+            }
+            Item::TypeAlias(alias) => self.reject_finalizers(&alias.decorators),
             Item::Conditional(conditional) => {
                 for (_, items) in &conditional.branches {
                     for item in items {
@@ -536,6 +553,15 @@ impl Checker<'_> {
     }
 
     fn structure(&mut self, structure: &Struct) {
+        self.reject_finalizers(&structure.decorators);
+        if structure.semantics != Semantics::Ref {
+            for member in &structure.members {
+                if let Member::Function { function, .. } = member {
+                    self.reject_finalizers(&function.decorators);
+                }
+            }
+        }
+
         let Some(declared) = self.table.structure(self.scope, &structure.name).cloned() else {
             return;
         };
@@ -558,6 +584,10 @@ impl Checker<'_> {
         // LR65: `Self` is that same type, written down.
         self.types.enter_enclosing(receiver.clone());
 
+        if structure.semantics == Semantics::Ref {
+            self.finalizers(structure);
+        }
+
         for member in &structure.members {
             match member {
                 Member::Field(field) => {
@@ -568,12 +598,23 @@ impl Checker<'_> {
                     }
                 }
                 Member::Function { function, .. } => {
-                    let overloads = function
-                        .name
-                        .last()
-                        .and_then(|name| declared.methods.get(name));
+                    let finalizer =
+                        structure.semantics == Semantics::Ref && instance_finalizer(function);
+                    let overloads = (!finalizer)
+                        .then(|| {
+                            function
+                                .name
+                                .last()
+                                .and_then(|name| declared.methods.get(name))
+                        })
+                        .flatten();
                     let signature = written(overloads, function.span).cloned();
-                    self.body(function, signature.as_ref(), Some(receiver.clone()));
+                    self.body(
+                        function,
+                        signature.as_ref(),
+                        Some(receiver.clone()),
+                        finalizer,
+                    );
                 }
                 Member::Property(property) => {
                     let held = field_type(&declared.properties, &property.name);
@@ -584,6 +625,81 @@ impl Checker<'_> {
 
         self.types.leave_enclosing();
         self.types.leave();
+    }
+
+    fn reject_finalizers(&mut self, decorators: &[Decorator]) {
+        for decorator in finalizers(decorators) {
+            self.diagnostics.push(
+                Diagnostic::error(
+                    codes::FINALIZER_TARGET,
+                    decorator.span,
+                    "this declaration cannot be a finalizer",
+                )
+                .note("`@finalizer` applies to an instance function in a `ref struct` (LR51)."),
+            );
+        }
+    }
+
+    fn finalizers(&mut self, structure: &Struct) {
+        let mut first = None;
+
+        for function in structure.members.iter().filter_map(|member| match member {
+            Member::Function { function, .. } => Some(function),
+            Member::Field(_) | Member::Property(_) => None,
+        }) {
+            let decorators: Vec<&Decorator> = finalizers(&function.decorators).collect();
+            for decorator in &decorators {
+                if let Some(first) = first {
+                    self.diagnostics.push(
+                        Diagnostic::error(
+                            codes::DUPLICATE_FINALIZER,
+                            decorator.span,
+                            format!("`{}` already has a finalizer", structure.name),
+                        )
+                        .label(first, "first declared here"),
+                    );
+                } else {
+                    first = Some(decorator.span);
+                }
+            }
+
+            let Some(decorator) = decorators.first() else {
+                continue;
+            };
+
+            if !instance_finalizer(function) {
+                self.diagnostics.push(
+                    Diagnostic::error(
+                        codes::FINALIZER_TARGET,
+                        decorator.span,
+                        "this is not an instance function",
+                    )
+                    .note("A finalizer is an instance function in a `ref struct` (LR51)."),
+                );
+                continue;
+            }
+
+            let result_is_unit = function.result.as_ref().is_none_or(
+                |result| matches!(self.resolve(result), Type::Tuple(items) if items.is_empty()),
+            );
+            if function.asynchronous
+                || !function.type_params.is_empty()
+                || !function.constraints.is_empty()
+                || function.params.len() != 1
+                || !result_is_unit
+            {
+                self.diagnostics.push(
+                    Diagnostic::error(
+                        codes::FINALIZER_SIGNATURE,
+                        decorator.span,
+                        "this function cannot be used as a finalizer",
+                    )
+                    .note(
+                        "A finalizer takes only `self`, returns `()`, and is not async or generic (LR51).",
+                    ),
+                );
+            }
+        }
     }
 
     /// A property reads and writes one type, and its accessors take no
@@ -630,7 +746,13 @@ impl Checker<'_> {
     }
 
     /// Checks a function body against its signature.
-    fn body(&mut self, function: &Function, signature: Option<&Signature>, receiver: Option<Type>) {
+    fn body(
+        &mut self,
+        function: &Function,
+        signature: Option<&Signature>,
+        receiver: Option<Type>,
+        finalizer: bool,
+    ) {
         self.types.enter(&function.type_params);
         self.push();
 
@@ -640,9 +762,12 @@ impl Checker<'_> {
 
         // LR65: `self` is written like a parameter, but its type is the
         // receiver bound above rather than anything the parameter list says.
-        let params = match signature {
-            Some(signature) if signature.takes_self => function.params.get(1..).unwrap_or_default(),
-            _ => function.params.as_slice(),
+        let params = match (finalizer, signature) {
+            (true, _) => function.params.get(1..).unwrap_or_default(),
+            (false, Some(signature)) if signature.takes_self => {
+                function.params.get(1..).unwrap_or_default()
+            }
+            (false, _) => function.params.as_slice(),
         };
 
         for (index, param) in params.iter().enumerate() {
@@ -659,9 +784,10 @@ impl Checker<'_> {
             self.param(param, declared);
         }
 
-        let returns = match signature {
-            Some(signature) => Some(signature.result.clone()),
-            None => function.result.as_ref().map(|result| self.resolve(result)),
+        let returns = match (finalizer, signature) {
+            (true, _) => Some(Type::Tuple(Vec::new())),
+            (false, Some(signature)) => Some(signature.result.clone()),
+            (false, None) => function.result.as_ref().map(|result| self.resolve(result)),
         };
 
         let constraints = match signature {
@@ -3558,6 +3684,21 @@ fn fold(op: BinaryOp, left: u64, right: u64) -> Option<u64> {
 /// unwritten where the two ways meet (LR5.1).
 fn union(left: HashSet<String>, right: HashSet<String>) -> HashSet<String> {
     left.union(&right).cloned().collect()
+}
+
+fn finalizers(decorators: &[Decorator]) -> impl Iterator<Item = &Decorator> {
+    decorators
+        .iter()
+        .filter(|decorator| decorator.name == "finalizer")
+}
+
+fn instance_finalizer(function: &Function) -> bool {
+    finalizers(&function.decorators).next().is_some()
+        && !function.static_
+        && matches!(
+            function.params.first().map(|param| &param.binding),
+            Some(Binding::Name(name)) if name == "self"
+        )
 }
 
 /// Whether `expr` names storage that stays put, which is what an address can

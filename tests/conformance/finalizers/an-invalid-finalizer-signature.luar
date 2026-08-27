@@ -1,0 +1,10 @@
+--- expect: compile-error
+--- code: LR0191
+--- span: 7:5
+--- spec: LR23.2
+--- spec: LR51
+ref struct Handle
+    @finalizer
+    async function release<T>(self, reason: string): Result<(), string>
+    end
+end

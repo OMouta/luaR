@@ -236,6 +236,12 @@ registry! {
         "A derived member does not replace one written by hand.";
     active 189 => DERIVE_UNAVAILABLE, "LR75",
         "A field has the protocol before the type deriving it can be written out.";
+    active 190 => FINALIZER_TARGET, "LR51",
+        "`@finalizer` applies to an instance function declared by a `ref struct`.";
+    active 191 => FINALIZER_SIGNATURE, "LR51",
+        "A finalizer takes no explicit parameters, returns `()`, and is not async or generic.";
+    active 192 => DUPLICATE_FINALIZER, "LR51",
+        "A `ref struct` declares at most one finalizer.";
 }
 
 #[cfg(test)]

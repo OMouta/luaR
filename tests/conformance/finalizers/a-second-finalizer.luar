@@ -1,0 +1,13 @@
+--- expect: compile-error
+--- code: LR0192
+--- span: 10:5
+--- spec: LR51
+ref struct Handle
+    @finalizer
+    function release(self)
+    end
+
+    @finalizer
+    function close(self)
+    end
+end

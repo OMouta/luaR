@@ -1,0 +1,11 @@
+--- expect: compile-ok
+--- spec: LR23.2
+--- spec: LR31
+--- spec: LR51
+ref struct NativeHandle
+    handle: *mut u8
+
+    @finalizer
+    function release(self)
+    end
+end

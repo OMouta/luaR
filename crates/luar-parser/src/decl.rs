@@ -492,18 +492,35 @@ fn member(cursor: &mut Cursor) -> Member {
     }
 
     if cursor.kind() == TokenKind::Keyword(Keyword::Property) {
+        reject_finalizer_target(cursor, &decorators);
         return Member::Property(property(cursor, start, visibility));
     }
 
     // A method is an ordinary function declaration, modifiers and all (LR42).
-    if let Some(function) = declaration(cursor, decorators) {
+    if let Some(function) = declaration(cursor, decorators.clone()) {
         return Member::Function {
             visibility,
             function,
         };
     }
 
+    reject_finalizer_target(cursor, &decorators);
     Member::Field(field(cursor, start, visibility))
+}
+
+fn reject_finalizer_target(cursor: &mut Cursor, decorators: &[Decorator]) {
+    for decorator in decorators
+        .iter()
+        .filter(|decorator| decorator.name == "finalizer")
+    {
+        cursor
+            .error(
+                codes::FINALIZER_TARGET,
+                decorator.span,
+                "a field or property cannot be a finalizer",
+            )
+            .note("`@finalizer` applies to an instance function in a `ref struct` (LR51).");
+    }
 }
 
 /// `name: T`, with a default where it has one (LR12.2).

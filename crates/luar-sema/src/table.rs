@@ -603,6 +603,10 @@ fn declare(
                             visibility,
                             function,
                         } => {
+                            if structure.semantics == Semantics::Ref && instance_finalizer(function)
+                            {
+                                continue;
+                            }
                             if let Some(name) = function.name.last() {
                                 overload(
                                     methods.entry(name.clone()).or_default(),
@@ -851,13 +855,25 @@ fn expands(decorators: &[Decorator]) -> bool {
         .iter()
         .any(|decorator| match decorator.name.as_str() {
             "inline" | "noinline" | "deprecated" | "cold" | "repr" | "test" | "extern"
-            | "reflect" => false,
+            | "reflect" | "finalizer" => false,
             // LR75: what a derive the compiler writes out adds is known, so the
             // surface stays closed. One it does not know is the package's to
             // expand (LR23.1).
             "derive" => !crate::derive::known(decorator),
             _ => true,
         })
+}
+
+fn instance_finalizer(function: &Function) -> bool {
+    function
+        .decorators
+        .iter()
+        .any(|decorator| decorator.name == "finalizer")
+        && !function.static_
+        && matches!(
+            function.params.first().map(|param| &param.binding),
+            Some(luar_ast::Binding::Name(name)) if name == "self"
+        )
 }
 
 /// A member declared twice (LR12.2). The first one is the one that stands.
