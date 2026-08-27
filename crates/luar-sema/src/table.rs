@@ -13,7 +13,7 @@
 
 use std::collections::BTreeMap;
 
-use luar_ast::{Function, Item, Member, Semantics, Visibility};
+use luar_ast::{Decorator, Function, Item, Member, Semantics, Visibility};
 use luar_diagnostics::{Diagnostic, Span, codes};
 
 use crate::aliases::{self, Aliases, Written};
@@ -121,10 +121,10 @@ pub struct StructType {
     pub methods: BTreeMap<String, Overloads>,
     /// The interfaces it claims to implement (LR18).
     pub implements: Vec<Type>,
-    /// Whether a decorator is written on it (LR23). Expansion can add members
-    /// (LR23.1, LR75) and does not happen yet, so the members recorded here
-    /// are all of them only when this is false.
-    pub decorated: bool,
+    /// Whether expansion could still add members to it (LR23.1). Expansion
+    /// does not happen yet, so the members recorded here are all of them only
+    /// when this is false.
+    pub expands: bool,
 }
 
 impl StructType {
@@ -158,8 +158,8 @@ pub struct InterfaceType {
     pub type_params: Vec<String>,
     pub methods: BTreeMap<String, Overloads>,
     pub properties: Vec<Field>,
-    /// Whether a decorator is written on it. See [`StructType::decorated`].
-    pub decorated: bool,
+    /// Whether expansion could still add members. See [`StructType::expands`].
+    pub expands: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -612,7 +612,7 @@ fn declare(
                         properties,
                         methods,
                         implements,
-                        decorated: !structure.decorators.is_empty(),
+                        expands: expands(&structure.decorators),
                     }),
                 )
             }
@@ -709,7 +709,7 @@ fn declare(
                         type_params: interface.type_params.clone(),
                         methods,
                         properties,
-                        decorated: !interface.decorators.is_empty(),
+                        expands: expands(&interface.decorators),
                     }),
                 )
             }
@@ -804,6 +804,22 @@ fn indistinguishable(left: &Signature, right: &Signature) -> bool {
             .iter()
             .zip(&right.params)
             .all(|(left, right)| left.ty == right.ty)
+}
+
+/// Whether any of these decorators could add a member to what it is written
+/// on (LR23.1).
+///
+/// The built-in attributes of LR23.2 say how a declaration is compiled and
+/// attach metadata to it; none of them adds a member. `@derive` does (LR75),
+/// and so might one this compiler does not recognize, so either leaves the
+/// member surface unknown until expansion lands.
+fn expands(decorators: &[Decorator]) -> bool {
+    decorators.iter().any(|decorator| {
+        !matches!(
+            decorator.name.as_str(),
+            "inline" | "noinline" | "deprecated" | "cold" | "repr" | "test" | "extern" | "reflect"
+        )
+    })
 }
 
 /// A member declared twice (LR12.2). The first one is the one that stands.

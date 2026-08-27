@@ -1494,8 +1494,8 @@ impl Checker<'_> {
                 name: declared,
                 ..
             } => match self.table.get(*module, declared)? {
-                Decl::Struct(structure) if !structure.decorated => Some(declared.clone()),
-                Decl::Interface(interface) if !interface.decorated => Some(declared.clone()),
+                Decl::Struct(structure) if !structure.expands => Some(declared.clone()),
+                Decl::Interface(interface) if !interface.expands => Some(declared.clone()),
                 _ => None,
             },
             _ => None,
@@ -2293,8 +2293,8 @@ impl Checker<'_> {
         };
 
         let known = match self.table.get(*module, declared) {
-            Some(Decl::Struct(structure)) => !structure.decorated,
-            Some(Decl::Interface(interface)) => !interface.decorated,
+            Some(Decl::Struct(structure)) => !structure.expands,
+            Some(Decl::Interface(interface)) => !interface.expands,
             _ => false,
         };
         if !known {

@@ -1,0 +1,12 @@
+--- expect: compile-ok
+--- spec: LR23.1
+--- spec: LR75
+@derive(Eq)
+struct Point
+    x: int
+end
+
+export function main()
+    local point = Point { x = 1 }
+    print(point:equals(point))
+end
