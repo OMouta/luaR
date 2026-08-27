@@ -2108,7 +2108,7 @@ Unchecked representation casts require `unsafe`.
 
 There is no universal C-style cast operator.
 
-Narrowing integer conversions require explicit syntax.
+Every numeric conversion requires explicit syntax, narrowing or not (LR39).
 
 ---
 
@@ -2262,7 +2262,13 @@ LuaR provides explicit conversions.
 local ratio = count as f64
 ```
 
-Mixed arithmetic is permitted only when a lossless promotion exists or an explicit conversion is written.
+There is no implicit promotion between numeric types, lossless or otherwise. Arithmetic is on one type, and mixing two means writing the conversion (LR33).
+
+```lua
+local total = count as i64 + size
+```
+
+A promotion that happens on its own would have to be defined width by width and signedness by signedness, and every reader would have to know that table to know what a line does. Writing it down costs one `as` and reads the same to everyone.
 
 Compile-time integer literals are polymorphic within representable bounds.
 
