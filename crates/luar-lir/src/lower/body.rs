@@ -49,6 +49,9 @@ struct Loop {
     exit: BlockId,
     /// The bindings both of those pass along.
     carried: Vec<Var>,
+    /// How many scopes were open around the loop, so that leaving it runs
+    /// what every scope inside it deferred (LR26).
+    depth: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -82,6 +85,9 @@ pub(super) struct Body<'a> {
     /// The names in scope, innermost last. A name written twice in one scope
     /// shadows rather than replaces, so each scope is a list (LR53).
     scopes: Vec<Vec<(String, Var)>>,
+    /// What each open scope has deferred, in the order it was written
+    /// (LR26). One frame per entry in `scopes`.
+    deferred: Vec<Vec<Expr>>,
     /// The value each binding currently holds.
     defs: HashMap<Var, Value>,
     next_var: u32,
@@ -102,6 +108,7 @@ impl<'a> Body<'a> {
             current: entry,
             left: false,
             scopes: vec![Vec::new()],
+            deferred: vec![Vec::new()],
             defs: HashMap::new(),
             next_var: 0,
             loops: Vec::new(),
@@ -182,6 +189,39 @@ impl<'a> Body<'a> {
             .expect("a scope is open")
             .push((name.to_owned(), var));
         var
+    }
+
+    /// Opens a scope. Bindings and deferred expressions belong to the
+    /// innermost one.
+    fn open(&mut self) {
+        self.scopes.push(Vec::new());
+        self.deferred.push(Vec::new());
+    }
+
+    /// Closes the innermost scope, running what it deferred where control
+    /// reaches its end (LR26).
+    fn close(&mut self) {
+        if !self.left {
+            self.unwind(self.scopes.len() - 1);
+        }
+        self.scopes.pop();
+        self.deferred.pop();
+    }
+
+    /// Runs what scope `frame` deferred, in reverse order of registration
+    /// (LR26).
+    fn unwind(&mut self, frame: usize) {
+        for deferred in self.deferred[frame].clone().iter().rev() {
+            self.expr(deferred, None);
+        }
+    }
+
+    /// Runs what every scope from `depth` outward deferred, innermost first,
+    /// which is what leaving several of them at once does (LR26).
+    fn unwind_from(&mut self, depth: usize) {
+        for frame in (depth..self.scopes.len()).rev() {
+            self.unwind(frame);
+        }
     }
 
     fn lookup(&self, name: &str) -> Option<Var> {
@@ -277,7 +317,7 @@ impl<'a> Body<'a> {
     // -- statements -------------------------------------------------------
 
     fn block(&mut self, block: &Block) {
-        self.scopes.push(Vec::new());
+        self.open();
         for stmt in &block.stmts {
             if self.left {
                 // LR50: nothing after a block was left runs, so nothing after
@@ -286,7 +326,7 @@ impl<'a> Body<'a> {
             }
             self.stmt(stmt);
         }
-        self.scopes.pop();
+        self.close();
     }
 
     fn stmt(&mut self, stmt: &Stmt) {
@@ -314,6 +354,13 @@ impl<'a> Body<'a> {
             StmtKind::Break(label) => self.leave(label.as_deref(), Exit::Break, stmt.span),
             StmtKind::Continue(label) => self.leave(label.as_deref(), Exit::Continue, stmt.span),
             StmtKind::Match { scrutinee, arms } => self.match_stmt(scrutinee, arms),
+            // LR26: nothing runs here. The expression is lowered again at
+            // every way out of the scope it was written in.
+            StmtKind::Defer(expr) => self
+                .deferred
+                .last_mut()
+                .expect("a scope is open")
+                .push(expr.clone()),
             // LR29.2: `unsafe` is a promise the checker made the caller keep.
             // Nothing about what the block does changes here.
             StmtKind::Unsafe(block) => self.block(block),
@@ -401,6 +448,7 @@ impl<'a> Body<'a> {
             again: Some(header),
             exit,
             carried: carried.clone(),
+            depth: self.scopes.len(),
         });
         self.block(body);
         if !self.left {
@@ -429,12 +477,14 @@ impl<'a> Body<'a> {
 
         // LR10.3: `until` reads what the body declared, so it is lowered
         // inside the body's scope rather than in a block of its own.
-        self.scopes.push(Vec::new());
+        let depth = self.scopes.len();
+        self.open();
         self.loops.push(Loop {
             label: label.map(ToOwned::to_owned),
             again: None,
             exit,
             carried: carried.clone(),
+            depth,
         });
         for stmt in &body.stmts {
             if self.left {
@@ -445,6 +495,9 @@ impl<'a> Body<'a> {
 
         if !self.left {
             let condition = self.expr(until, Some(&Ty::Bool));
+            // LR26: the scope ends here whichever way the branch goes, so
+            // what it deferred runs once, before either.
+            self.unwind(depth);
             let leaving: Vec<Value> = carried.iter().map(|var| self.defs[var]).collect();
             self.add_params(exit, &carried);
             self.terminate(Terminator::Branch {
@@ -457,6 +510,7 @@ impl<'a> Body<'a> {
         }
         self.loops.pop();
         self.scopes.pop();
+        self.deferred.pop();
 
         self.switch_to(exit);
         self.defs = entering;
@@ -473,7 +527,7 @@ impl<'a> Body<'a> {
 
         for arm in arms {
             let next = self.function.add_block();
-            self.scopes.push(Vec::new());
+            self.open();
             self.arm(subject, arm, next);
 
             match &arm.body {
@@ -489,7 +543,7 @@ impl<'a> Body<'a> {
                 });
             }
 
-            self.scopes.pop();
+            self.close();
             self.switch_to(next);
             self.defs = entering.clone();
         }
@@ -806,6 +860,7 @@ impl<'a> Body<'a> {
             Exit::Continue => found.again,
         };
         let carried = found.carried.clone();
+        let depth = found.depth;
 
         let Some(block) = block else {
             // LR10.3: a `repeat` condition reads what the body declared, so
@@ -816,6 +871,9 @@ impl<'a> Body<'a> {
             self.gap(span, "`continue` inside `repeat`");
             return;
         };
+        // LR26: leaving a loop leaves every scope inside it, so each one runs
+        // what it deferred, innermost first.
+        self.unwind_from(depth);
         self.jump_to(block, &carried);
     }
 
@@ -998,6 +1056,11 @@ impl<'a> Body<'a> {
             Some(expr) => self.expr(expr, Some(&result)),
             None => self.emit(InstKind::Const(Const::Unit), Ty::Unit, span),
         };
+        // LR26: a `return` leaves every scope the function has open, so
+        // everything they deferred runs, innermost first. The value is
+        // already worked out, so nothing a deferred expression does changes
+        // what is returned.
+        self.unwind_from(0);
         self.terminate(Terminator::Return(value));
     }
 
