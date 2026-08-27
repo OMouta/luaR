@@ -313,14 +313,14 @@ fn postfix(cursor: &mut Cursor) -> Expr {
     loop {
         // LR89.1: `name <` opens type arguments only when what follows parses
         // as a type list and a `(` comes straight after the `>`.
-        if cursor.kind() == TokenKind::Lt {
-            if let Some(args) = type_arguments(cursor) {
-                value = call(cursor, value, None);
-                if let ExprKind::Call { type_args, .. } = &mut value.kind {
-                    *type_args = args;
-                }
-                continue;
+        if cursor.kind() == TokenKind::Lt
+            && let Some(args) = type_arguments(cursor)
+        {
+            value = call(cursor, value, None);
+            if let ExprKind::Call { type_args, .. } = &mut value.kind {
+                *type_args = args;
             }
+            continue;
         }
 
         value = match cursor.kind() {
