@@ -234,3 +234,28 @@ fn a_bad_statement_does_not_swallow_the_rest() {
     assert!(!parsed.diagnostics.is_empty());
     assert_eq!(parsed.tree.stmts.len(), 2);
 }
+
+/// LR25.3: a `try` takes any number of clauses and an optional `finally`.
+#[test]
+fn a_try_takes_clauses_and_a_finally() {
+    let StmtKind::Try {
+        catches, finally, ..
+    } = only("try work() catch e: IoError log(e) catch e log(e) finally close() end")
+    else {
+        panic!("expected a `try`");
+    };
+    assert_eq!(catches.len(), 2);
+    assert!(catches[0].ty.is_some());
+    assert!(catches[1].ty.is_none());
+    assert!(finally.is_some());
+
+    assert!(matches!(
+        only("try work() end"),
+        StmtKind::Try {
+            catches,
+            finally: None,
+            ..
+        } if catches.is_empty()
+    ));
+    assert!(matches!(only("throw Error(\"lost\")"), StmtKind::Throw(_)));
+}

@@ -90,6 +90,14 @@ pub enum StmtKind {
     Unsafe(Block),
     /// `defer call()`, run when the scope it is written in is left (LR26).
     Defer(Expr),
+    /// `throw value`, which does not complete (LR25.3).
+    Throw(Expr),
+    /// `try ... catch e ... finally ... end` (LR25.3).
+    Try {
+        body: Block,
+        catches: Vec<CatchClause>,
+        finally: Option<Block>,
+    },
     /// `match value ... end`, whose cases are blocks (LR16.1).
     Match {
         scrutinee: Expr,
@@ -128,6 +136,15 @@ pub struct FieldBinding {
     pub field: String,
     /// The name it is bound to, when `as` renames it.
     pub bound_as: Option<String>,
+    pub span: Span,
+}
+
+/// One `catch` clause of a `try` (LR25.3). No type catches everything.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CatchClause {
+    pub name: String,
+    pub ty: Option<Type>,
+    pub body: Block,
     pub span: Span,
 }
 

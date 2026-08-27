@@ -1,8 +1,8 @@
 //! Statements and control flow (LR5, LR10).
 
 use luar_ast::{
-    ArmBody, BinaryOp, Binding, Block, Branch, Expr, ExprKind, FieldBinding, MatchArm, Stmt,
-    StmtKind, Type,
+    ArmBody, BinaryOp, Binding, Block, Branch, CatchClause, Expr, ExprKind, FieldBinding, MatchArm,
+    Stmt, StmtKind, Type,
 };
 use luar_diagnostics::{Span, codes};
 use luar_lexer::{Keyword, TokenKind};
@@ -73,6 +73,11 @@ pub(crate) fn statement(cursor: &mut Cursor) -> Stmt {
         TokenKind::Keyword(Keyword::Repeat) => repeat_loop(cursor, None),
         TokenKind::Keyword(Keyword::For) => for_loop(cursor, None),
         TokenKind::Keyword(Keyword::Match) => match_statement(cursor),
+        TokenKind::Keyword(Keyword::Try) => try_statement(cursor),
+        TokenKind::Keyword(Keyword::Throw) => {
+            cursor.advance();
+            StmtKind::Throw(expr::expression(cursor))
+        }
         TokenKind::Keyword(Keyword::Unsafe) => unsafe_block(cursor),
         TokenKind::Keyword(Keyword::Defer) => defer(cursor),
         // LR48: conditional compilation selects statements here, declarations
@@ -537,6 +542,55 @@ fn match_statement(cursor: &mut Cursor) -> StmtKind {
     close(cursor, opened, "match");
 
     StmtKind::Match { scrutinee, arms }
+}
+
+/// `try ... catch e ... finally ... end` (LR25.3).
+fn try_statement(cursor: &mut Cursor) -> StmtKind {
+    let opened = cursor.span();
+    cursor.advance();
+
+    let body = block(cursor);
+    let mut catches: Vec<CatchClause> = Vec::new();
+    let mut catches_everything: Option<Span> = None;
+
+    while cursor.kind() == TokenKind::Keyword(Keyword::Catch) {
+        let start = cursor.span();
+        cursor.advance();
+
+        let (name, _) = cursor.name();
+        let ty = annotation(cursor);
+        let clause = CatchClause {
+            name,
+            ty,
+            body: block(cursor),
+            span: start.to(cursor.previous_span()),
+        };
+
+        // LR25.3: clauses are tried in order, so anything after one that
+        // catches everything never runs.
+        if let Some(earlier) = catches_everything {
+            cursor
+                .error(
+                    codes::UNREACHABLE_CATCH,
+                    clause.span,
+                    "this `catch` never runs",
+                )
+                .label(earlier, "this one already catches everything");
+        } else if clause.ty.is_none() {
+            catches_everything = Some(clause.span);
+        }
+
+        catches.push(clause);
+    }
+
+    let finally = cursor.eat_keyword(Keyword::Finally).then(|| block(cursor));
+    close(cursor, opened, "try");
+
+    StmtKind::Try {
+        body,
+        catches,
+        finally,
+    }
 }
 
 /// `unsafe ... end` (LR29.2).

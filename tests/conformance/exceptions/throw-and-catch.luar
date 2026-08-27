@@ -1,0 +1,22 @@
+--- expect: compile-ok
+--- spec: LR25.3
+--- spec: LR6.2
+struct NetworkError
+    code: int
+end
+
+function fail(message: string): never
+    throw NetworkError { code = 1 }
+end
+
+export function main()
+    try
+        fail("lost")
+    catch error: NetworkError
+        print(error.code)
+    catch error
+        print("unknown")
+    finally
+        print("done")
+    end
+end

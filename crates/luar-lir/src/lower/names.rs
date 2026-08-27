@@ -80,6 +80,20 @@ fn in_stmt(stmt: &Stmt, out: &mut Vec<String>) {
                 in_expr(value, out);
             }
         }
+        StmtKind::Throw(value) => in_expr(value, out),
+        StmtKind::Try {
+            body,
+            catches,
+            finally,
+        } => {
+            in_block(body, out);
+            for clause in catches {
+                in_block(&clause.body, out);
+            }
+            if let Some(finally) = finally {
+                in_block(finally, out);
+            }
+        }
         StmtKind::Break(_) | StmtKind::Continue(_) | StmtKind::Error => {}
     }
 }

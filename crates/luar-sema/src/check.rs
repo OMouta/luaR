@@ -1153,6 +1153,31 @@ impl Checker<'_> {
                     self.expect_return(&wanted, &held, span);
                 }
             }
+            StmtKind::Throw(value) => {
+                self.expr(value);
+            }
+            StmtKind::Try {
+                body,
+                catches,
+                finally,
+            } => {
+                self.block(body);
+                for clause in catches {
+                    // LR25.3, LR6.3: a clause with no type catches every
+                    // thrown value, which is only readable once checked.
+                    let caught = clause.ty.as_ref().map_or_else(
+                        || Type::Primitive(Primitive::Unknown),
+                        |ty| self.resolve(ty),
+                    );
+                    self.push();
+                    self.bind(&clause.name, caught);
+                    self.block(&clause.body);
+                    self.pop();
+                }
+                if let Some(finally) = finally {
+                    self.block(finally);
+                }
+            }
             StmtKind::Expr(expr) => {
                 self.expr(expr);
             }
@@ -4412,6 +4437,19 @@ fn assigned_stmt(stmt: &Stmt, names: &mut HashSet<String>) {
             }
             if let Some(otherwise) = otherwise {
                 names.extend(assigned(otherwise));
+            }
+        }
+        StmtKind::Try {
+            body,
+            catches,
+            finally,
+        } => {
+            names.extend(assigned(body));
+            for clause in catches {
+                names.extend(assigned(&clause.body));
+            }
+            if let Some(finally) = finally {
+                names.extend(assigned(finally));
             }
         }
         _ => {}

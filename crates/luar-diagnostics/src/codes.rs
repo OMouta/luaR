@@ -256,6 +256,8 @@ registry! {
         "The propagation operator is inside a function returning `Result`.";
     active 199 => PROPAGATION_CONVERSION, "LR25.2",
         "The propagated error converts into the enclosing `Result` error type through `Into`.";
+    active 200 => UNREACHABLE_CATCH, "LR25.3",
+        "A `catch` clause with no type is written last, and only one is written.";
 }
 
 #[cfg(test)]

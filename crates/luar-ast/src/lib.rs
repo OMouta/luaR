@@ -16,5 +16,7 @@ pub use expr::{
     MapKey, UnaryOp,
 };
 pub use pattern::{FieldPattern, Pattern, PatternKind, Payload};
-pub use stmt::{ArmBody, Binding, Block, Branch, FieldBinding, MatchArm, Stmt, StmtKind};
+pub use stmt::{
+    ArmBody, Binding, Block, Branch, CatchClause, FieldBinding, MatchArm, Stmt, StmtKind,
+};
 pub use ty::{RecordField, Type, TypeKind};

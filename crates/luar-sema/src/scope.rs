@@ -290,6 +290,24 @@ impl Resolver<'_> {
                     self.expr(value);
                 }
             }
+            StmtKind::Throw(value) => self.expr(value),
+            // LR25.3: a clause binds the caught value for its own block.
+            StmtKind::Try {
+                body,
+                catches,
+                finally,
+            } => {
+                self.block(body);
+                for clause in catches {
+                    self.push();
+                    self.bind(&clause.name);
+                    self.block(&clause.body);
+                    self.pop();
+                }
+                if let Some(finally) = finally {
+                    self.block(finally);
+                }
+            }
             StmtKind::Expr(expr) => self.expr(expr),
         }
     }
