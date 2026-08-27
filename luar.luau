@@ -1,13 +1,13 @@
 --!strict
 --- Task runner for the LuaR repository.
 ---
---- Every command here runs cargo. It exists so that the everyday ones are
---- short: `lute luar test` rather than `cargo run -q -p luarc -- test`.
+--- Every command here runs cargo. `lute luar test` is shorter than
+--- `cargo run -q -p luarc -- test`, and that is all this file is for.
 
 local process = require("@lute/process")
 
 local USAGE = [[
-luar — tasks for working on the compiler
+luar, tasks for working on the compiler
 
 usage:
   lute luar test [filter]     run the conformance suite

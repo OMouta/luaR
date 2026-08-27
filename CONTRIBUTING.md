@@ -6,9 +6,8 @@ changes it, and changing it is its own commit.
 
 ## Setup
 
-Rust 1.85 or newer builds everything. `rust-toolchain.toml` pins the version
-CI uses, and rustup installs it on the first `cargo` command, so your clippy
-reports what CI's does.
+`rust-toolchain.toml` names the toolchain. rustup installs it on your first
+`cargo` command, so you and CI lint with the same clippy.
 
 ```sh
 git clone https://github.com/OMouta/luaR
@@ -42,7 +41,7 @@ lute luar unit                          # cargo test --workspace
 ```
 
 CI runs both, plus format and lint. Clippy warnings fail the build. One command
-runs the lot in the same order, which is what to do before pushing.
+runs the lot in the same order. Run it before pushing.
 
 ```sh
 lute luar ci
@@ -115,11 +114,11 @@ to them.
 | `luar-ast` | The syntax tree |
 | `luar-parser` | Tokens to the syntax tree |
 | `luar-sema` | Name resolution and type checking |
-| `luar-lir` | The typed SSA the optimizer works on |
+| `luar-lir` | The typed SSA, lowering into it, and the passes over it |
 | `luar-codegen` | Machine code |
 | `luar-driver` | One compilation, end to end |
 | `luar-conformance` | The suite runner and the coverage report |
 | `luarc` | The command line |
 
-`luar-codegen` is empty. `luar-lir` lowers a checked program and reports what
-it could not lower; `luarc lir file.luar` prints the result.
+`luar-codegen` is empty. `luar-lir` lowers a checked program and lists what it
+could not lower. `luarc lir file.luar` prints both.
