@@ -876,7 +876,7 @@ local label = if ok then "yes" else "no"      -- was: ok and "yes" or "no"
 
 Where `~` is unary bitwise NOT when used with one operand and inequality remains `~=`.
 
-Both operands are integers of one type (LR39). A type these are not built in for takes them through the protocol each names (LR36).
+These are defined on integers of one type (LR39). A type they are not built in for takes them through the protocol each names (LR36).
 
 ### 11.6 Pipeline Operator
 
