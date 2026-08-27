@@ -7,9 +7,10 @@ use std::fmt;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use luar_diagnostics::{Diagnostic, SourceMap};
-use luar_driver::Check;
+use luar_driver::{BuildError, Check};
 
 pub use directives::{DirectiveError, Directives, Expect};
 
@@ -141,18 +142,106 @@ fn check(path: &Path, source: String, directives: &Directives) -> Outcome {
                 ))
             }
         }
-        // Running it needs the backend.
         Expect::Run => {
-            if errors.is_empty() {
-                Outcome::Skipped("run expectations need the backend".to_owned())
-            } else {
-                Outcome::Failed(format!(
+            if !errors.is_empty() {
+                return Outcome::Failed(format!(
                     "expected the program to compile and run, got {}",
                     describe(&sources, &errors)
-                ))
+                ));
             }
+            execute(path, &mut sources, file, directives)
         }
     }
+}
+
+/// Builds the test and runs it, against what its header says it does.
+///
+/// A stage that does not cover the program yet skips rather than fails, and
+/// says what is missing. A test that reports as passing is one that ran.
+fn execute(
+    path: &Path,
+    sources: &mut SourceMap,
+    file: luar_diagnostics::FileId,
+    directives: &Directives,
+) -> Outcome {
+    let output = executable(path);
+    if let Err(error) = luar_driver::build(sources, file, &output) {
+        let _ = fs::remove_file(&output);
+        return match error {
+            BuildError::Rejected(diagnostics) => {
+                let errors: Vec<&Diagnostic> =
+                    diagnostics.iter().filter(|d| d.is_error()).collect();
+                Outcome::Failed(format!(
+                    "expected the program to compile and run, got {}",
+                    describe(sources, &errors)
+                ))
+            }
+            BuildError::NotLowered(gaps) => Outcome::Skipped(match gaps.first() {
+                Some(gap) => format!("lowering does not cover {}", gap.what),
+                None => "lowering does not cover the program".to_owned(),
+            }),
+            BuildError::NotEmitted(gaps) => Outcome::Skipped(match gaps.first() {
+                Some(gap) => format!("the backend does not cover {}", gap.what),
+                None => "the backend does not cover the program".to_owned(),
+            }),
+            BuildError::Backend(error) => Outcome::Failed(error.to_string()),
+            BuildError::Link(error) => Outcome::Failed(error.to_string()),
+            BuildError::Io(error) => {
+                Outcome::Failed(format!("could not write the program: {error}"))
+            }
+        };
+    }
+
+    let produced = Command::new(&output).output();
+    let _ = fs::remove_file(&output);
+    let produced = match produced {
+        Ok(produced) => produced,
+        Err(e) => return Outcome::Failed(format!("the program did not run: {e}")),
+    };
+
+    let mut wrong = Vec::new();
+    if let Some(wanted) = directives.exit {
+        let got = produced.status.code();
+        if got != Some(wanted) {
+            wrong.push(match got {
+                Some(code) => format!("expected exit {wanted}, got {code}"),
+                None => format!("expected exit {wanted}, and a signal ended it"),
+            });
+        }
+    }
+    if let Some(wanted) = &directives.stdout {
+        let got = String::from_utf8_lossy(&produced.stdout);
+        if got != wanted.as_str() {
+            wrong.push(format!("expected stdout {wanted:?}, got {got:?}"));
+        }
+    }
+    // The trap is matched by its kind, never by the message around it.
+    if let Some(wanted) = &directives.trap {
+        let reported = String::from_utf8_lossy(&produced.stderr);
+        if !reported.contains(&format!("trap: {wanted}")) {
+            wrong.push(format!("expected the {wanted} trap, got {reported:?}"));
+        }
+    }
+
+    if wrong.is_empty() {
+        Outcome::Passed
+    } else {
+        Outcome::Failed(wrong.join(", "))
+    }
+}
+
+/// Where a test's program is built. One process runs the suite, and each test
+/// is built and removed before the next, so the name only has to be unique
+/// against another suite running beside it.
+fn executable(path: &Path) -> PathBuf {
+    let stem = path.file_stem().map_or_else(
+        || "test".to_owned(),
+        |stem| stem.to_string_lossy().into_owned(),
+    );
+    let mut built = std::env::temp_dir();
+    built.push(format!("luar-test-{}-{stem}", std::process::id()));
+    built.set_extension(std::env::consts::EXE_EXTENSION);
+    built
 }
 
 /// Names diagnostics by code and position. Message prose is deliberately left

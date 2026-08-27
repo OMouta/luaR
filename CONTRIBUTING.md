@@ -23,8 +23,8 @@ out instead.
 Two suites.
 
 The conformance suite is LuaR programs under `tests/conformance/`, each one
-carrying the behavior it expects and the spec section it enforces. It runs in
-about 80ms, so run it constantly.
+carrying the behavior it expects and the spec section it enforces. A test that
+runs a program builds and links it, so the suite takes a few seconds.
 
 ```sh
 lute luar test                          # cargo run -q -p luarc -- test

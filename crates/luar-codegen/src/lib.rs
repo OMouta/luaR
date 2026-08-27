@@ -132,10 +132,18 @@ impl Emitter<'_> {
                 continue;
             }
             let Some(signature) = signature(function, self.pointer, self.call_conv) else {
+                let offending = function
+                    .params
+                    .iter()
+                    .chain(std::iter::once(&function.result))
+                    .find(|ty| machine(ty, self.pointer).is_none());
                 self.gaps.push(Gap {
                     function: function.name.clone(),
                     span: function.span,
-                    what: "a signature the backend cannot represent yet".to_owned(),
+                    what: match offending {
+                        Some(ty) => format!("a signature holding `{ty}`"),
+                        None => "this signature".to_owned(),
+                    },
                 });
                 continue;
             };
@@ -201,7 +209,7 @@ impl Emitter<'_> {
             self.gaps.push(Gap {
                 function: main.name.clone(),
                 span: main.span,
-                what: "an entrypoint the backend cannot represent yet".to_owned(),
+                what: "an entrypoint returning `{}`".replace("{}", &main.result.to_string()),
             });
             return Ok(());
         };

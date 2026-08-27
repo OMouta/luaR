@@ -228,7 +228,7 @@ impl Translator<'_, '_> {
                 self.builder.ins().iconst(types::I32, scalar)
             }
             Const::Nil | Const::Float(_) | Const::Str(_) | Const::Bytes(_) => {
-                self.gap("a literal the backend cannot emit yet");
+                self.gap("a literal that is not an integer, a boolean, or a character");
                 return None;
             }
         };
@@ -272,8 +272,16 @@ impl Translator<'_, '_> {
             BinaryOp::ShiftLeft => self.builder.ins().ishl(a, b),
             BinaryOp::ShiftRight if signed => self.builder.ins().sshr(a, b),
             BinaryOp::ShiftRight => self.builder.ins().ushr(a, b),
-            BinaryOp::Divide | BinaryOp::Power | BinaryOp::Concat => {
-                self.gap("an operator the backend cannot emit yet");
+            BinaryOp::Divide => {
+                self.gap("`/`");
+                return None;
+            }
+            BinaryOp::Power => {
+                self.gap("`**`");
+                return None;
+            }
+            BinaryOp::Concat => {
+                self.gap("`..`");
                 return None;
             }
             _ => unreachable!("every comparison was answered above"),
@@ -340,7 +348,7 @@ impl Translator<'_, '_> {
         let (Some(source), Some(target)) =
             (machine(&from, self.pointer), machine(to, self.pointer))
         else {
-            self.gap("a conversion the backend cannot emit yet");
+            self.gap("a conversion between these types");
             return None;
         };
         let converted = self.value(value);
@@ -465,6 +473,6 @@ fn describe(kind: &InstKind) -> &'static str {
         }
         InstKind::AddressOf { .. } | InstKind::Load { .. } | InstKind::Store { .. } => "a pointer",
         InstKind::SlotGet { .. } | InstKind::SlotSet { .. } => "a stack slot",
-        _ => "an instruction the backend cannot emit yet",
+        _ => "this instruction",
     }
 }
