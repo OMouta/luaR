@@ -121,6 +121,8 @@ pub(super) struct Callee {
     /// Whether an exception can escape it, which is what makes the call give
     /// back what it threw as well as what it returned (LR25.3).
     pub throws: bool,
+    /// Whether the call produces a `Task` rather than the result (LR27).
+    pub asynchronous: bool,
 }
 
 pub(super) struct Parameter {
@@ -465,6 +467,7 @@ impl Lowering<'_> {
                 params: taken,
                 type_params: declared_params,
                 throws,
+                asynchronous: signature.asynchronous,
             },
         );
 

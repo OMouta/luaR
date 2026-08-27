@@ -67,6 +67,7 @@ impl Lowering<'_> {
                 params: taken,
                 type_params,
                 throws: false,
+                asynchronous: false,
             },
         );
         self.derived

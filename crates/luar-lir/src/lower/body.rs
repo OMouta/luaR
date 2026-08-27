@@ -2027,6 +2027,12 @@ impl<'a> Body<'a> {
             return self.missing(span, "a call to a function with no body");
         };
 
+        // LR27: the call produces a `Task`, which is what the state machine
+        // this function has not been turned into would build.
+        if reached.asynchronous {
+            return self.missing(span, "a call to an async function");
+        }
+
         if reached.params.iter().any(|param| param.variadic) {
             return self.missing(span, "a call to a variadic function");
         }
