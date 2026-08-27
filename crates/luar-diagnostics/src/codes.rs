@@ -250,6 +250,12 @@ registry! {
         "The compiler derives `Send` and `Sync`; user source does not implement them.";
     active 196 => INVALID_DESTRUCTURE, "LR5.3",
         "A destructuring binding has the statically known shape it takes apart.";
+    active 197 => PROPAGATION_OPERAND, "LR25.2",
+        "The propagation operator applies only to `Result`.";
+    active 198 => PROPAGATION_RETURN, "LR25.2",
+        "The propagation operator is inside a function returning `Result`.";
+    active 199 => PROPAGATION_CONVERSION, "LR25.2",
+        "The propagated error converts into the enclosing `Result` error type through `Into`.";
 }
 
 #[cfg(test)]

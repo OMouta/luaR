@@ -1498,8 +1498,8 @@ impl Checker<'_> {
                 }
             }
             ExprKind::Try(inner) => {
-                self.expr(inner);
-                Type::Unresolved
+                let held = self.expr(inner);
+                self.propagated(&held, expr.span)
             }
             ExprKind::Cast { value, ty } => {
                 let held = self.expr(value);
@@ -1679,6 +1679,84 @@ impl Checker<'_> {
         self.diagnostics.push(reported);
 
         Type::Unresolved
+    }
+
+    fn propagated(&mut self, held: &Type, span: Span) -> Type {
+        let Type::Builtin {
+            kind: Builtin::Result,
+            args,
+        } = held
+        else {
+            if !matches!(held, Type::Unresolved) {
+                self.diagnostics.push(
+                    Diagnostic::error(
+                        codes::PROPAGATION_OPERAND,
+                        span,
+                        format!("cannot propagate {held}"),
+                    )
+                    .note("`?` propagates the error branch of a `Result` (LR25.2)."),
+                );
+            }
+            return Type::Unresolved;
+        };
+        let Some(value) = args.first().cloned() else {
+            return Type::Unresolved;
+        };
+        let Some(error) = args.get(1).cloned() else {
+            return Type::Unresolved;
+        };
+
+        let enclosing = self.returns.last().cloned().flatten();
+        let Some(Type::Builtin {
+            kind: Builtin::Result,
+            args: returned,
+        }) = enclosing
+        else {
+            self.diagnostics.push(
+                Diagnostic::error(
+                    codes::PROPAGATION_RETURN,
+                    span,
+                    "this function does not return `Result`",
+                )
+                .note("An error propagated with `?` returns from the enclosing function (LR25.2)."),
+            );
+            return value;
+        };
+        let Some(wanted) = returned.get(1).cloned() else {
+            return value;
+        };
+
+        if error == wanted
+            || matches!(error, Type::Unresolved)
+            || matches!(wanted, Type::Unresolved)
+        {
+            return value;
+        }
+
+        let conversion = self
+            .find_method(&error, "into", span)
+            .and_then(|overloads| {
+                overloads.into_iter().find(|signature| {
+                    signature.takes_self
+                        && signature.params.is_empty()
+                        && signature.type_params.is_empty()
+                        && self.accepts(&wanted, &signature.result)
+                })
+            });
+
+        match conversion {
+            Some(conversion) => self.facts.record_call(span, conversion.span),
+            None => self.diagnostics.push(
+                Diagnostic::error(
+                    codes::PROPAGATION_CONVERSION,
+                    span,
+                    format!("`{error}` does not convert into `{wanted}`"),
+                )
+                .note("The error branch converts through `Into` before `?` returns it (LR25.2, LR35)."),
+            ),
+        }
+
+        value
     }
 
     /// LR18: reports every member `claimed` is missing from what `wanted`

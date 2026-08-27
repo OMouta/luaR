@@ -1,0 +1,19 @@
+--- expect: compile-ok
+--- spec: LR25.2
+--- spec: LR35
+struct SourceError
+    code: int
+
+    function into(self): TargetError
+        return TargetError { code = self.code }
+    end
+end
+
+struct TargetError
+    code: int
+end
+
+function read(value: Result<int, SourceError>, fallback: Result<int, TargetError>): Result<int, TargetError>
+    local held = value?
+    return fallback
+end
