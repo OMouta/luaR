@@ -1,0 +1,16 @@
+--- expect: compile-ok
+--- spec: LR36
+--- spec: LR20
+struct Money
+    cents: int
+end
+
+extend Arithmetic for Money
+    function add(self, other: Money): Money
+        return Money { cents = self.cents + other.cents }
+    end
+end
+
+export function total(a: Money, b: Money): Money
+    return a + b
+end

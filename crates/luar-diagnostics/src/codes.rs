@@ -220,6 +220,8 @@ registry! {
         "A binding declared without a value is written to before it is read.";
     active 181 => STATIC_THROUGH_INSTANCE, "LR42",
         "A static takes no receiver, so it is called through its type.";
+    active 182 => OPERATOR_NOT_OVERLOADED, "LR36",
+        "An operator on a type it is not built in for calls the protocol method it names.";
 }
 
 #[cfg(test)]

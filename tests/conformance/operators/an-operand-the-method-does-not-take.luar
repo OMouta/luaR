@@ -1,0 +1,16 @@
+--- expect: compile-error
+--- code: LR0148
+--- span: 15:16
+--- spec: LR36
+--- spec: LR9.1
+struct Vec2
+    x: float
+
+    function add(self, other: Vec2): Vec2
+        return Vec2 { x = self.x + other.x }
+    end
+end
+
+function grow(a: Vec2): Vec2
+    return a + 1.0
+end

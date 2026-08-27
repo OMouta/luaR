@@ -1,0 +1,11 @@
+--- expect: compile-error
+--- code: LR0182
+--- span: 10:13
+--- spec: LR36
+struct Money
+    cents: int
+end
+
+function flip(a: Money): Money
+    return -a
+end

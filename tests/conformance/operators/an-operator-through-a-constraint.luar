@@ -1,0 +1,11 @@
+--- expect: compile-ok
+--- spec: LR36
+--- spec: LR19
+interface Add<T>
+    function add(self, other: T): T
+end
+
+export function total<T>(a: T, b: T): T
+where T: Add<T>
+    return a + b
+end

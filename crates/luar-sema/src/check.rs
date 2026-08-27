@@ -2240,6 +2240,16 @@ impl Checker<'_> {
             return None;
         }
 
+        let found = self.find_method(receiver, name, span);
+        if found.is_none() {
+            self.no_such_method(receiver, name, span);
+        }
+        found
+    }
+
+    /// The same search, reporting nothing where no method has the name. An
+    /// operator says for itself what it was looking for (LR36).
+    fn find_method(&mut self, receiver: &Type, name: &str, span: Span) -> Option<Overloads> {
         // LR19: inside the body, a type parameter has whatever `where` says it
         // has, and nothing else is known about it.
         if let Type::Parameter(parameter) = receiver {
@@ -2251,7 +2261,7 @@ impl Checker<'_> {
                 .cloned();
 
             return match bound {
-                Some(bound) => self.method(&bound, name, span),
+                Some(bound) => self.find_method(&bound, name, span),
                 None => None,
             };
         }
@@ -2314,12 +2324,7 @@ impl Checker<'_> {
             }
         }
 
-        if let Some(overloads) = self.extension(receiver, name, span) {
-            return Some(overloads);
-        }
-
-        self.no_such_method(receiver, name, span);
-        None
+        self.extension(receiver, name, span)
     }
 
     /// Reports a method nothing offers, where every place one could come from
@@ -2536,6 +2541,92 @@ impl Checker<'_> {
         ));
     }
 
+    /// LR36: an operator on a type it is not built in for calls the protocol
+    /// method it names, found the way any other method is (LR76). Dispatch is
+    /// on the left operand, and neither side is converted first.
+    fn overloaded(
+        &mut self,
+        spelling: &str,
+        protocol: &str,
+        method: &str,
+        receiver: &Type,
+        operand: Option<(&Type, Span)>,
+        span: Span,
+    ) -> Type {
+        if opaque(receiver) {
+            return Type::Unresolved;
+        }
+
+        let arity = usize::from(operand.is_some());
+        let candidates: Vec<Signature> = self
+            .find_method(receiver, method, span)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|signature| signature.takes_self && signature.params.len() == arity)
+            .collect();
+
+        if candidates.is_empty() {
+            // LR23.1: a decorator that has not run could still add it.
+            if !self.expands(receiver) {
+                self.diagnostics.push(
+                    Diagnostic::error(
+                        codes::OPERATOR_NOT_OVERLOADED,
+                        span,
+                        format!("`{spelling}` is not defined for {}", article(receiver)),
+                    )
+                    .note(format!(
+                        "`{spelling}` calls `{method}`, which comes from `{protocol}` (LR36)."
+                    )),
+                );
+            }
+            return Type::Unresolved;
+        }
+
+        let Some((held, operand_span)) = operand else {
+            return candidates[0].result.clone();
+        };
+
+        let fitting: Vec<&Signature> = candidates
+            .iter()
+            .filter(|signature| self.accepts(&signature.params[0].ty, held))
+            .collect();
+
+        match fitting.as_slice() {
+            [only] => only.result.clone(),
+            [] => {
+                if !matches!(held, Type::Unresolved) {
+                    let wanted = candidates[0].params[0].ty.clone();
+                    self.expect_argument(&wanted, held, operand_span);
+                }
+                Type::Unresolved
+            }
+            _ => {
+                self.diagnostics.push(
+                    Diagnostic::error(
+                        codes::AMBIGUOUS_OVERLOAD,
+                        span,
+                        format!("{} fits more than one `{method}`", article(held)),
+                    )
+                    .note("Overloads are told apart by their parameters (LR40)."),
+                );
+                Type::Unresolved
+            }
+        }
+    }
+
+    /// Whether a decorator that has not run could still add members (LR23.1).
+    fn expands(&self, ty: &Type) -> bool {
+        let Type::Named { module, name, .. } = ty else {
+            return false;
+        };
+
+        match self.table.get(*module, name) {
+            Some(Decl::Struct(structure)) => structure.expands,
+            Some(Decl::Interface(interface)) => interface.expands,
+            _ => false,
+        }
+    }
+
     /// LR39: arithmetic is on one numeric type, and there is no promotion
     /// between two. A literal takes the type of the other operand where it
     /// fits, which is what keeps `count + 1` writable.
@@ -2683,6 +2774,14 @@ impl Checker<'_> {
                 }
                 Type::BOOL
             }
+            // LR36: a type these are not built in for reaches them through
+            // the protocol each names.
+            UnaryOp::Negate if !is_numeric(&held) => {
+                self.overloaded("-", "Neg", "neg", &held, None, operand.span)
+            }
+            UnaryOp::BitNot if !is_numeric(&held) => {
+                self.overloaded("~", "BitNot", "bitNot", &held, None, operand.span)
+            }
             UnaryOp::Negate | UnaryOp::BitNot => held,
         }
     }
@@ -2705,6 +2804,14 @@ impl Checker<'_> {
         match op {
             // LR11.1: `/` is floating-point division, and on two integers it
             // is a mistake with two spellings to suggest.
+            BinaryOp::Divide if !is_numeric(&held_left) => self.overloaded(
+                "/",
+                "Div",
+                "div",
+                &held_left,
+                Some((&held_right, right.span)),
+                op_span,
+            ),
             BinaryOp::Divide => {
                 if is_integer(&held_left) && is_integer(&held_right) {
                     self.diagnostics.push(
@@ -2777,8 +2884,20 @@ impl Checker<'_> {
                 Type::Optional(inner) => *inner,
                 _ => Type::Unresolved,
             },
-            // Arithmetic on one numeric type produces it (LR39).
-            _ => self.arithmetic(op, &held_left, &held_right, op_span),
+            // Arithmetic and bitwise on one numeric type produce it (LR39).
+            // Every other type reaches them through the protocol the operator
+            // names (LR36).
+            _ => match protocol_of(op) {
+                Some((spelling, protocol, method)) if !is_numeric(&held_left) => self.overloaded(
+                    spelling,
+                    protocol,
+                    method,
+                    &held_left,
+                    Some((&held_right, right.span)),
+                    op_span,
+                ),
+                _ => self.arithmetic(op, &held_left, &held_right, op_span),
+            },
         }
     }
 
@@ -3191,6 +3310,36 @@ fn addressable(expr: &Expr) -> bool {
 }
 
 /// Whether `as` counts this as a number to convert (LR39).
+/// Whether nothing is known about what a type holds, so no member of it can
+/// be reported missing.
+fn opaque(ty: &Type) -> bool {
+    matches!(
+        ty,
+        Type::Unresolved | Type::Primitive(Primitive::Any | Primitive::Unknown)
+    )
+}
+
+/// The protocol an overloadable operator names, and the method it calls
+/// (LR36). The operators the spec leaves built in have none.
+fn protocol_of(op: BinaryOp) -> Option<(&'static str, &'static str, &'static str)> {
+    let named = match op {
+        BinaryOp::Add => ("+", "Add", "add"),
+        BinaryOp::Subtract => ("-", "Sub", "sub"),
+        BinaryOp::Multiply => ("*", "Mul", "mul"),
+        BinaryOp::Divide => ("/", "Div", "div"),
+        BinaryOp::Remainder => ("%", "Rem", "rem"),
+        BinaryOp::Power => ("**", "Pow", "pow"),
+        BinaryOp::BitAnd => ("&", "BitAnd", "bitAnd"),
+        BinaryOp::BitOr => ("|", "BitOr", "bitOr"),
+        BinaryOp::BitXor => ("^", "BitXor", "bitXor"),
+        BinaryOp::ShiftLeft => ("<<", "Shl", "shl"),
+        BinaryOp::ShiftRight => (">>", "Shr", "shr"),
+        _ => return None,
+    };
+
+    Some(named)
+}
+
 fn is_numeric(ty: &Type) -> bool {
     match ty {
         Type::IntegerLiteral(_) | Type::FloatLiteral => true,
