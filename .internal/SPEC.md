@@ -903,6 +903,7 @@ Tightest first. Operators on the same row bind equally.
 
 ```text
 f(x)  x[i]  x.name  x:name()  x?  x?.name        postfix, left
+await x                                          prefix
 **                                               right
 not x   -x   ~x   &x   &mut x                     prefix
 as   is                                          left
@@ -925,6 +926,8 @@ This is Lua's table with LuaR's additions placed in it, so familiar expressions 
 `**` binds tighter than prefix `-`, so `-x ** 2` is `-(x ** 2)`, and it associates to the right, so `2 ** 3 ** 2` is `2 ** (3 ** 2)`.
 
 `as` and `is` bind tighter than arithmetic, so `a as f64 / b as f64` divides the two converted values (LR11.1).
+
+`await` binds looser than the postfix operators, so `await client:get(url)` awaits what the call returns (LR27). A `?` written after it applies to the awaited value, so `await client:get(url)?` is `(await client:get(url))?` (LR25.2).
 
 `??` binds tighter than comparison, so `x ?? 0 == y` compares the coalesced value. It associates to the right, so `a ?? b ?? c` tries each in turn.
 
@@ -1932,9 +1935,9 @@ Calling an async function returns a `Task<T>`.
 local task: Task<Result<User, Error>> = fetchUser(1)
 ```
 
-`await` suspends the current async task until completion.
+`await` suspends the current async task until completion. It takes a `Task<T>` and produces the `T` that task completed with.
 
-`await` may only appear in an async context unless a dedicated top-level async entrypoint is supported.
+`await` may only appear in the body of an async function. The entrypoint of LR27.1 is one.
 
 ### 27.1 Async Entry Point
 
@@ -4048,8 +4051,10 @@ array_type      = "[" type ";" const_expression "]" ;
 pointer_type    = ( "*const" | "*mut" ) type ;
 
 expression      = literal | identifier | unary_expr | binary_expr
-                | postfix_expr | range_expr | primary_expr ;
+                | postfix_expr | await_expr | range_expr | primary_expr ;
                   (* LR11.7 states precedence and associativity *)
+
+await_expr      = "await" expression ;
 
 range_expr      = [ expression ] ( "..<" | "..=" ) [ expression ] ;
 
