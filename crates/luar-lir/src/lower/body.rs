@@ -1011,6 +1011,17 @@ impl<'a> Body<'a> {
     /// LR55: an assignment evaluates its target before its value, and a
     /// compound assignment evaluates the target once.
     fn assign(&mut self, target: &Expr, op: Option<AstBinary>, value: &Expr, span: Span) {
+        // LR55: reaching the method would read the target a second time, and
+        // only a plain name can be read twice for nothing.
+        if !matches!(target.kind, ExprKind::Name(_)) && self.overloading(op, target.span).is_some()
+        {
+            self.gap(
+                span,
+                "a compound assignment through a protocol on this target",
+            );
+            return;
+        }
+
         match &target.kind {
             ExprKind::Name(name) => {
                 let Some(var) = self.lookup(name) else {
@@ -1018,7 +1029,15 @@ impl<'a> Body<'a> {
                     return;
                 };
                 let held = self.defs[&var];
-                let written = self.written(held, op, value, span);
+
+                // LR5.4, LR36: `a += b` is `a = a:add(b)` where the operator
+                // went through a protocol.
+                let written = match self.overloading(op, target.span) {
+                    Some((protocol, method, op)) => {
+                        self.through_protocol(protocol, method, op, target, value, target.span)
+                    }
+                    None => self.written(held, op, value, span),
+                };
                 self.defs.insert(var, written);
             }
 
@@ -1171,6 +1190,19 @@ impl<'a> Body<'a> {
         self.written_into(Some(held), &wanted, op, value, span)
     }
 
+    /// The protocol an operator went through, where the checker sent it to one
+    /// (LR36).
+    fn overloading(
+        &self,
+        op: Option<AstBinary>,
+        at: Span,
+    ) -> Option<(&'static str, &'static str, AstBinary)> {
+        let op = op?;
+        self.context.facts.call(at)?;
+        let (_, protocol, method) = protocol_of(op)?;
+        Some((protocol, method, op))
+    }
+
     fn written_into(
         &mut self,
         held: Option<Value>,
@@ -1246,6 +1278,19 @@ impl<'a> Body<'a> {
                 Some(var) => self.defs[&var],
                 None => self.missing(span, "a name that is not a local binding"),
             },
+
+            // LR36: a unary operator the checker sent through a protocol is a
+            // call to the method it named, taking nothing beside the receiver.
+            ExprKind::Unary { op, operand }
+                if self.context.facts.call(operand.span).is_some()
+                    && matches!(op, AstUnary::Negate | AstUnary::BitNot) =>
+            {
+                let method = match op {
+                    AstUnary::BitNot => "bitNot",
+                    _ => "neg",
+                };
+                self.call(operand, Some(method), &[], operand.span)
+            }
 
             ExprKind::Unary { op, operand } => {
                 let ty = self.recorded(span);
@@ -1995,6 +2040,17 @@ impl<'a> Body<'a> {
 
         // LR55: the container is written before the index, so it is evaluated
         // first.
+        // LR36: a type the checker sent through `Index` reads through the
+        // method it named.
+        if self.context.facts.call(span).is_some() {
+            let args = vec![Argument {
+                name: None,
+                value: index.clone(),
+                span: index.span,
+            }];
+            return self.call(receiver, Some("index"), &args, span);
+        }
+
         let container = self.expr(receiver, None);
         let container = self.settled(container, span);
         let held = self.function.type_of(container).clone();
