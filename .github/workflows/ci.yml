@@ -48,3 +48,19 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
+  msrv:
+    # Matches `rust-version` in Cargo.toml.
+    name: rust 1.88.0
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: rustup toolchain install 1.88.0 --profile minimal
+
+      - name: Build
+        run: cargo +1.88.0 build --workspace
+
+      - name: Test
+        run: cargo +1.88.0 test --workspace
