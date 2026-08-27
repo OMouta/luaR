@@ -12,8 +12,11 @@
 
 pub mod types;
 
+mod names;
+
 mod body;
 
+use std::cell::Cell;
 use std::collections::HashMap;
 
 use luar_ast::{Function as AstFunction, Item, Member, Module, Semantics};
@@ -431,9 +434,19 @@ impl Lowering<'_> {
     fn lower_bodies(&mut self) {
         let pending = std::mem::take(&mut self.bodies);
         let mut built = Vec::with_capacity(pending.len());
+        let mut made = Vec::new();
+
+        // A closure is a function nothing declared, so it takes an id after
+        // every declaration has one (LR9.8). One counter across every body
+        // keeps them apart, and taking them in order is what lets them be
+        // added in order afterwards.
+        let next = Cell::new(
+            u32::try_from(self.program.functions().count()).expect("function count fits in u32"),
+        );
 
         for pending in &pending {
             let context = body::Context {
+                next_function: &next,
                 facts: self.facts,
                 ids: &self.ids,
                 callees: &self.functions,
@@ -442,15 +455,19 @@ impl Lowering<'_> {
                 program: &self.program,
             };
             let shell = self.program.function(pending.id).clone();
-            built.push((
-                pending.id,
-                body::Body::new(context, shell).lower(&pending.names, &pending.body),
-            ));
+            let (function, closures, gaps) =
+                body::Body::new(context, shell).lower(&pending.names, &pending.body);
+            built.push((pending.id, function, gaps));
+            made.extend(closures);
         }
 
-        for (id, (function, gaps)) in built {
+        for (id, function, gaps) in built {
             *self.program.function_mut(id) = function;
             self.gaps.extend(gaps);
+        }
+        for (id, function) in made {
+            let added = self.program.add_function(function);
+            debug_assert_eq!(added, id, "closures are added in the order they took ids");
         }
     }
 

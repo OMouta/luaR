@@ -10,12 +10,13 @@
 //! holds two, the left is emitted first. That is not an optimization choice
 //! left for later: it is the order, and it is written down here once.
 
+use std::cell::Cell;
 use std::collections::HashMap;
 
 use luar_ast::{
     Argument, ArmBody, BinaryOp as AstBinary, Binding, Block, Branch, Expr, ExprKind, FieldInit,
-    FieldPattern, MapEntry, MapKey, MatchArm, Pattern, PatternKind, Payload, Stmt, StmtKind,
-    UnaryOp as AstUnary,
+    FieldPattern, FunctionBody, MapEntry, MapKey, MatchArm, Param, Pattern, PatternKind, Payload,
+    Stmt, StmtKind, UnaryOp as AstUnary,
 };
 use luar_diagnostics::Span;
 use luar_sema::facts::Facts;
@@ -24,9 +25,10 @@ use luar_sema::types::Type;
 
 use crate::inst::MethodId;
 use crate::inst::{BinaryOp, Const, Inst, InstKind, Target, Terminator, Trap, UnaryOp, Value};
+use crate::lower::names;
 use crate::lower::types::{self, Ids};
 use crate::lower::{Callee, Gap};
-use crate::program::{BlockId, Function, Program, Shape};
+use crate::program::{BlockId, FuncId, Function, Program, Shape};
 use crate::ty::{Builtin, IntTy, Ty, TypeId};
 
 /// A binding, told apart from every other one with its name (LR53).
@@ -62,7 +64,11 @@ enum Exit {
 }
 
 /// What lowering a body needs from the rest of the program.
+#[derive(Clone, Copy)]
 pub(super) struct Context<'a> {
+    /// The next function id nothing has taken. A closure takes one as it is
+    /// lowered, because it is a function nothing declared (LR9.8).
+    pub next_function: &'a Cell<u32>,
     pub facts: &'a Facts,
     pub ids: &'a Ids,
     /// What each function declaration became, by the span the checker
@@ -94,6 +100,11 @@ pub(super) struct Body<'a> {
     next_var: u32,
     /// The loops open around what is being lowered, innermost last.
     loops: Vec<Loop>,
+    /// The names something in this function assigns to, which are the ones a
+    /// closure cannot capture by value (LR9.8).
+    mutated: Vec<String>,
+    /// The closures this body built, in the order they took their ids.
+    made: Vec<(FuncId, Function)>,
     gaps: Vec<Gap>,
 }
 
@@ -113,13 +124,23 @@ impl<'a> Body<'a> {
             defs: HashMap::new(),
             next_var: 0,
             loops: Vec::new(),
+            mutated: Vec::new(),
+            made: Vec::new(),
             gaps: Vec::new(),
         }
     }
 
     /// Binds `names` to the entry block's parameters, in order, and lowers
     /// `block` into the function.
-    pub(super) fn lower(mut self, names: &[String], block: &Block) -> (Function, Vec<Gap>) {
+    ///
+    /// The closures the body builds come back beside it, because a closure is
+    /// a function of the program like any other (LR9.8).
+    pub(super) fn lower(
+        mut self,
+        names: &[String],
+        block: &Block,
+    ) -> (Function, Vec<(FuncId, Function)>, Vec<Gap>) {
+        assigned(block, &mut self.mutated);
         let params: Vec<Value> = self.function.block(self.function.entry).params.clone();
         for (name, value) in names.iter().zip(params) {
             let var = self.declare(name);
@@ -142,7 +163,7 @@ impl<'a> Body<'a> {
             self.terminate(term);
         }
 
-        (self.function, self.gaps)
+        (self.function, self.made, self.gaps)
     }
 
     // -- building ---------------------------------------------------------
@@ -1138,6 +1159,17 @@ impl<'a> Body<'a> {
             } => self.call(callee, method.as_deref(), args, span),
 
             ExprKind::Record { path, fields } => self.record(path, fields, wanted, span),
+            ExprKind::Function {
+                asynchronous,
+                params,
+                body,
+                ..
+            } => {
+                if *asynchronous {
+                    return self.missing(span, "an async closure");
+                }
+                self.closure(params, body, span)
+            }
             ExprKind::List(values) => self.list(values, wanted, span),
             ExprKind::Map(entries) => self.map(entries, wanted, span),
             ExprKind::Index {
@@ -1282,6 +1314,16 @@ impl<'a> Body<'a> {
             if let Some(tag) = self.variant_of(&ty, variant) {
                 return self.construct(ty, tag, args, span);
             }
+        }
+
+        // LR9.2: a name holding a function value is called through the value,
+        // and reaches no declaration.
+        if method.is_none()
+            && self
+                .known_type(callee)
+                .is_some_and(|ty| matches!(ty, Ty::Function { .. }))
+        {
+            return self.through(callee, args, span);
         }
 
         let Some(declaration) = self.context.facts.call(span) else {
@@ -1559,6 +1601,135 @@ impl<'a> Body<'a> {
                 payload,
             },
             ty,
+            span,
+        )
+    }
+
+    /// LR9.2, LR9.8: a closure is a function of the program, plus the values
+    /// it captured from the scope it was written in.
+    ///
+    /// It captures by value. LR9.8 gives a captured mutable variable shared
+    /// identity instead, which is a cell rather than a value, so a closure
+    /// over a binding anything assigns to is refused rather than copied.
+    fn closure(&mut self, params: &[Param], body: &FunctionBody, span: Span) -> Value {
+        let ty = self.recorded(span);
+        let Ty::Function {
+            params: takes,
+            result,
+        } = ty.clone()
+        else {
+            return self.missing(span, "a closure whose type the checker did not work out");
+        };
+        if takes.len() != params.len() {
+            return self.missing(span, "a closure of a shape the checker did not agree on");
+        }
+
+        let written = match body {
+            FunctionBody::Block(block) => block.clone(),
+            // An arrow closure is one expression, and returning it is what it
+            // does (LR9.2).
+            FunctionBody::Expr(value) => Block {
+                stmts: vec![Stmt::new(StmtKind::Return(Some(value.clone())), value.span)],
+                span: value.span,
+            },
+        };
+
+        let Some(captures) = self.captures(&written, span) else {
+            return self.missing(span, "a closure capturing a binding something assigns to");
+        };
+
+        let mut names: Vec<String> = captures.iter().map(|(name, _)| name.clone()).collect();
+        let mut taken: Vec<Ty> = captures
+            .iter()
+            .map(|(_, var)| self.function.type_of(self.defs[var]).clone())
+            .collect();
+        for (param, ty) in params.iter().zip(takes) {
+            let Binding::Name(name) = &param.binding else {
+                return self.missing(span, "a closure with a destructuring parameter");
+            };
+            names.push(name.clone());
+            taken.push(ty);
+        }
+
+        let id = FuncId(self.context.next_function.get());
+        self.context.next_function.set(id.0 + 1);
+
+        let shell = Function::new(
+            format!("{}#{}", self.function.name, id.0),
+            taken,
+            *result,
+            span,
+        );
+        let (built, made, gaps) = Body::new(self.context, shell).lower(&names, &written);
+        self.made.push((id, built));
+        self.made.extend(made);
+        self.gaps.extend(gaps);
+
+        let held = captures.iter().map(|(_, var)| self.defs[var]).collect();
+        self.emit(
+            InstKind::MakeClosure {
+                func: id,
+                captures: held,
+            },
+            ty,
+            span,
+        )
+    }
+
+    /// The bindings a closure body reaches out of its own scope for, in the
+    /// order it names them.
+    ///
+    /// `None` where one of them is a binding something assigns to, which
+    /// needs the shared identity of LR9.8 rather than a copy.
+    fn captures(&mut self, body: &Block, span: Span) -> Option<Vec<(String, Var)>> {
+        let _ = span;
+        let mut inside = Vec::new();
+        assigned(body, &mut inside);
+
+        let mut named = Vec::new();
+        names::in_block(body, &mut named);
+
+        let mut captures: Vec<(String, Var)> = Vec::new();
+        for name in named {
+            let Some(var) = self.lookup(&name) else {
+                continue;
+            };
+            if !self.defs.contains_key(&var) || captures.iter().any(|(_, held)| *held == var) {
+                continue;
+            }
+            if self.mutated.contains(&name) || inside.contains(&name) {
+                return None;
+            }
+            captures.push((name, var));
+        }
+        Some(captures)
+    }
+
+    /// LR9.2: a call through a value calls whatever it holds, which is a
+    /// closure or a function passed as one.
+    fn through(&mut self, callee: &Expr, args: &[Argument], span: Span) -> Value {
+        let value = self.expr(callee, None);
+        let Ty::Function { params, result } = self.function.type_of(value).clone() else {
+            return self.missing(span, "a call through something that is not a function");
+        };
+        if args.len() != params.len() || args.iter().any(|argument| argument.name.is_some()) {
+            return self.missing(span, "a call through a value that does not line up");
+        }
+
+        let passed = args
+            .iter()
+            .zip(&params)
+            .map(|(argument, ty)| self.expr(&argument.value, Some(ty)))
+            .collect();
+        // LR9.3: what a call through a function value gives back is what the
+        // function type says, which is more than the checker settles today.
+        let held = self.maybe_recorded(span).unwrap_or(*result);
+        self.emit(
+            InstKind::CallIndirect {
+                callee: value,
+                args: passed,
+            },
+            held,
             span,
         )
     }

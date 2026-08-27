@@ -206,6 +206,11 @@ pub enum InstKind {
     },
 
     /// A closure, over the values it captured (LR9.8).
+    ///
+    /// `func` takes what it captured as its first parameters, before the ones
+    /// it declares, so a [`InstKind::CallIndirect`] through the closure passes
+    /// only the declared arguments and the captures come from the closure
+    /// itself.
     MakeClosure {
         func: FuncId,
         captures: Vec<Value>,
