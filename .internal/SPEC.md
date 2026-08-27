@@ -674,6 +674,16 @@ repeat
 until value ~= nil
 ```
 
+The body runs before the condition is tested, so it always runs at least once.
+
+The condition is part of the body's scope and reads the bindings it declares.
+
+```lua
+repeat
+    local line = readLine()
+until line == nil
+```
+
 ### 10.4 Ranges
 
 A range is an ordinary value written with an explicit bound marker:
