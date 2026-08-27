@@ -62,10 +62,12 @@ impl Aliases {
             },
             Type::Function {
                 asynchronous,
+                sendable,
                 params,
                 result,
             } => Type::Function {
                 asynchronous: *asynchronous,
+                sendable: *sendable,
                 params: self.each(params),
                 result: Box::new(self.expand(result)),
             },
@@ -187,10 +189,12 @@ fn follow(
         },
         Type::Function {
             asynchronous,
+            sendable,
             params,
             result,
         } => Type::Function {
             asynchronous: *asynchronous,
+            sendable: *sendable,
             params: all(params, written, ring, diagnostics),
             result: Box::new(follow(result, written, ring, diagnostics)),
         },
@@ -272,10 +276,12 @@ pub fn substitute(ty: &Type, params: &[String], args: &[Type]) -> Type {
         },
         Type::Function {
             asynchronous,
+            sendable,
             params: taken,
             result,
         } => Type::Function {
             asynchronous: *asynchronous,
+            sendable: *sendable,
             params: taken
                 .iter()
                 .map(|ty| substitute(ty, params, args))

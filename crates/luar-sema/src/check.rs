@@ -88,6 +88,8 @@ fn walk(
             constraints: Vec::new(),
             returns: Vec::new(),
             narrowed: Vec::new(),
+            mutations: Vec::new(),
+            closures: Vec::new(),
             facts: Facts::default(),
             diagnostics,
         };
@@ -140,6 +142,10 @@ struct Checker<'a> {
     /// (LR57). Kept apart from `values` so that a name declared again inside
     /// a branch is a new name rather than the narrowed one.
     narrowed: Vec<HashMap<String, Type>>,
+    /// Names assigned anywhere in each enclosing function body (LR9.8).
+    mutations: Vec<HashSet<String>>,
+    /// Anonymous functions currently being checked, outermost first.
+    closures: Vec<ClosureCaptures>,
     /// What this walk worked out, for lowering to read rather than derive
     /// again.
     facts: Facts,
@@ -184,6 +190,29 @@ struct Callee {
     /// takes as the first argument (LR12.2). `point:length()` is
     /// `Vec2.length(point)` written out, and both are checked the same way.
     receiver: Option<Type>,
+}
+
+struct ClosureCaptures {
+    /// The first value scope belonging to the closure.
+    base: usize,
+    values: HashMap<String, Type>,
+    mutable: HashSet<String>,
+    outer_mutations: HashSet<String>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ThreadMarker {
+    Send,
+    Sync,
+}
+
+impl ThreadMarker {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Send => "Send",
+            Self::Sync => "Sync",
+        }
+    }
 }
 
 /// How a call lines up with one signature (LR9.1, LR9.4, LR9.5, LR9.6).
@@ -450,9 +479,11 @@ fn extensions<'a>(names: &'a Names, table: &'a Table, module: ModuleId) -> Vec<E
 
 impl Checker<'_> {
     fn module(&mut self, module: &Module) {
+        self.mutations.push(assigned_items(&module.items));
         for item in &module.items {
             self.item(item);
         }
+        self.mutations.pop();
     }
 
     fn item(&mut self, item: &Item) {
@@ -576,6 +607,19 @@ impl Checker<'_> {
             args: Vec::new(),
         };
         for (written, resolved) in structure.implements.iter().zip(&declared.implements) {
+            if let Some(marker) = self.thread_marker(resolved) {
+                self.diagnostics.push(
+                    Diagnostic::error(
+                        codes::EXPLICIT_THREAD_MARKER,
+                        written.span,
+                        format!("`{}` is derived by the compiler", marker.name()),
+                    )
+                    .note(
+                        "User source may name `Send` and `Sync` as constraints, not in an `implements` clause (LR28).",
+                    ),
+                );
+                continue;
+            }
             self.conforms(&claimed, resolved, written.span);
         }
 
@@ -732,7 +776,9 @@ impl Checker<'_> {
         self.push();
         self.bind("self", receiver.clone());
         self.returns.push(Some(held.clone()));
+        self.mutations.push(assigned(&property.get));
         self.block(&property.get);
+        self.mutations.pop();
         self.returns.pop();
         self.pop();
 
@@ -741,7 +787,9 @@ impl Checker<'_> {
             self.bind("self", receiver);
             self.bind(&setter.param, held);
             self.returns.push(Some(Type::Tuple(Vec::new())));
+            self.mutations.push(assigned(&setter.body));
             self.block(&setter.body);
+            self.mutations.pop();
             self.returns.pop();
             self.pop();
         }
@@ -814,11 +862,14 @@ impl Checker<'_> {
         self.constraints.push(constraints);
         self.returns.push(returns);
         self.bodies.push(Some(function.span));
+        self.mutations
+            .push(function.body.as_ref().map_or_else(HashSet::new, assigned));
         if let Some(body) = &function.body {
             for stmt in &body.stmts {
                 self.stmt(stmt);
             }
         }
+        self.mutations.pop();
         self.bodies.pop();
         self.returns.pop();
         self.constraints.pop();
@@ -870,8 +921,11 @@ impl Checker<'_> {
                         declared
                     }
                     // LR5.1, LR7: with no annotation the initializer decides.
-                    None => value_type.map_or(Type::Unresolved, |(value, _)| settle(value)),
+                    None => value_type
+                        .as_ref()
+                        .map_or(Type::Unresolved, |(value, _)| settle(value.clone())),
                 };
+                let held = self.closure_binding(held, value_type.as_ref().map(|(value, _)| value));
 
                 self.facts.record_binding(stmt.span, held.clone());
                 self.declare(binding, held);
@@ -887,15 +941,16 @@ impl Checker<'_> {
             StmtKind::Const {
                 binding, ty, value, ..
             } => {
-                let held = self.expr(value);
+                let initialized = self.expr(value);
                 let held = match ty {
                     Some(ty) => {
                         let declared = self.resolve(ty);
-                        self.expect(&declared, &held, value.span);
+                        self.expect(&declared, &initialized, value.span);
                         declared
                     }
-                    None => settle(held),
+                    None => settle(initialized.clone()),
                 };
+                let held = self.closure_binding(held, Some(&initialized));
 
                 self.facts.record_binding(stmt.span, held.clone());
                 self.declare(binding, held);
@@ -909,7 +964,13 @@ impl Checker<'_> {
                     ExprKind::Name(name) => self.unnarrowed(name),
                     _ => self.expr(target),
                 };
+                if let ExprKind::Name(name) = &target.kind {
+                    self.mark_capture_mutable(name);
+                }
                 let held = self.expr(value);
+                if let ExprKind::Name(name) = &target.kind {
+                    self.update_closure_binding(name, &held);
+                }
 
                 // LR5.4, LR36: a compound assignment applies the operator it
                 // contains, so a type that operator is not built in for
@@ -1513,7 +1574,16 @@ impl Checker<'_> {
                 result,
                 body,
             } => {
+                let base = self.values.len();
+                let outer_mutations = self.mutations.last().cloned().unwrap_or_default();
                 self.push();
+                self.closures.push(ClosureCaptures {
+                    base,
+                    values: HashMap::new(),
+                    mutable: HashSet::new(),
+                    outer_mutations,
+                });
+                self.mutations.push(assigned_function(body));
                 let mut types = Vec::with_capacity(params.len());
                 for param in params {
                     let declared = match &param.ty {
@@ -1543,12 +1613,21 @@ impl Checker<'_> {
                     }
                 }
 
+                self.mutations.pop();
+                let captures = self.closures.pop().expect("a closure is open");
                 self.bodies.pop();
                 self.returns.pop();
                 self.pop();
 
+                let sendable = captures.values.iter().all(|(name, ty)| {
+                    !captures.mutable.contains(name)
+                        && !captures.outer_mutations.contains(name)
+                        && self.has_thread_marker(ty, ThreadMarker::Send)
+                });
+
                 Type::Function {
                     asynchronous: *asynchronous,
+                    sendable,
                     params: types,
                     result: Box::new(returns),
                 }
@@ -1698,11 +1777,18 @@ impl Checker<'_> {
 
     /// Whether a value of type `held` may go where `wanted` is asked for.
     fn accepts(&self, wanted: &Type, held: &Type) -> bool {
+        if let Some(marker) = self.thread_marker(wanted) {
+            return self.has_thread_marker(held, marker);
+        }
         wanted.accepts(held) || self.satisfies(wanted, held)
     }
 
     /// Whether `held` satisfies the interface `wanted` (LR18).
     fn satisfies(&self, wanted: &Type, held: &Type) -> bool {
+        if let Some(marker) = self.thread_marker(wanted) {
+            return self.has_thread_marker(held, marker);
+        }
+
         let Type::Named { module, name, .. } = wanted else {
             return false;
         };
@@ -1724,6 +1810,99 @@ impl Checker<'_> {
         }
 
         self.implements(held, wanted)
+    }
+
+    fn thread_marker(&self, ty: &Type) -> Option<ThreadMarker> {
+        let Type::Named { module, name, .. } = ty else {
+            return None;
+        };
+        if self.graph.module(*module).path != std::path::Path::new("std/thread") {
+            return None;
+        }
+
+        match name.as_str() {
+            "Send" => Some(ThreadMarker::Send),
+            "Sync" => Some(ThreadMarker::Sync),
+            _ => None,
+        }
+    }
+
+    fn has_thread_marker(&self, ty: &Type, marker: ThreadMarker) -> bool {
+        self.has_thread_marker_inner(ty, marker, &mut HashSet::new())
+    }
+
+    fn has_thread_marker_inner(
+        &self,
+        ty: &Type,
+        marker: ThreadMarker,
+        visiting: &mut HashSet<(ModuleId, String)>,
+    ) -> bool {
+        match ty {
+            Type::Unresolved | Type::Primitive(Primitive::Never) => true,
+            Type::Primitive(Primitive::Any | Primitive::Unknown) => false,
+            Type::Primitive(_) | Type::IntegerLiteral(_) | Type::FloatLiteral => true,
+            Type::Builtin {
+                kind:
+                    Builtin::Result | Builtin::FrozenList | Builtin::FrozenMap | Builtin::FrozenSet,
+                args,
+            } => args
+                .iter()
+                .all(|arg| self.has_thread_marker_inner(arg, marker, visiting)),
+            Type::Builtin { .. } | Type::SequenceLiteral(_) | Type::Pointer { .. } => false,
+            Type::Optional(inner) | Type::Array(inner) => {
+                self.has_thread_marker_inner(inner, marker, visiting)
+            }
+            Type::Union(members) | Type::Tuple(members) => members
+                .iter()
+                .all(|member| self.has_thread_marker_inner(member, marker, visiting)),
+            Type::Intersection(members) => members
+                .iter()
+                .any(|member| self.has_thread_marker_inner(member, marker, visiting)),
+            Type::Function { sendable, .. } => marker == ThreadMarker::Send && *sendable,
+            Type::Parameter(parameter) => self
+                .constraints
+                .iter()
+                .rev()
+                .find_map(|scope| scope.get(parameter))
+                .is_some_and(|bound| self.has_thread_marker_inner(bound, marker, visiting)),
+            Type::Named { module, name, args } => {
+                if self.thread_marker(ty) == Some(marker) {
+                    return true;
+                }
+
+                let key = (*module, name.clone());
+                if !visiting.insert(key.clone()) {
+                    return true;
+                }
+
+                let derived = match self.table.get(*module, name) {
+                    Some(Decl::Struct(structure)) if structure.semantics != Semantics::Ref => {
+                        structure.fields.iter().all(|field| {
+                            let held = substitute(&field.ty, &structure.type_params, args);
+                            self.has_thread_marker_inner(&held, marker, visiting)
+                        })
+                    }
+                    Some(Decl::Enum(enumeration)) => enumeration.variants.values().all(|variant| {
+                        let fields: Vec<&Type> = match variant {
+                            Variant::Unit => Vec::new(),
+                            Variant::Tuple(types) => types.iter().collect(),
+                            Variant::Record(fields) => {
+                                fields.iter().map(|field| &field.ty).collect()
+                            }
+                        };
+                        fields.into_iter().all(|field| {
+                            let held = substitute(field, &enumeration.type_params, args);
+                            self.has_thread_marker_inner(&held, marker, visiting)
+                        })
+                    }),
+                    _ => false,
+                };
+
+                visiting.remove(&key);
+                derived
+            }
+            Type::Record(_) => false,
+        }
     }
 
     /// Whether `held` says it implements `wanted` (LR18).
@@ -2365,16 +2544,34 @@ impl Checker<'_> {
                 continue;
             }
 
-            self.diagnostics.push(
-                Diagnostic::error(
-                    codes::CONSTRAINT_NOT_SATISFIED,
-                    span,
-                    format!("`{parameter}` is `{filling}` here, and that is not a `{wanted}`"),
-                )
-                .note(format!(
-                    "`where {parameter}: {wanted}` is what this call has to meet (LR19)."
-                )),
-            );
+            if let Some(marker) = self.thread_marker(wanted) {
+                let use_ = match marker {
+                    ThreadMarker::Send => "crosses into another thread",
+                    ThreadMarker::Sync => "is shared between threads",
+                };
+                self.diagnostics.push(
+                    Diagnostic::error(
+                        codes::THREAD_MARKER_REQUIRED,
+                        span,
+                        format!("`{filling}` is not `{}`", marker.name()),
+                    )
+                    .note(format!(
+                        "A value that {use_} must be `{}` (LR28).",
+                        marker.name()
+                    )),
+                );
+            } else {
+                self.diagnostics.push(
+                    Diagnostic::error(
+                        codes::CONSTRAINT_NOT_SATISFIED,
+                        span,
+                        format!("`{parameter}` is `{filling}` here, and that is not a `{wanted}`"),
+                    )
+                    .note(format!(
+                        "`where {parameter}: {wanted}` is what this call has to meet (LR19)."
+                    )),
+                );
+            }
         }
 
         Signature {
@@ -3116,6 +3313,8 @@ impl Checker<'_> {
     }
 
     fn name(&mut self, name: &str) -> Type {
+        let declared = self.unnarrowed(name);
+
         // What a condition proved wins over what the declaration said, for as
         // long as the branch that proved it lasts (LR57).
         for scope in self.narrowed.iter().rev() {
@@ -3124,18 +3323,51 @@ impl Checker<'_> {
             }
         }
 
-        self.unnarrowed(name)
+        declared
     }
 
     /// The type `name` was declared with, with nothing a condition proved
     /// laid over it.
-    fn unnarrowed(&self, name: &str) -> Type {
-        for scope in self.values.iter().rev() {
-            if let Some(ty) = scope.get(name) {
-                return ty.clone();
+    fn unnarrowed(&mut self, name: &str) -> Type {
+        let found = self
+            .values
+            .iter()
+            .enumerate()
+            .rev()
+            .find_map(|(index, scope)| scope.get(name).cloned().map(|ty| (index, ty)));
+
+        let Some((index, ty)) = found else {
+            return Type::Unresolved;
+        };
+
+        for closure in &mut self.closures {
+            if index < closure.base {
+                closure
+                    .values
+                    .entry(name.to_owned())
+                    .or_insert_with(|| ty.clone());
             }
         }
-        Type::Unresolved
+
+        ty
+    }
+
+    fn mark_capture_mutable(&mut self, name: &str) {
+        let Some(index) = self
+            .values
+            .iter()
+            .enumerate()
+            .rev()
+            .find_map(|(index, scope)| scope.contains_key(name).then_some(index))
+        else {
+            return;
+        };
+
+        for closure in &mut self.closures {
+            if index < closure.base {
+                closure.mutable.insert(name.to_owned());
+            }
+        }
     }
 
     fn unary(&mut self, op: UnaryOp, operand: &Expr) -> Type {
@@ -3397,6 +3629,38 @@ impl Checker<'_> {
                 _ => Type::Unresolved,
             };
             self.bind(&name, held);
+        }
+    }
+
+    fn closure_binding(&self, mut declared: Type, value: Option<&Type>) -> Type {
+        let Type::Function { sendable, .. } = &mut declared else {
+            return declared;
+        };
+
+        if let Some(Type::Function {
+            sendable: value, ..
+        }) = value
+        {
+            *sendable = *value;
+        }
+
+        declared
+    }
+
+    fn update_closure_binding(&mut self, name: &str, value: &Type) {
+        let Type::Function {
+            sendable: value, ..
+        } = value
+        else {
+            return;
+        };
+
+        for scope in self.values.iter_mut().rev() {
+            let Some(Type::Function { sendable, .. }) = scope.get_mut(name) else {
+                continue;
+            };
+            *sendable &= *value;
+            return;
         }
     }
 
@@ -3868,6 +4132,84 @@ fn fold(op: BinaryOp, left: u64, right: u64) -> Option<u64> {
 /// unwritten where the two ways meet (LR5.1).
 fn union(left: HashSet<String>, right: HashSet<String>) -> HashSet<String> {
     left.union(&right).cloned().collect()
+}
+
+fn assigned_items(items: &[Item]) -> HashSet<String> {
+    let mut names = HashSet::new();
+    for item in items {
+        match item {
+            Item::Stmt(stmt) => assigned_stmt(stmt, &mut names),
+            Item::Conditional(conditional) => {
+                for (_, items) in &conditional.branches {
+                    names.extend(assigned_items(items));
+                }
+                if let Some(items) = &conditional.otherwise {
+                    names.extend(assigned_items(items));
+                }
+            }
+            _ => {}
+        }
+    }
+    names
+}
+
+fn assigned_function(body: &FunctionBody) -> HashSet<String> {
+    match body {
+        FunctionBody::Block(block) => assigned(block),
+        FunctionBody::Expr(_) => HashSet::new(),
+    }
+}
+
+fn assigned(block: &Block) -> HashSet<String> {
+    let mut names = HashSet::new();
+    for stmt in &block.stmts {
+        assigned_stmt(stmt, &mut names);
+    }
+    names
+}
+
+fn assigned_stmt(stmt: &Stmt, names: &mut HashSet<String>) {
+    match &stmt.kind {
+        StmtKind::Assign { target, .. } => {
+            if let ExprKind::Name(name) = &target.kind {
+                names.insert(name.clone());
+            }
+        }
+        StmtKind::If {
+            branches,
+            otherwise,
+        } => {
+            for branch in branches {
+                names.extend(assigned(&branch.body));
+            }
+            if let Some(otherwise) = otherwise {
+                names.extend(assigned(otherwise));
+            }
+        }
+        StmtKind::While { body, .. }
+        | StmtKind::Repeat { body, .. }
+        | StmtKind::For { body, .. }
+        | StmtKind::Unsafe(body) => names.extend(assigned(body)),
+        StmtKind::Match { arms, .. } => {
+            for arm in arms {
+                if let ArmBody::Block(body) = &arm.body {
+                    names.extend(assigned(body));
+                }
+            }
+        }
+        StmtKind::Conditional {
+            branches,
+            otherwise,
+        } => {
+            for (_, body) in branches {
+                names.extend(assigned(body));
+            }
+            if let Some(otherwise) = otherwise {
+                names.extend(assigned(otherwise));
+            }
+        }
+        _ => {}
+    }
 }
 
 fn finalizers(decorators: &[Decorator]) -> impl Iterator<Item = &Decorator> {

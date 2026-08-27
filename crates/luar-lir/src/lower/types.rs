@@ -48,6 +48,7 @@ pub fn convert(ty: &Type, ids: &Ids) -> Result<Ty, Refused> {
         ),
         Type::Function {
             asynchronous,
+            sendable: _,
             params,
             result,
         } => {

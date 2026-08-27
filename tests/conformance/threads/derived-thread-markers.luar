@@ -1,0 +1,79 @@
+--- expect: compile-ok
+--- spec: LR28
+import { Send, Sync } from "std/thread"
+
+struct Payload
+    id: int
+    label: string
+end
+
+struct Envelope<T>
+    value: T
+end
+
+enum Message
+    Empty
+    Ready(Payload)
+end
+
+interface Work
+    function run(self)
+end
+
+function transfer<T>(value: T)
+where T: Send
+    print(value)
+end
+
+function share<T>(value: T)
+where T: Sync
+    print(value)
+end
+
+function forward<T>(value: T)
+where T: Send
+    transfer(value)
+end
+
+function collections(
+    array: [int; 4],
+    frozenList: FrozenList<Payload>,
+    frozenMap: FrozenMap<string, Payload>,
+    frozenSet: FrozenSet<int>,
+    message: Message,
+)
+    transfer(array)
+    share(array)
+    transfer(frozenList)
+    share(frozenMap)
+    transfer(frozenSet)
+    share(message)
+end
+
+function markedInterface(work: Work & Send)
+    transfer(work)
+end
+
+export function main()
+    local count = 1
+    const label = "ready"
+    local work = function()
+        print(count, label)
+    end
+    local annotated: () -> () = function()
+        print(count)
+    end
+    local payload = Payload { id = 1, label = "one" }
+    local envelope = Envelope { value = payload }
+    local tuple = (1, "one")
+
+    transfer(work)
+    transfer(annotated)
+    transfer(payload)
+    share(payload)
+    transfer(envelope)
+    share(envelope)
+    transfer(tuple)
+    share(tuple)
+    forward(payload)
+end

@@ -79,6 +79,7 @@ impl<'a> Resolver<'a> {
                 result,
             } => Type::Function {
                 asynchronous: *asynchronous,
+                sendable: false,
                 params: self.each(params, diagnostics),
                 result: Box::new(self.resolve(result, diagnostics)),
             },

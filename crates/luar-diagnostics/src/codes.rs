@@ -244,6 +244,10 @@ registry! {
         "A `ref struct` declares at most one finalizer.";
     active 193 => IDENTITY_REQUIRED, "LR32",
         "`identical` takes values with observable identity.";
+    active 194 => THREAD_MARKER_REQUIRED, "LR28",
+        "A value crossing or shared between threads has the required marker.";
+    active 195 => EXPLICIT_THREAD_MARKER, "LR28",
+        "The compiler derives `Send` and `Sync`; user source does not implement them.";
 }
 
 #[cfg(test)]

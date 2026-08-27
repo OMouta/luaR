@@ -206,6 +206,7 @@ pub enum Type {
     Tuple(Vec<Type>),
     Function {
         asynchronous: bool,
+        sendable: bool,
         params: Vec<Type>,
         result: Box<Type>,
     },
@@ -435,6 +436,7 @@ impl fmt::Display for Type {
             }
             Self::Function {
                 asynchronous,
+                sendable: _,
                 params,
                 result,
             } => {
