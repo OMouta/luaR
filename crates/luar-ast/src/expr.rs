@@ -60,8 +60,6 @@ pub enum ExprKind {
     },
 
     /// `f(x)`, or `receiver:method(x)` when `method` is set (LR12.2).
-    ///
-    /// `type_args` are the ones written at the call site, `f<T>(x)` (LR19).
     Call {
         callee: Box<Expr>,
         method: Option<String>,
@@ -217,9 +215,6 @@ pub enum MapKey {
 }
 
 /// What an anonymous function runs (LR9.2).
-///
-/// An arrow closure is one expression, and anything longer takes the ordinary
-/// body, which is the difference the two spellings carry.
 #[derive(Debug, Clone, PartialEq)]
 pub enum FunctionBody {
     Block(crate::stmt::Block),

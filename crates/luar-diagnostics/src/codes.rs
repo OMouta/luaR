@@ -1,19 +1,4 @@
 //! The diagnostic code registry.
-//!
-//! Every normative rule the compiler enforces gets exactly one code here, and
-//! the code is what tests match on. Wording is not normative (LR80), so a
-//! message can be rewritten freely; a code cannot.
-//!
-//! Codes are added by the change that adds the rule, never in advance. A code
-//! in this table is a promise that some program produces it.
-//!
-//! # Retirement
-//!
-//! A rule that goes away leaves its number behind, marked `retired`. The number
-//! is never given to another rule, because old build logs, recorded test
-//! expectations, and anything a user wrote down still refer to it. The table is
-//! checked at compile time to be strictly ascending by number, so a duplicate
-//! or a reused number fails the build rather than shipping.
 
 use crate::code::Code;
 
@@ -39,10 +24,6 @@ impl Entry {
 
 /// Declares a registry: the code constants, the table describing them, and the
 /// lookups over it.
-///
-/// Each row is `<status> <number> => <NAME>, <spec>, <summary>;`. Only `active`
-/// rows get a constant, so a retired code cannot be emitted by new code while
-/// its number stays reserved.
 macro_rules! registry {
     ($(
         $status:ident $number:literal => $name:ident, $spec:literal, $summary:literal;

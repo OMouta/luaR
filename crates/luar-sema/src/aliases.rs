@@ -1,13 +1,4 @@
 //! Putting every alias back to what it stands for (LR17.1).
-//!
-//! An alias is not a type of its own. `type UserId = u64` says that `UserId`
-//! and `u64` are one type under two spellings, so a value of one goes where
-//! the other is written and both have the same members.
-//!
-//! Rather than teach every rule downstream to look through an alias, the
-//! alias is taken out of the type before anything reads it. Once this has
-//! run, no [`Type::Named`] anywhere names an alias, and nothing after this
-//! point has to know aliases exist.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -125,9 +116,6 @@ pub fn resolve(written: &[Written]) -> (Aliases, Vec<Diagnostic>) {
 }
 
 /// What one alias stands for, following it through any others it names.
-///
-/// `ring` holds the aliases already being followed on this path, which is
-/// what a cycle walks back into.
 fn settle(
     alias: &Written,
     written: &[Written],

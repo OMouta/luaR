@@ -1,10 +1,4 @@
 //! Checks the parse against the precedence table LR11.7 states.
-//!
-//! These read the tree rather than a program's behavior, which the testing
-//! policy keeps for conformance tests. Precedence has no observable behavior
-//! until there is a backend to run a program on, and it is exactly the kind of
-//! rule that is cheap to get subtly wrong, so it is checked here and will be
-//! checked again by conformance tests that compute with it.
 
 use luar_ast::{BinaryOp, Expr, ExprKind, UnaryOp};
 use luar_diagnostics::FileId;
@@ -287,12 +281,9 @@ fn type_arguments_are_told_from_comparison_by_the_paren_that_follows() {
         "(call (json .decode) <1> text)"
     );
     assert_eq!(shape("a < b"), "(a < b)");
-    // Without a `(` after the `>`, it is read as comparison. That it is then
-    // rejected for chaining, rather than for anything about types, is what
-    // says which reading was taken.
+    // Without a `(` after the `>`, it is read as comparison.
     assert_eq!(codes("a < b > c"), ["LR0125"]);
-    // With one, it is a call. The comparison reading was never valid, because
-    // comparison does not chain (LR11.7, LR89.1).
+    // With one, it is a call.
     assert_eq!(shape("a < b > (c)"), "(call a <1> c)");
     assert_eq!(
         shape("into<Map<string, List<int>>>(value)"),

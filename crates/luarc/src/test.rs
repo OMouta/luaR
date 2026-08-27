@@ -1,5 +1,4 @@
-//! `luarc test` and `luarc coverage`: run the conformance suite and say what
-//! it does not reach.
+//! `luarc test` and `luarc coverage`: run the suite and say what it misses.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;

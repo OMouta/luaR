@@ -1,8 +1,4 @@
 //! Reading one escape sequence (LR4.5).
-//!
-//! Escapes are read in two places: when lexing a literal, to report what is
-//! wrong with it, and when decoding one into its value. Both call this, so
-//! that a rule cannot hold in one and not the other.
 
 /// What an escape covers, and what it denotes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,9 +24,6 @@ pub(crate) enum EscapeError {
 }
 
 /// Reads the escape at `at`, which must be a backslash.
-///
-/// `raw_bytes` is true inside a byte string (LR4.7), where `\xNN` may be any
-/// byte because the value is not required to be text.
 pub(crate) fn read(body: &str, at: usize, raw_bytes: bool) -> Escape {
     let ok = |c: char, len: usize| Escape {
         len,
@@ -143,9 +136,9 @@ mod tests {
 
     #[test]
     fn a_bad_escape_still_reports_how_far_it_reaches() {
-        // Scanning has to move on, and it has to land on a character
-        // boundary: `\x` followed by a multi-byte character is two bytes of
-        // escape and nothing else.
+        // Scanning has to move on, and it has to land on a character boundary:
+        // `\x` followed by a multi-byte character is two bytes of escape and
+        // nothing else.
         assert_eq!(
             read(r"\x€", 0, false),
             Escape {

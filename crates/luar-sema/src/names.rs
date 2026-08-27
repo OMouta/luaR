@@ -1,14 +1,4 @@
 //! What each module declares, exports, and imports (LR21, LR21.1).
-//!
-//! A module's top level is a set of names. Some are declared there, some are
-//! brought in by an import, and an import may bind a name that is not the one
-//! the other module used, because `as` renames it. This builds that set for
-//! every module in the graph, and reports an import that names something the
-//! other module keeps to itself.
-//!
-//! Only declarations are bound here. Module-level `local` and `const`
-//! bindings (LR21.3) are names too, and they arrive with the rest of lexical
-//! scoping (LR54).
 
 use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
@@ -29,9 +19,6 @@ pub struct Binding {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Origin {
     /// Declared in this module. Private to it unless exported (LR21).
-    ///
-    /// A declaration is in scope throughout the module, which is what lets
-    /// two functions call each other.
     Declared { exported: bool },
     /// A module-level `local` or `const` (LR21.3), in scope from where it is
     /// written onward rather than throughout. Only a `const` is exportable
@@ -78,14 +65,6 @@ impl Scope {
     }
 
     /// Binds `name`, unless it is already bound.
-    ///
-    /// Two declarations of one name at module level is not a rule stated yet,
-    /// and keeping the first is what makes the later stages see one binding
-    /// rather than the last one written.
-    ///
-    /// Exporting is the exception. A name may be declared more than once
-    /// legitimately, because overloads share one (LR40), and exporting any of
-    /// them puts the name on the module's surface.
     fn bind(&mut self, name: String, binding: Binding) {
         match self.names.entry(name) {
             Entry::Vacant(slot) => {
@@ -108,8 +87,6 @@ pub struct Names {
 
 impl Names {
     /// # Panics
-    ///
-    /// Panics if `module` came from another graph.
     #[must_use]
     pub fn scope(&self, module: ModuleId) -> &Scope {
         self.scopes
@@ -119,9 +96,6 @@ impl Names {
 }
 
 /// Binds the top-level names of every module in `graph`.
-///
-/// Declarations are collected first, across all modules, because an import
-/// can only be checked against a module whose declarations are known.
 #[must_use]
 pub fn resolve(graph: &Graph) -> (Names, Vec<Diagnostic>) {
     let mut names = Names::default();
@@ -153,10 +127,6 @@ fn declared(node: &Node) -> Scope {
 }
 
 /// Collects declarations, including the ones inside `#if` (LR48).
-///
-/// Every branch contributes. Which one the target selects is decided later,
-/// and a name that only one branch declares is still a name this module can
-/// declare, so leaving the others out would report uses of them as unknown.
 fn declarations(items: &[Item], scope: &mut Scope) {
     for item in items {
         let (name, exported, span) = match item {
@@ -214,10 +184,6 @@ fn declarations(items: &[Item], scope: &mut Scope) {
 
 /// The names a module's imports bring in, reporting the ones the other module
 /// does not export.
-///
-/// A name that is not exported is bound anyway. It is already reported, and
-/// binding it keeps one mistake from being reported again everywhere the name
-/// is used.
 fn imported(
     node: &Node,
     names: &Names,

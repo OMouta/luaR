@@ -7,11 +7,6 @@ use crate::keyword::{Keyword, is_reserved_word};
 use crate::token::{Token, TokenKind};
 
 /// Every operator and punctuator, longest first.
-///
-/// The order is what implements maximal munch: `..=` is found before `..`,
-/// which is found before `.`, so `0..=9` is a range and not a field access on
-/// a concatenation. The table is the whole set, so LR11 and LR5.4 can be checked
-/// against it by reading it.
 const OPERATORS: &[(&str, TokenKind)] = &[
     ("//=", TokenKind::SlashSlashEquals),
     ("**=", TokenKind::StarStarEquals),
@@ -81,9 +76,6 @@ const _: () = {
 };
 
 /// Where the lexer is inside an interpolated string (LR4.6).
-///
-/// Interpolation nests: an expression in a hole may be another interpolated
-/// string, so this is a stack rather than a flag.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Mode {
     /// Reading literal text. `start` is the opening backtick, so that an
@@ -95,10 +87,6 @@ enum Mode {
 }
 
 /// A comment, and where it was (LR3.3, LR62).
-///
-/// Comments are kept beside the tokens rather than in them. A parser does not
-/// want to skip them at every step, and a formatter (LR64) and the
-/// documentation generator (LR62) can find the ones they care about by span.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Comment {
     pub span: Span,
@@ -119,8 +107,6 @@ pub struct Lexer<'src> {
 
 impl<'src> Lexer<'src> {
     /// # Panics
-    ///
-    /// Panics if `source` is larger than 4 GiB, which spans cannot address.
     #[must_use]
     pub fn new(source: &'src str, file: FileId) -> Self {
         assert!(
@@ -239,10 +225,6 @@ impl<'src> Lexer<'src> {
     }
 
     /// A numeric literal (LR4.3, LR4.4).
-    ///
-    /// The literal runs to the end of the word-like text, not to the first
-    /// character that cannot appear in it, so `0b12` is one bad literal
-    /// rather than `0b1` beside `2`.
     fn number(&mut self, rest: &str) -> Token {
         let len = number_len(rest);
         let text = &rest[..len];
@@ -292,11 +274,6 @@ impl<'src> Lexer<'src> {
     }
 
     /// A `"..."`, `b"..."`, or `'...'` literal (LR4.5, LR4.7, LR6.1).
-    ///
-    /// The literal ends at its closing quote, at the end of the line, or at
-    /// the end of the file. A newline ends it because a string that reaches
-    /// the closing quote of some later literal reports its error hundreds of
-    /// lines from the missing quote; long strings are how a value spans lines.
     fn quoted(&mut self, rest: &str, literal: Literal) -> Token {
         let open = literal.opening_len();
         let close = literal.delimiter();
@@ -373,9 +350,6 @@ impl<'src> Lexer<'src> {
     }
 
     /// One escape sequence, starting at the backslash at `at` in `body`.
-    ///
-    /// Returns how far it reaches even when it is wrong, so that scanning
-    /// carries on from a sensible place.
     fn escape(&mut self, body: &str, at: usize, open: usize, literal: Literal) -> Escape {
         let escape = escape::read(body, at, literal == Literal::Bytes);
         let file = self.file;
@@ -426,9 +400,6 @@ impl<'src> Lexer<'src> {
 
     /// One part of an interpolated string (LR4.6): the closing backtick, the
     /// start of a hole, or a run of literal text.
-    ///
-    /// Like a quoted string, the literal ends at the end of the line, so a
-    /// missing backtick is reported near the backtick that is missing.
     fn interpolation(&mut self, start: u32) -> Token {
         let rest = &self.source[self.offset as usize..];
 
@@ -488,9 +459,6 @@ impl<'src> Lexer<'src> {
     }
 
     /// A long string, `[[...]]` or `[==[...]==]` (LR4.5).
-    ///
-    /// Escapes are not processed inside one, so the only thing to find is the
-    /// closing bracket at the same level.
     fn long_string(&mut self, rest: &str) -> Token {
         let (open, level) = long_bracket(rest).expect("the caller found an opening bracket");
         let closing = format!("]{}]", "=".repeat(level));
@@ -543,9 +511,6 @@ impl<'src> Lexer<'src> {
     }
 
     /// How far a block comment reaches, from its opening `--[[` (LR3.3).
-    ///
-    /// Block comments nest, so this counts openings of the same level rather
-    /// than stopping at the first `]]`.
     fn block_comment(&mut self, rest: &str, open: usize, level: usize) -> usize {
         let opener = format!("--[{}[", "=".repeat(level));
         let closer = format!("]{}]", "=".repeat(level));
@@ -634,9 +599,6 @@ impl Literal {
 }
 
 /// The opening of a long bracket, as `(length, level)`.
-///
-/// `[[` is level 0, `[=[` is level 1, and so on, so that a string can contain
-/// any bracket sequence shorter than its own (LR4.5).
 pub(crate) fn long_bracket(rest: &str) -> Option<(usize, usize)> {
     let after = rest.strip_prefix('[')?;
     let level = after.len() - after.trim_start_matches('=').len();
@@ -652,12 +614,6 @@ enum NumberError {
 }
 
 /// How far a numeric literal reaches.
-///
-/// Digits, letters, and separators run together, so `0xff` and `1e10` are one
-/// literal each. A `.` extends it only when a digit follows, which is what
-/// keeps `0..<10` from lexing as a float (LR10.4, LR89.1), and `0.length` from
-/// swallowing the field. An exponent's sign extends it too, since `+` and `-`
-/// are otherwise operators.
 fn number_len(rest: &str) -> usize {
     let word = |from: usize| {
         rest[from..]

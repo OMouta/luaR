@@ -29,9 +29,6 @@ impl Stmt {
 #[derive(Debug, Clone, PartialEq)]
 pub enum StmtKind {
     /// `local x = 1`, `local x: T`, `local { a, b } = record` (LR5.1, LR5.3).
-    ///
-    /// A declaration with no value must state a type, and the value must be
-    /// assigned before it is read (LR5.1, LR58).
     Local {
         binding: Binding,
         ty: Option<Type>,
@@ -90,9 +87,6 @@ pub enum StmtKind {
         otherwise: Option<Block>,
     },
     /// `unsafe ... end`, where the low-level operations are allowed (LR29.2).
-    ///
-    /// LR89.1: a function declaration is not a statement, so `unsafe` here
-    /// always opens a block and never modifies a declaration.
     Unsafe(Block),
     /// `defer call()`, run when the scope it is written in is left (LR26).
     Defer(Expr),
@@ -117,10 +111,6 @@ pub struct Branch {
 }
 
 /// What a binding binds (LR5.3).
-///
-/// Only irrefutable shapes: a name, a record, or a tuple, whose shapes are
-/// known statically so the binding cannot fail. Matching a list by shape is
-/// refutable and belongs in `match` (LR16.2).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Binding {
     Name(String),
@@ -153,10 +143,6 @@ pub struct MatchArm {
 }
 
 /// What a case does when it matches.
-///
-/// LR16.1: a `match` uses one form throughout. Block cases make it a statement
-/// and `=>` cases make it an expression, and mixing them is an error, which is
-/// what keeps a block case's extent unambiguous.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ArmBody {
     Block(Block),

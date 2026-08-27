@@ -1,10 +1,4 @@
 //! The token set.
-//!
-//! One variant per distinct spelling. Tokens that differ only in length, such
-//! as `.`, `..`, `..<`, `..=`, and `...`, are separate variants rather than one
-//! variant carrying its text, because the grammar treats them as unrelated
-//! (LR10.4, LR89.1) and a parser matching on them should not have to compare
-//! strings.
 
 use luar_diagnostics::Span;
 
@@ -25,10 +19,6 @@ impl Token {
 }
 
 /// A token's kind, and the value of a literal that has one.
-///
-/// Not `Eq`, because a float literal's value is not: nothing needs tokens in a
-/// set or a map, and storing the bits instead of the number to keep the trait
-/// would make every use site convert.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TokenKind {
     /// A name (LR3.1). Its text is the source under its span.
@@ -36,20 +26,10 @@ pub enum TokenKind {
     /// A reserved word (LR3.2).
     Keyword(Keyword),
     /// An integer literal, and its value (LR4.3).
-    ///
-    /// The value is carried because reading it is the lexer's job: it is
-    /// what knows about radix prefixes and `_` separators. Which integer
-    /// type it takes is decided later, from context (LR39). A literal is
-    /// never negative; `-10` is negation applied to `10` (LR11.1).
     Integer(u64),
     /// A floating-point literal, and its value (LR4.4).
     Float(f64),
     /// A string literal (LR4.5), written `"..."` or as a long string.
-    ///
-    /// The text between the delimiters is not decoded here. The lexer checks
-    /// that the literal is closed and that its escapes are ones LR4.5 defines;
-    /// turning `\u{1F600}` into a character is the job of whoever builds the
-    /// syntax tree, which is also who has somewhere to put the result.
     String,
     /// A byte string literal (LR4.7), written `b"..."`.
     ByteString,
@@ -58,8 +38,7 @@ pub enum TokenKind {
 
     // An interpolated string (LR4.6) is lexed into its parts rather than into
     // one token, because the expressions in it are ordinary expressions and
-    // are lexed as such. `Hello, {name}!` is Start, Text, HoleStart, Ident,
-    // HoleEnd, Text, End.
+    // are lexed as such.
     /// The opening backtick.
     InterpolationStart,
     /// A run of literal text between the holes. Never empty.

@@ -1,18 +1,4 @@
 //! Resolving names to what binds them (LR54).
-//!
-//! A name in value position must name something: a local, a parameter, a
-//! pattern binding, a declaration in this module, an import, or one of the
-//! predeclared names (LR54.1). One that names nothing is reported here.
-//!
-//! Scopes nest. Blocks, function bodies, loop bodies, and match arms each
-//! open one, and a binding is visible from where it is written to the end of
-//! the scope holding it. That is what makes `local value = 10` inside an `if`
-//! invisible after the `end`, and what lets an inner binding shadow an outer
-//! one (LR53).
-//!
-//! Names in type position are not resolved here. Types are checked in their
-//! own stage, and resolving them twice, in two places, with two different
-//! ideas of what is in scope, is how the two come to disagree.
 
 use std::collections::HashSet;
 
@@ -27,9 +13,6 @@ use crate::modules::{Graph, ModuleId};
 use crate::names::{Names, Origin, bound};
 
 /// The names in scope in every module, with no import (LR54.1).
-///
-/// A declaration or an import of the same name shadows one, which is why the
-/// module's own names are searched first.
 pub static PREDECLARED: &[&str] = &[
     "print",
     "assert",
@@ -40,10 +23,6 @@ pub static PREDECLARED: &[&str] = &[
 ];
 
 /// Resolves every name in every module of `graph`.
-///
-/// Returns what it reported, and every name a module reaches for another
-/// module's while running its own top-level code, which is what decides
-/// whether the modules can be ordered (LR78).
 #[must_use]
 pub fn resolve(graph: &Graph, names: &Names) -> (Vec<Diagnostic>, Vec<Use>) {
     let mut diagnostics = Vec::new();
@@ -171,10 +150,8 @@ impl Resolver<'_> {
     fn function(&mut self, function: &Function) {
         let Some(body) = &function.body else { return };
 
-        // A declared body runs when it is called, which is after every
-        // module has initialized (LR78). A closure written inside top-level
-        // code is left alone: it may run during initialization, and reading
-        // it as if it does is what keeps the ordering sound.
+        // A declared body runs when it is called, which is after every module
+        // has initialized (LR78).
         let outer = std::mem::replace(&mut self.initializing, false);
         self.push();
         self.params(&function.params);
@@ -185,10 +162,6 @@ impl Resolver<'_> {
 
     /// Parameters, in order. A default may use the parameters before it and
     /// nothing after, which is the order they are written in (LR9.4).
-    ///
-    /// One name may not be a parameter twice (LR53). A `local` in the body
-    /// shadowing a parameter is a different thing, and allowed, because the
-    /// body opens a scope of its own.
     fn params(&mut self, params: &[Param]) {
         let mut taken: HashSet<String> = HashSet::new();
 
@@ -322,11 +295,6 @@ impl Resolver<'_> {
     }
 
     /// What an assignment writes to (LR5.4).
-    ///
-    /// Assigning to a name declares nothing: LR52 forbids creating a variable
-    /// by writing to it, so a name that is not already in scope is that rule
-    /// rather than an unknown name. Everything else is an ordinary read of
-    /// the thing being written into.
     fn assigned(&mut self, target: &Expr) {
         match &target.kind {
             ExprKind::Name(name) => {
@@ -450,9 +418,6 @@ impl Resolver<'_> {
 
     /// Binds what a pattern binds, and reads the literals it matches against
     /// (LR16.2).
-    ///
-    /// A path names an enum variant, a struct, or a record type, and is
-    /// resolved with the types.
     fn pattern(&mut self, pattern: &Pattern) {
         match &pattern.kind {
             PatternKind::Wildcard | PatternKind::Error => {}
@@ -507,11 +472,6 @@ impl Resolver<'_> {
     }
 
     /// What binds `name` where it is written.
-    ///
-    /// A declaration and an import are in scope throughout the module. A
-    /// module-level `local` or `const` is in scope from where it is written
-    /// onward, so it is found in the first frame once the walk has passed it,
-    /// and not through the module's own table.
     fn find(&self, name: &str) -> Found {
         if self.frames.iter().any(|frame| frame.contains(name)) {
             return Found::Binding;

@@ -24,8 +24,7 @@ pub(crate) fn block(cursor: &mut Cursor) -> Block {
         // LR3.4: semicolons separate statements and are optional.
         while cursor.eat(TokenKind::Semicolon) {}
 
-        // A statement that consumed nothing would loop forever. The
-        // diagnostic is already reported, so skip the token and carry on.
+        // A statement that consumed nothing would loop forever.
         if cursor.stalled(before) {
             cursor.advance();
         }
@@ -40,7 +39,7 @@ pub(crate) fn block(cursor: &mut Cursor) -> Block {
 /// Whether the current token closes the block rather than opening a statement.
 fn at_block_end(cursor: &Cursor) -> bool {
     // LR48: the directives that close a branch end the run of statements in
-    // it. `#if` opens one, so it is a statement rather than a terminator.
+    // it.
     if cursor.at_directive(Keyword::Elseif)
         || cursor.at_directive(Keyword::Else)
         || cursor.at_directive(Keyword::End)
@@ -95,8 +94,7 @@ pub(crate) fn statement(cursor: &mut Cursor) -> Stmt {
                 StmtKind::Return(Some(expr::expression(cursor)))
             }
         }
-        // LR10.7: a label names the loop it precedes. `name :` is a label only
-        // when a loop follows; otherwise the `:` is a method call.
+        // LR10.7: a label names the loop it precedes.
         TokenKind::Ident if cursor.peek_kind(1) == TokenKind::Colon && labels_a_loop(cursor) => {
             let (label, _) = cursor.name();
             cursor.advance();
@@ -386,9 +384,7 @@ fn assignment_or_expression(cursor: &mut Cursor) -> StmtKind {
     let target = expr::expression(cursor);
 
     let Some(op) = assignment_operator(cursor.kind()) else {
-        // LR89.1: a statement has to do something. The common way to write one
-        // that does not is a compound assignment that does not exist, so
-        // `text ..= suffix` is caught here as the range it is (LR5.4, LR10.4).
+        // LR89.1: a statement has to do something.
         if !has_effect(&target) {
             cursor
                 .error(
@@ -407,8 +403,7 @@ fn assignment_or_expression(cursor: &mut Cursor) -> StmtKind {
     let operator_span = cursor.span();
     cursor.advance();
 
-    // LR89: what can be assigned to is a name, a field, or an element. A call
-    // is not, and neither is a literal.
+    // LR89: what can be assigned to is a name, a field, or an element.
     if !is_assignable(&target) {
         cursor
             .error(
@@ -448,9 +443,6 @@ fn is_assignable(expr: &Expr) -> bool {
 }
 
 /// The operator a compound assignment applies, or `None` for plain `=`.
-///
-/// LR5.4 states the complete set. There is no `..=`, which is the inclusive
-/// range (LR10.4), so concatenating in place is written out.
 fn assignment_operator(kind: TokenKind) -> Option<Option<BinaryOp>> {
     let op = match kind {
         TokenKind::Equals => None,
@@ -472,9 +464,6 @@ fn assignment_operator(kind: TokenKind) -> Option<Option<BinaryOp>> {
 }
 
 /// `match value ... end` (LR16.1).
-///
-/// The same cases serve both forms: block cases make a statement, `=>` cases
-/// make an expression, and one `match` uses one form throughout.
 pub(crate) fn match_arms(cursor: &mut Cursor, opened: Span) -> Vec<MatchArm> {
     let mut arms: Vec<MatchArm> = Vec::new();
     let mut first_form: Option<bool> = None;
@@ -548,15 +537,6 @@ fn match_statement(cursor: &mut Cursor) -> StmtKind {
 }
 
 /// `unsafe ... end` (LR29.2).
-///
-/// LR89.1: a function declaration is not a statement, so `unsafe` in statement
-/// position always opens a block. The modifier form is read where
-/// declarations are.
-/// `defer call()`, which runs on the way out of the scope it is written in
-/// (LR26).
-///
-/// What is deferred is a call, for the same reason an expression statement is
-/// one: anything else computes a value that nothing will read (LR89.1).
 fn defer(cursor: &mut Cursor) -> StmtKind {
     cursor.advance();
 

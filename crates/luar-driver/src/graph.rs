@@ -1,8 +1,4 @@
 //! Reading a program: the root module, and everything it imports (LR21.1).
-//!
-//! Modules are read breadth first from the root. A module already in the
-//! graph is not read again, which is both what makes a cycle terminate here
-//! and what LR21.2 requires of initialization.
 
 use std::collections::VecDeque;
 use std::fs;
@@ -60,10 +56,6 @@ pub(crate) fn build(sources: &mut SourceMap, root: FileId) -> (Graph, Vec<Diagno
 
 /// Resolves one import and reads what it names, unless the graph already has
 /// it. Returns the module it reached, and `None` once the failure is reported.
-///
-/// Only a module read here is queued. A module already in the graph is
-/// reached again by every import that names it, and queueing it each time is
-/// how a cycle would never end.
 fn read(
     import: &Import,
     importer: &Path,

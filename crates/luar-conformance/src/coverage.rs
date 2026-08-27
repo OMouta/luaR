@@ -1,12 +1,4 @@
 //! Which spec sections have tests, and which do not.
-//!
-//! The suite is only as good as its coverage of the specification, and the
-//! honest way to know is to compare the sections the spec defines against the
-//! sections tests cite. Both sides are read from files: the spec is not
-//! compiled in, and its path is supplied by whoever runs the report.
-//!
-//! A section with subsections is covered when all of them are, since there is
-//! nothing left to test in a heading whose content is its children.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -78,8 +70,6 @@ impl Ord for Section {
 }
 
 /// Every numbered heading in a Markdown specification, in document order.
-///
-/// Headings inside fenced code blocks are not sections.
 #[must_use]
 pub fn sections(markdown: &str) -> Vec<Section> {
     let mut sections = Vec::new();
@@ -199,9 +189,6 @@ fn covered_by_children(
 }
 
 /// The sections cited by every test under `root`, and which files cite them.
-///
-/// Files with an unreadable header are left out: the suite already fails on
-/// them, and reporting them twice would not add anything.
 pub fn citations(root: &Path) -> io::Result<BTreeMap<Section, Vec<String>>> {
     let mut citations: BTreeMap<Section, Vec<String>> = BTreeMap::new();
 

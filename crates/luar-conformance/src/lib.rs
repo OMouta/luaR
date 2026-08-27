@@ -1,17 +1,4 @@
 //! Runs the LuaR conformance suite.
-//!
-//! A test is a `.luar` program under `tests/conformance/<area>/`, with a
-//! directive header saying what it expects. The runner compiles it for real:
-//! no mocked stages, no snapshots, and nothing it asserts about is internal to
-//! the compiler.
-//!
-//! A directory named `support` holds modules that tests import (LR21.1). They
-//! are read as part of the test that imports them, and are not tests.
-//!
-//! Expectations the compiler cannot answer yet are reported as skipped, never
-//! as passed. `run` tests are written as their features arrive and sit skipped
-//! until the backend exists, so that the day it lands the suite says how much
-//! of the language actually works.
 
 pub mod coverage;
 pub mod directives;
@@ -56,9 +43,6 @@ impl fmt::Display for Outcome {
 const SUPPORT: &str = "support";
 
 /// Every `.luar` file under `root`, in a stable order.
-///
-/// A missing directory is an empty suite, not an error: the tree does not
-/// exist until the first test is written.
 pub fn discover(root: &Path) -> io::Result<Vec<PathBuf>> {
     let mut found = Vec::new();
     collect(root, &mut found)?;
@@ -157,9 +141,7 @@ fn check(path: &Path, source: String, directives: &Directives) -> Outcome {
                 ))
             }
         }
-        // Running it needs the backend. Compiling it does not, and a `run`
-        // test whose program stops compiling is a regression now rather than
-        // a surprise on the day the backend lands.
+        // Running it needs the backend.
         Expect::Run => {
             if errors.is_empty() {
                 Outcome::Skipped("run expectations need the backend".to_owned())

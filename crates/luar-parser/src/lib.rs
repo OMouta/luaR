@@ -1,12 +1,4 @@
 //! Parser: tokens in, `luar_ast` out.
-//!
-//! Expressions are parsed by precedence climbing over the table LR11.7 states,
-//! so that the table and the code can be read against each other. Everything
-//! else is recursive descent.
-//!
-//! A parse error does not stop the parse. The offending node becomes
-//! [`ExprKind::Error`] and reading continues, so that a file reports more than
-//! one problem per run.
 
 mod cursor;
 mod decl;

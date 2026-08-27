@@ -1,16 +1,4 @@
 //! Checks the token set against the operator tables in the specification.
-//!
-//! The unit tests in the lexer check that the operators it knows about lex the
-//! way they should. They cannot catch an operator the lexer never heard of,
-//! because the only list they compare against is the lexer's own.
-//!
-//! LR5.4, LR11.1, LR11.3, and LR11.5 each state their complete set as a block of
-//! text, and every entry in those blocks must lex as exactly one token. Adding
-//! an operator to the spec fails this until the lexer has it.
-//!
-//! LR11.4's operators are `and`, `or`, and `not`, which are keywords (LR3.2), so
-//! `spec_words` covers them. LR11.2 and LR11.6 state no block: `..` is covered by
-//! the range tests, and LR11.6 defines no pipeline operator.
 
 mod common;
 

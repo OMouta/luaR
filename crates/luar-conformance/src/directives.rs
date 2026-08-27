@@ -1,19 +1,4 @@
 //! The directive header that states what a test expects.
-//!
-//! A test is a LuaR program plus its expected observable behavior, written as
-//! doc comments at the top of the file:
-//!
-//! ```text
-//! --- expect: compile-error
-//! --- code: LR0114
-//! --- span: 2:15
-//! --- spec: LR11.1
-//! local ratio = 10 / 3
-//! ```
-//!
-//! The header ends at the first line that is not a directive. A directive
-//! appearing after that is an error rather than a line quietly ignored, since
-//! an ignored expectation is a test that passes for the wrong reason.
 
 use std::fmt;
 

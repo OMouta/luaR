@@ -132,8 +132,8 @@ fn there_is_no_concat_assignment() {
         only("text = text .. suffix"),
         StmtKind::Assign { op: None, .. }
     ));
-    // LR89.1: it parses as a range, and a range evaluated for nothing is not
-    // a statement, so what is written gets reported rather than ignored.
+    // LR89.1: it parses as a range, and a range evaluated for nothing is not a
+    // statement, so what is written gets reported rather than ignored.
     assert_eq!(codes("text ..= suffix"), ["LR0128"]);
 }
 

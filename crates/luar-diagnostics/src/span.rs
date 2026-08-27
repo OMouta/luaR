@@ -1,8 +1,4 @@
 //! Source positions.
-//!
-//! A span is a half-open byte range in one file. Line and column numbers are
-//! not stored here; they are derived from the source text when a diagnostic is
-//! rendered, so that carrying a span around stays cheap.
 
 /// Identifies a source file within one compilation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -18,8 +14,6 @@ pub struct Span {
 
 impl Span {
     /// # Panics
-    ///
-    /// Panics if `end` is before `start`.
     #[must_use]
     pub fn new(file: FileId, start: u32, end: u32) -> Self {
         assert!(start <= end, "span start {start} is past its end {end}");
@@ -49,8 +43,6 @@ impl Span {
     /// The smallest span covering both. Both must be in the same file.
     ///
     /// # Panics
-    ///
-    /// Panics if the two spans are in different files.
     #[must_use]
     pub fn to(self, other: Self) -> Self {
         assert_eq!(

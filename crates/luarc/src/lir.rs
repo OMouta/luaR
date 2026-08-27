@@ -1,8 +1,4 @@
 //! `luarc lir`: print what a program lowers to.
-//!
-//! There is no backend, so the only way to see whether lowering did the right
-//! thing is to read what it produced. The text is for a person and nothing
-//! parses it.
 
 use std::fs;
 use std::process::ExitCode;

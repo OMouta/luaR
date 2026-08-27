@@ -1,15 +1,5 @@
-//! Giving every written type and every expression a type, and reporting the
-//! programs that are wrong about them (LR4.2, LR5.1, LR7, LR11.1, LR54).
-//!
-//! Two jobs share one walk. Every type written in the source is resolved,
-//! which is where a name that is not a type is reported, and every expression
-//! is given a type, which is where a value that cannot be what it is used as
-//! is reported.
-//!
-//! The checker is deliberately incomplete and knows it. A call, a field, and
-//! anything reaching into another module are [`Type::Unresolved`] until the
-//! stages that answer them exist, and an unresolved type never causes a
-//! diagnostic. What is reported is what the compiler can be sure of today.
+//! Typing every expression, and reporting the programs that are wrong about
+//! them (LR4.2, LR5.1, LR7, LR11.1, LR54).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -38,11 +28,6 @@ pub fn check(graph: &Graph, names: &Names, table: &Table) -> (Facts, Vec<Diagnos
 }
 
 /// Works out the result of every function that writes none down (LR7).
-///
-/// The walk is run again after each round, because a result worked out for
-/// one function is what the calls to it read. Rounds stop as soon as nothing
-/// moves, which is what leaves a function that returns a call to itself
-/// unresolved rather than looping.
 pub fn infer_results(graph: &Graph, names: &Names, table: &mut Table) {
     /// Enough rounds for a chain of functions each returning the next, and
     /// few enough that a cycle costs nothing.
@@ -54,10 +39,7 @@ pub fn infer_results(graph: &Graph, names: &Names, table: &mut Table) {
 
         let mut changed = false;
         for span in table.inferred() {
-            // LR7: several returns agreeing is what the result is. Returns
-            // that disagree need the union rules of LR17.2 to say what they
-            // have in common, so they are left unknown instead. A body that
-            // returns nothing anywhere returns nothing.
+            // LR7: several returns agreeing is what the result is.
             let result = collected
                 .get(&span)
                 .cloned()
@@ -203,9 +185,6 @@ enum Covers {
 }
 
 /// What `pattern` covers, where that is something this stage can name.
-///
-/// A pattern that only sometimes matches, such as a literal or a variant
-/// whose payload is itself matched, covers nothing that can be counted.
 fn covers(pattern: &Pattern) -> Option<Covers> {
     match &pattern.kind {
         PatternKind::Wildcard | PatternKind::Binding(_) => Some(Covers::Anything),
@@ -417,10 +396,6 @@ struct Extension<'a> {
 
 /// The extension blocks in scope in `module`: the ones it declares and the
 /// ones it imports by name (LR20).
-///
-/// A namespace import binds the other module, not the blocks inside it, so it
-/// brings no extension into scope. Importing a module for one function never
-/// changes what an unrelated method call means.
 fn extensions<'a>(names: &'a Names, table: &'a Table, module: ModuleId) -> Vec<Extension<'a>> {
     let mut found = Vec::new();
 
@@ -455,8 +430,8 @@ impl Checker<'_> {
             // A declaration the table holds was resolved when the table was
             // built, so its body is checked against what is recorded there.
             Item::Function(function) => {
-                // LR20: a qualified name writes a member of the type it
-                // names, so its body reads `self` as that type.
+                // LR20: a qualified name writes a member of the type it names,
+                // so its body reads `self` as that type.
                 let (overloads, receiver) = match function.name.as_slice() {
                     [name] => (self.table.overloads(self.scope, name), None),
                     [owner, name] => match self.table.structure(self.scope, owner) {
@@ -620,10 +595,6 @@ impl Checker<'_> {
     }
 
     /// Checks a function body against its signature.
-    ///
-    /// A signature the table holds was resolved once, when the table was
-    /// built. One it does not hold, such as a method written outside the type
-    /// it belongs to, is resolved here instead, and so is resolved once too.
     fn body(&mut self, function: &Function, signature: Option<&Signature>, receiver: Option<Type>) {
         self.types.enter(&function.type_params);
         self.push();
@@ -634,7 +605,6 @@ impl Checker<'_> {
 
         // LR65: `self` is written like a parameter, but its type is the
         // receiver bound above rather than anything the parameter list says.
-        // Binding it again here would replace that with nothing.
         let params = match signature {
             Some(signature) if signature.takes_self => function.params.get(1..).unwrap_or_default(),
             _ => function.params.as_slice(),
@@ -771,8 +741,7 @@ impl Checker<'_> {
             }
             StmtKind::Assign { target, value, .. } => {
                 // LR57: what a branch proved narrows what the name reads as,
-                // and never what may be written to it. The declaration says
-                // that, and the declaration has not changed.
+                // and never what may be written to it.
                 let wanted = match &target.kind {
                     ExprKind::Name(name) => self.unnarrowed(name),
                     _ => self.expr(target),
@@ -781,8 +750,8 @@ impl Checker<'_> {
                 self.expect(&wanted, &held, value.span);
 
                 if let ExprKind::Name(name) = &target.kind {
-                    // LR5.2: `const` binds once, and it is the binding that
-                    // is immutable, whatever the value it holds allows.
+                    // LR5.2: `const` binds once, and it is the binding that is
+                    // immutable, whatever the value it holds allows.
                     if self.is_constant(name) {
                         self.diagnostics.push(
                             Diagnostic::error(
@@ -797,9 +766,8 @@ impl Checker<'_> {
                     // LR5.1: writing to it is what makes it readable.
                     self.unwritten.remove(name);
 
-                    // LR57: what was proved held for the value that was
-                    // there, and the value that is there now was never
-                    // checked.
+                    // LR57: what was proved held for the value that was there,
+                    // and the value that is there now was never checked.
                     self.forget(name);
                 }
             }
@@ -916,8 +884,8 @@ impl Checker<'_> {
                     None => Type::Tuple(Vec::new()),
                 };
 
-                // LR7: where no result was written down, what the body
-                // returns is what it is worked out from.
+                // LR7: where no result was written down, what the body returns
+                // is what it is worked out from.
                 if let Some(Some(owner)) = self.bodies.last() {
                     self.collected.entry(*owner).or_default().push(held.clone());
                 }
@@ -936,10 +904,6 @@ impl Checker<'_> {
 
     /// LR16.4: a match over a closed type covers every value it can hold, and
     /// a case an earlier one already covers never runs.
-    ///
-    /// A guard can fail, so a guarded case covers nothing. Coverage of the
-    /// payload of a variant is not worked out here, so a variant counts as
-    /// covered only where its payload is matched by names and wildcards.
     fn exhaustive(&mut self, scrutinee: &Type, arms: &[MatchArm], span: Span) {
         let mut covered: BTreeMap<String, Span> = BTreeMap::new();
         let mut anything: Option<Span> = None;
@@ -1025,10 +989,6 @@ impl Checker<'_> {
     }
 
     /// Every case a closed type has, spelled as a pattern writes it (LR16.4).
-    ///
-    /// Enums and `bool` are the closed types this stage can list. An integer,
-    /// a string, and a list are not closed at all, and the rest wait for the
-    /// coverage rules over tuples and records.
     fn closed(&self, scrutinee: &Type) -> Option<Vec<String>> {
         if *scrutinee == Type::BOOL {
             return Some(vec!["true".to_owned(), "false".to_owned()]);
@@ -1066,9 +1026,6 @@ impl Checker<'_> {
     }
 
     /// Binds what a pattern binds, and resolves the types it writes.
-    ///
-    /// What a pattern binding holds comes from the type being matched, which
-    /// needs narrowing (LR57).
     fn pattern(&mut self, pattern: &Pattern) {
         match &pattern.kind {
             PatternKind::Binding(name) => self.bind(name, Type::Unresolved),
@@ -1295,8 +1252,7 @@ impl Checker<'_> {
                 let values: Vec<Type> =
                     fields.iter().map(|field| self.expr(&field.value)).collect();
 
-                // LR12.2: a path names the type being built. Without one the
-                // literal is a structural record (LR12.1).
+                // LR12.2: a path names the type being built.
                 if path.is_empty() {
                     Type::Record(
                         fields
@@ -1388,10 +1344,6 @@ impl Checker<'_> {
     }
 
     /// The type of `name` read from a value of type `held`.
-    ///
-    /// Only a struct is taken apart here. Everything else is a shape whose
-    /// members need a stage that does not exist yet, and reporting a member
-    /// of one as missing would be reporting what the compiler cannot see.
     fn member(&mut self, held: &Type, name: &str, span: Span) -> Type {
         if !self.settled(held, name, span) {
             return Type::Unresolved;
@@ -1511,10 +1463,6 @@ impl Checker<'_> {
     }
 
     /// Whether a value of type `held` may go where `wanted` is asked for.
-    ///
-    /// The type rules answer most of it (LR6). What they cannot answer is
-    /// interface conformance, which is a claim a declaration makes rather
-    /// than a shape a type happens to have (LR18).
     fn accepts(&self, wanted: &Type, held: &Type) -> bool {
         wanted.accepts(held) || self.satisfies(wanted, held)
     }
@@ -1529,7 +1477,7 @@ impl Checker<'_> {
         };
 
         // A structural interface is satisfied by any type with the members,
-        // declared or not. A nominal one has to be claimed.
+        // declared or not.
         if interface.structural {
             return interface.methods.iter().all(|(member, required)| {
                 required.iter().all(|required| {
@@ -1579,10 +1527,6 @@ impl Checker<'_> {
 
     /// How a diagnostic names `held`, where the compiler knows every member
     /// it has.
-    ///
-    /// A decorated declaration grows members when expansion lands (LR23.1),
-    /// and everything else is a shape this stage does not model, so a member
-    /// of one is not reported as missing from a surface it cannot see.
     fn known(&self, held: &Type) -> Option<String> {
         match held {
             Type::Intersection(parts) => {
@@ -1622,9 +1566,6 @@ impl Checker<'_> {
     }
 
     /// The field or property `name` read off `held`, without reporting.
-    ///
-    /// An intersection holds every one of its parts at once (LR17.3), so a
-    /// member of any part is a member of it.
     fn stored(&self, held: &Type, name: &str) -> Option<Found> {
         if let Type::Intersection(parts) = held {
             return parts.iter().find_map(|part| self.stored(part, name));
@@ -1701,9 +1642,6 @@ impl Checker<'_> {
 
     /// The extension method `name` on `receiver`, from the blocks this
     /// module has in scope (LR20).
-    ///
-    /// Two of them offering it is reported here rather than at either block,
-    /// because each block is fine on its own and only this call has to pick.
     fn extension(&mut self, receiver: &Type, name: &str, span: Span) -> Option<Overloads> {
         let mut found: Vec<(&str, Overloads)> = self
             .extensions
@@ -1742,13 +1680,9 @@ impl Checker<'_> {
     /// LR12.2: a struct literal gives a value for every field the struct
     /// declares without a default, and names no field it does not declare.
     /// What `container[key]` reads, and what it takes for a key (LR37, LR69).
-    ///
-    /// A missing map key is an ordinary outcome, so a map hands back `V?` and
-    /// the caller has to settle it. A list index out of range is a mistake in
-    /// the caller's arithmetic, so a list hands back `T` and traps (LR70).
     fn indexed(&mut self, container: &Type, key: &Type, key_span: Span, span: Span) -> Type {
-        // LR37: a string is UTF-8, and an index into one would have to
-        // pretend otherwise.
+        // LR37: a string is UTF-8, and an index into one would have to pretend
+        // otherwise.
         if *container == Type::STRING {
             self.diagnostics.push(
                 Diagnostic::error(
@@ -1872,10 +1806,6 @@ impl Checker<'_> {
     }
 
     /// The enum variant `owner.name` names, and the enum it builds (LR15.3).
-    ///
-    /// A generic enum's parameters are left unresolved, because working out
-    /// what they hold from the arguments is inference that does not exist yet
-    /// (LR19), and a wrong guess would reject a program that is fine.
     fn variant(&self, owner: &str, name: &str) -> Option<(Type, Variant)> {
         // A local of that name holds a value, and a value is not a type.
         if self.shadowed(owner) {
@@ -2008,10 +1938,6 @@ impl Checker<'_> {
 
     /// Whether it is settled what `held` holds, which is what a member of it
     /// can be read from (LR8, LR17.2).
-    ///
-    /// An optional might hold nothing, and a union holds one of several
-    /// things with members of its own. Neither answers what `name` is until a
-    /// check has settled which it is (LR57).
     fn settled(&mut self, held: &Type, name: &str, span: Span) -> bool {
         if held.is_optional() {
             self.diagnostics.push(
@@ -2045,10 +1971,6 @@ impl Checker<'_> {
     }
 
     /// Checks a call against what it calls, and gives back what it returns.
-    ///
-    /// A callee this stage cannot name a signature for is left alone: a
-    /// closure held in a local, a method of a type it does not model, a
-    /// predeclared name. Checking those needs signatures it does not have.
     fn call(
         &mut self,
         callee: &Expr,
@@ -2071,8 +1993,8 @@ impl Checker<'_> {
             return Type::Unresolved;
         };
 
-        // LR12.2: naming the type writes the call out in full, so `self` is
-        // an ordinary first argument and is counted and checked as one.
+        // LR12.2: naming the type writes the call out in full, so `self` is an
+        // ordinary first argument and is counted and checked as one.
         let mut overloads = resolved.overloads;
         if let Some(receiver) = resolved.receiver {
             for signature in &mut overloads {
@@ -2141,11 +2063,6 @@ impl Checker<'_> {
 
     /// One call of a generic signature, with its type parameters worked out
     /// (LR19).
-    ///
-    /// A parameter the call neither writes down nor passes anything for is
-    /// left unresolved, because reading it back from the result needs context
-    /// this stage does not carry (LR7), and guessing would reject a program
-    /// that is fine.
     fn specialize(
         &mut self,
         signature: Signature,
@@ -2174,8 +2091,8 @@ impl Checker<'_> {
             .map(|param| bound.get(param).cloned().unwrap_or(Type::Unresolved))
             .collect();
 
-        // LR19: what fills each parameter is worked out here, and nowhere
-        // else knows it. Monomorphization reads it back.
+        // LR19: what fills each parameter is worked out here, and nowhere else
+        // knows it.
         self.facts.record_type_args(span, args.clone());
 
         // LR19: `where` is a promise the call has to keep.
@@ -2222,10 +2139,6 @@ impl Checker<'_> {
     }
 
     /// LR40: a call resolves to exactly one overload.
-    ///
-    /// An argument whose type this stage does not know would fit every
-    /// candidate, so a call holding one is left alone rather than reported as
-    /// ambiguous against a surface the compiler cannot see.
     fn overload(
         &mut self,
         name: &str,
@@ -2259,8 +2172,8 @@ impl Checker<'_> {
             )
         };
 
-        // Nothing matching means every overload is worth naming; more than
-        // one means only the ones that fit are.
+        // Nothing matching means every overload is worth naming; more than one
+        // means only the ones that fit are.
         let candidates: Vec<&Signature> = if matching.is_empty() {
             overloads.iter().collect()
         } else {
@@ -2306,9 +2219,7 @@ impl Checker<'_> {
                 receiver: None,
             }),
             // LR12.2, LR42, LR76: `Owner.name(...)` is a method call written
-            // out, a static, or a call naming the extension block it means. A
-            // receiver that is not a plain name is a value, whose members are
-            // read rather than named.
+            // out, a static, or a call naming the extension block it means.
             ExprKind::Field {
                 receiver: owner,
                 name,
@@ -2329,8 +2240,8 @@ impl Checker<'_> {
             return None;
         }
 
-        // LR19: inside the body, a type parameter has whatever `where` says
-        // it has, and nothing else is known about it.
+        // LR19: inside the body, a type parameter has whatever `where` says it
+        // has, and nothing else is known about it.
         if let Type::Parameter(parameter) = receiver {
             let bound = self
                 .constraints
@@ -2352,8 +2263,8 @@ impl Checker<'_> {
         } = receiver
         {
             match self.table.get(*module, declared) {
-                // An inherent method wins over any extension offering the
-                // same name, so adding one shadows the extension rather than
+                // An inherent method wins over any extension offering the same
+                // name, so adding one shadows the extension rather than
                 // changing what a call already meant.
                 Some(Decl::Struct(structure)) => {
                     if let Some(overloads) = structure
@@ -2370,8 +2281,8 @@ impl Checker<'_> {
                             self.private(Some(Visibility::Private), *module, declared, name, span);
                         }
 
-                        // LR42: a static has no receiver to be called
-                        // through, so it is reached through its type.
+                        // LR42: a static has no receiver to be called through,
+                        // so it is reached through its type.
                         if !takes_self(&overloads) {
                             self.diagnostics.push(
                                 Diagnostic::error(
@@ -2388,8 +2299,8 @@ impl Checker<'_> {
                         return Some(overloads);
                     }
                 }
-                // A value of interface type dispatches over what the
-                // interface requires (LR18.1).
+                // A value of interface type dispatches over what the interface
+                // requires (LR18.1).
                 Some(Decl::Interface(interface)) => {
                     if let Some(overloads) = interface
                         .methods
@@ -2413,11 +2324,6 @@ impl Checker<'_> {
 
     /// Reports a method nothing offers, where every place one could come from
     /// is known (LR76).
-    ///
-    /// Most receivers are not. A primitive, a collection, and an enum have
-    /// method surfaces this stage does not model, and a decorated declaration
-    /// grows members when expansion lands (LR23.1), so a call on one is left
-    /// alone rather than reported against a surface the compiler cannot see.
     fn no_such_method(&mut self, receiver: &Type, name: &str, span: Span) {
         let Type::Named {
             module,
@@ -2483,9 +2389,6 @@ impl Checker<'_> {
     }
 
     /// The signature a plain name calls, where the table holds one.
-    ///
-    /// A callee this stage cannot name a signature for is left alone: a
-    /// closure held in a local, or a predeclared name.
     fn declared(&self, name: &str) -> Option<Overloads> {
         // A local holding a function shadows a declaration of the same name.
         if self.shadowed(name) {
@@ -2540,8 +2443,8 @@ impl Checker<'_> {
             });
         }
 
-        // A block is known by the name this module binds it to, and only
-        // where it is in scope (LR20).
+        // A block is known by the name this module binds it to, and only where
+        // it is in scope (LR20).
         if let Some(extension) = self
             .extensions
             .iter()
@@ -2638,8 +2541,7 @@ impl Checker<'_> {
     /// fits, which is what keeps `count + 1` writable.
     fn arithmetic(&mut self, op: BinaryOp, left: &Type, right: &Type, span: Span) -> Type {
         // Two literals are worked out here, so that what the expression is
-        // worth is known where the bounds are checked (LR39). A sum that
-        // does not fit 64 bits is an `int` like any other.
+        // worth is known where the bounds are checked (LR39).
         if let (Type::IntegerLiteral(left), Type::IntegerLiteral(right)) = (left, right) {
             return match fold(op, *left, *right) {
                 Some(value) => Type::IntegerLiteral(value),
@@ -2651,8 +2553,7 @@ impl Checker<'_> {
             return left.clone();
         }
 
-        // Only two numbers are this rule's business. Anything else is a
-        // shape whose operators are its own to define (LR36).
+        // Only two numbers are this rule's business.
         if !is_numeric(left) || !is_numeric(right) {
             return Type::Unresolved;
         }
@@ -2684,7 +2585,6 @@ impl Checker<'_> {
     /// `Result`, and a representation cast is `unsafe` (LR29.2).
     fn convertible(&mut self, held: &Type, wanted: &Type, span: Span) {
         // A pointer cast is a representation cast, which has its own rule.
-        // Anything unresolved is the compiler saying it does not know.
         let opaque = |ty: &Type| {
             matches!(
                 ty,
@@ -2743,8 +2643,8 @@ impl Checker<'_> {
     }
 
     fn name(&mut self, name: &str) -> Type {
-        // What a condition proved wins over what the declaration said, for
-        // as long as the branch that proved it lasts (LR57).
+        // What a condition proved wins over what the declaration said, for as
+        // long as the branch that proved it lasts (LR57).
         for scope in self.narrowed.iter().rev() {
             if let Some(ty) = scope.get(name) {
                 return ty.clone();
@@ -2790,8 +2690,8 @@ impl Checker<'_> {
     fn binary(&mut self, op: BinaryOp, op_span: Span, left: &Expr, right: &Expr) -> Type {
         let held_left = self.expr(left);
 
-        // LR11.4, LR57: the right side of `and` runs only where the left
-        // held, so it is checked knowing what the left proved.
+        // LR11.4, LR57: the right side of `and` runs only where the left held,
+        // so it is checked knowing what the left proved.
         let held_right = if matches!(op, BinaryOp::And) {
             let facts = self.facts(left);
             self.narrow(&facts, true);
@@ -2877,8 +2777,7 @@ impl Checker<'_> {
                 Type::Optional(inner) => *inner,
                 _ => Type::Unresolved,
             },
-            // Arithmetic on one numeric type produces it (LR39). What is not
-            // numeric at all waits for the operator protocols of LR36.
+            // Arithmetic on one numeric type produces it (LR39).
             _ => self.arithmetic(op, &held_left, &held_right, op_span),
         }
     }
@@ -2978,10 +2877,6 @@ impl Checker<'_> {
     /// LR24: a `const` is worked out while compiling, over a pure subset:
     /// literals, arithmetic and comparison, string operations, tuple, record
     /// and array construction, enum construction, and other `const` values.
-    ///
-    /// What is reported is the innermost part that cannot be worked out, so
-    /// the diagnostic points at the call or the read rather than the whole
-    /// initializer.
     fn evaluable(&mut self, value: &Expr) {
         let reason = match &value.kind {
             ExprKind::Nil
@@ -3038,8 +2933,6 @@ impl Checker<'_> {
             }
 
             // LR15.3: building an enum variant is construction, not a call.
-            // Anything else called runs code, and running code is what a
-            // `const` cannot do.
             ExprKind::Call {
                 callee,
                 method,
@@ -3121,10 +3014,6 @@ impl Checker<'_> {
     }
 
     /// What `condition` proves about the names it tests (LR57).
-    ///
-    /// Only a plain name is narrowed. A field or an element can be changed by
-    /// anything that reaches the value it sits in, so what a check proved
-    /// about one does not survive the next statement.
     fn facts(&mut self, condition: &Expr) -> Vec<Narrowing> {
         match &condition.kind {
             // LR57: a nil check settles whether an optional holds anything.
@@ -3177,8 +3066,8 @@ impl Checker<'_> {
                     when_false: held.without(&tested),
                 }]
             }
-            // Both sides hold where `and` does, and the left is what makes
-            // the right safe to write (LR11.4).
+            // Both sides hold where `and` does, and the left is what makes the
+            // right safe to write (LR11.4).
             ExprKind::Binary {
                 op: BinaryOp::And,
                 left,
@@ -3273,10 +3162,6 @@ fn unify(left: Type, right: Type) -> Type {
 }
 
 /// What two integer literals come to, where that is worth knowing (LR39).
-///
-/// This is not the constant evaluation of LR24. It answers one question: what
-/// a literal expression is worth, so that `local small: u8 = 200 + 100` is
-/// reported rather than accepted on the strength of its first operand.
 fn fold(op: BinaryOp, left: u64, right: u64) -> Option<u64> {
     match op {
         BinaryOp::Add => left.checked_add(right),

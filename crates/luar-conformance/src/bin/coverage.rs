@@ -1,11 +1,4 @@
 //! Prints which spec sections have no conformance test.
-//!
-//! ```text
-//! coverage [spec.md] [suite-root]
-//! ```
-//!
-//! Paths are relative to the working directory, and default to the
-//! specification and the suite as they sit in the repository.
 
 use std::path::PathBuf;
 use std::process::ExitCode;

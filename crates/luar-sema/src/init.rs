@@ -1,19 +1,4 @@
 //! Initialization order, and the cycles that have none (LR21.2, LR78).
-//!
-//! Every module reachable from the entry module initializes before `main`,
-//! in an order that follows the dependency graph. A module that reaches for
-//! another module's name while running its own top-level code needs that
-//! module initialized first, and those needs are what the order has to
-//! satisfy.
-//!
-//! Importing in a circle is fine. Two modules whose top-level code each needs
-//! the other is not, because neither can go first, and one of them would read
-//! a value that has not been initialized.
-//!
-//! What counts as a need is deliberately blunt: any name of another module,
-//! read anywhere in top-level code, including inside a closure written there.
-//! LR21.2 permits a cycle only where the compiler can establish that it is
-//! safe, so a case this cannot order is one it rejects.
 
 use std::collections::BTreeMap;
 
@@ -38,8 +23,8 @@ pub fn check(graph: &Graph, uses: &[Use]) -> Vec<Diagnostic> {
     let mut needs: BTreeMap<ModuleId, Vec<(ModuleId, Span)>> = BTreeMap::new();
 
     for use_ in uses {
-        // A module needing itself is the module it is already in, and one
-        // need per pair is enough to order them.
+        // A module needing itself is the module it is already in, and one need
+        // per pair is enough to order them.
         let edges = needs.entry(use_.module).or_default();
         if use_.module != use_.needs && !edges.iter().any(|(to, _)| *to == use_.needs) {
             edges.push((use_.needs, use_.span));

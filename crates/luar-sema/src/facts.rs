@@ -1,13 +1,4 @@
 //! What the checker worked out, kept for the stages after it.
-//!
-//! Type checking answers questions lowering would otherwise have to ask
-//! again: what type an expression has, and which declaration a call reached
-//! once overloads and method resolution had their say (LR40, LR76). Working
-//! those out a second time would be a second implementation of the same
-//! rules, and the two would drift.
-//!
-//! Everything here is keyed by the span the expression was written at, which
-//! is unique because no two expressions occupy the same range of one file.
 
 use std::collections::HashMap;
 
@@ -26,11 +17,6 @@ pub struct Facts {
 
 impl Facts {
     /// Records the type of the expression at `span`.
-    ///
-    /// A literal is recorded as what it is worth on its own: `1` is an `int`
-    /// even where it fills a `u8` (LR39). Context is what decides the other
-    /// answer, and whoever has the context reads it from there rather than
-    /// from here.
     pub fn record_type(&mut self, span: Span, ty: Type) {
         self.types.insert(span, ty);
     }
@@ -55,10 +41,6 @@ impl Facts {
 
     /// Records the type a binding was declared with, by the span of the
     /// statement declaring it (LR5.1).
-    ///
-    /// This is the settled type, not what the initializer was worth on its
-    /// own: `local x: u8 = 200` records `u8`, because that is what the
-    /// binding holds.
     pub fn record_binding(&mut self, span: Span, ty: Type) {
         self.bindings.insert(span, ty);
     }
@@ -70,10 +52,6 @@ impl Facts {
 
     /// Records what fills each type parameter of the call at `span`, in the
     /// order the callee declares them (LR19).
-    ///
-    /// This is what monomorphization substitutes. Working it out is the
-    /// checker's job, because it is the same inference that decided the call
-    /// was well typed at all.
     pub fn record_type_args(&mut self, span: Span, args: Vec<Type>) {
         self.type_args.insert(span, args);
     }

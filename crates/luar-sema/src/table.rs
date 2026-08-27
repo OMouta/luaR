@@ -1,15 +1,4 @@
 //! What every declaration in the program is (LR12, LR15, LR17.1, LR18).
-//!
-//! Name resolution answers where a name comes from. This answers what it is:
-//! the fields of a struct and their types, the variants of an enum, the
-//! members of an interface, what an alias stands for, and the signature of
-//! every function. It is what a field access, a call, and a conformance check
-//! all read.
-//!
-//! Building it is two passes over the same declarations. The first records
-//! only what kind each one is, which is readable straight from the syntax and
-//! is what lets a type mention another type declared later, or in a module
-//! read after this one. The second resolves the types they are written with.
 
 use std::collections::BTreeMap;
 
@@ -251,9 +240,6 @@ impl Table {
 
     /// Writes the result worked out for the declaration at `span`, and says
     /// whether that changed anything (LR7).
-    ///
-    /// A function that wrote its result down keeps it. What is worked out is
-    /// only ever what was left out.
     pub fn infer_result(&mut self, span: Span, result: &Type) -> bool {
         let mut changed = false;
 
@@ -330,8 +316,7 @@ pub fn build(graph: &Graph, names: &Names) -> (Table, Vec<Diagnostic>) {
     }
 
     // LR17.1: an alias is not a type of its own, so it is taken back out
-    // before anything reads what is here. Every type an alias was resolved
-    // to, in this pass, is one of the aliases being worked out.
+    // before anything reads what is here.
     let (aliases, reported) = aliases::resolve(&written(graph, &decls));
     diagnostics.extend(reported);
 
@@ -509,8 +494,8 @@ fn declare(
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     for item in items {
-        // LR40: a name may have several signatures, so a function adds to
-        // the set the name already has rather than replacing it.
+        // LR40: a name may have several signatures, so a function adds to the
+        // set the name already has rather than replacing it.
         if let Item::Function(function) = item
             && function.name.len() == 1
         {
@@ -546,8 +531,7 @@ fn declare(
                     };
 
                     // LR12.2: fields, properties, and methods share one
-                    // namespace. Only two methods may share a name, and only
-                    // as overloads of one member (LR40).
+                    // namespace.
                     let held = match member {
                         Member::Function { .. } => seen.get(name.as_str()).copied(),
                         _ => seen.get(name.as_str()).copied().or_else(|| {
@@ -810,11 +794,6 @@ fn indistinguishable(left: &Signature, right: &Signature) -> bool {
 
 /// Whether any of these decorators could add a member to what it is written
 /// on (LR23.1).
-///
-/// The built-in attributes of LR23.2 say how a declaration is compiled and
-/// attach metadata to it; none of them adds a member. `@derive` does (LR75),
-/// and so might one this compiler does not recognize, so either leaves the
-/// member surface unknown until expansion lands.
 fn expands(decorators: &[Decorator]) -> bool {
     decorators.iter().any(|decorator| {
         !matches!(
@@ -866,8 +845,6 @@ fn attach(
         let (owner, name) = (&function.name[0], &function.name[1]);
 
         // LR20: the type's own module is where its methods are written.
-        // Another module adds to it through an extension block, which the
-        // reader can see imported.
         if let Some(Origin::Imported { .. } | Origin::Namespace(_)) = names
             .scope(module)
             .get(owner)
@@ -891,9 +868,6 @@ fn attach(
 
         // LR12.2: attaching a method the type already has declares one member
         // twice, however far apart the two are written.
-        // A field or a property is not a method, so the two cannot overload
-        // (LR12.2). Their spans are not kept in the table, so this points at
-        // the attachment, which names the type it clashes with.
         let stored = structure.fields.iter().any(|field| field.name == *name)
             || structure
                 .properties
@@ -952,8 +926,7 @@ fn signature(
     }
 
     // LR7: a function that writes no result has one worked out from what it
-    // returns, which is a pass of its own. Until then it is unknown rather
-    // than nothing, so nothing is reported against a guess.
+    // returns, which is a pass of its own.
     let result = match &function.result {
         Some(result) => resolver.resolve(result, diagnostics),
         None => Type::Unresolved,

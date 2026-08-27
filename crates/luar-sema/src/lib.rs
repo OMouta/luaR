@@ -1,5 +1,5 @@
-//! Semantic analysis: module graph, name resolution, type checking, narrowing,
-//! exhaustiveness, and decorator expansion.
+//! Semantic analysis: name resolution, type checking, narrowing, and
+//! exhaustiveness.
 
 pub mod aliases;
 pub mod annotations;

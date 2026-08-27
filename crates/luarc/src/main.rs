@@ -48,9 +48,6 @@ fn main() -> ExitCode {
 }
 
 /// Running a program needs a backend, and there is none yet.
-///
-/// The command exists so that what is missing is a stated gap rather than an
-/// unknown one. Until then `check` says whether a program is one.
 fn run(args: &[String]) -> ExitCode {
     if args.is_empty() {
         eprintln!("luarc run: expected a file");

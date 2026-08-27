@@ -1,14 +1,4 @@
 //! The module graph, and where an import points (LR21.1).
-//!
-//! An import path is one of three things: a path relative to the importing
-//! file, a standard library module, or a module in a package. Which one it is
-//! is decided by how the path starts, so the decision needs nothing but the
-//! text.
-//!
-//! Turning that into a file is the part that touches the filesystem, and it
-//! happens in the driver. Here a path becomes either a file to read or a
-//! reason the compiler cannot name one, and the modules that were read become
-//! a [`Graph`] the stages after this one walk.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -80,11 +70,6 @@ pub fn classify(path: &str) -> Option<Specifier<'_>> {
 }
 
 /// The file `path` names, imported from `importer`.
-///
-/// Relative paths are joined against the directory holding the importing
-/// file, which is what makes a module tree movable. The other two forms need
-/// a standard library and a package resolver, and neither exists yet, so they
-/// resolve to why rather than to a file.
 #[must_use]
 pub fn resolve(path: &str, importer: &Path) -> Target {
     match classify(path) {
@@ -99,13 +84,6 @@ pub fn resolve(path: &str, importer: &Path) -> Target {
 }
 
 /// Resolves `.` and `..` in `path` without touching the filesystem.
-///
-/// Two spellings of one module must reach the same file, since a module is
-/// initialized once (LR21.2) and the graph keys modules by path. That includes
-/// the root, which is spelled by whoever started the compilation and may well
-/// be reached again by an import. Doing it lexically keeps a path in a
-/// diagnostic looking like what the user wrote, which `fs::canonicalize` does
-/// not.
 #[must_use]
 pub fn normalize(path: PathBuf) -> PathBuf {
     use std::path::Component;
@@ -154,9 +132,6 @@ pub struct Edge {
 }
 
 /// Every module one compilation reaches, and the imports between them (LR21.1).
-///
-/// The root is the first module inserted, so a graph is never empty in
-/// practice and the order of the rest is the order they were discovered in.
 #[derive(Debug, Default)]
 pub struct Graph {
     nodes: Vec<Node>,
@@ -167,10 +142,6 @@ impl Graph {
     /// Adds a module read from `path`, and returns its id.
     ///
     /// # Panics
-    ///
-    /// Panics if a module was already added for `path`. Callers ask
-    /// [`Graph::find`] first, because reading one file twice would give a
-    /// module two initializations (LR21.2).
     pub fn insert(&mut self, file: FileId, path: PathBuf, ast: Module) -> ModuleId {
         let id = ModuleId(u32::try_from(self.nodes.len()).expect("module count fits in u32"));
         assert!(
@@ -196,15 +167,11 @@ impl Graph {
     /// Records what `id` imports, once every module it names is in the graph.
     ///
     /// # Panics
-    ///
-    /// Panics if `id` came from another graph.
     pub fn set_imports(&mut self, id: ModuleId, imports: Vec<Edge>) {
         self.node_mut(id).imports = imports;
     }
 
     /// # Panics
-    ///
-    /// Panics if `id` came from another graph.
     #[must_use]
     pub fn module(&self, id: ModuleId) -> &Node {
         self.nodes

@@ -1,10 +1,4 @@
 //! Reading the specification's own tables, so tests are anchored to it.
-//!
-//! Several sections state a complete set as a block of text: the keywords
-//! (LR3.2), the reserved-unused words (LR81), the operators (LR5.4, LR11). A test
-//! that transcribes one of those lists into Rust checks only that the
-//! transcription agrees with itself, so these read the list out of the
-//! specification instead.
 
 use std::fs;
 use std::path::PathBuf;
@@ -30,10 +24,6 @@ fn opens(line: &str, section: &str) -> bool {
 
 /// The words in the first `text` block of `section`, with `--` explanations
 /// dropped. No LuaR operator or word contains `--`; it opens a comment (LR3.3).
-///
-/// Empty if the section has no such block, which is a failure at the call
-/// site rather than a quiet pass: a check that stops finding anything is worse
-/// than no check.
 #[must_use]
 pub fn words_in(spec: &str, section: &str) -> Vec<String> {
     let mut lines = spec.lines().skip_while(|line| !opens(line, section));

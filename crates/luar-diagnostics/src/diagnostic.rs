@@ -24,11 +24,6 @@ pub struct Label {
 }
 
 /// One problem, at one place, under one rule.
-///
-/// `primary` is where the problem is. Secondary `labels` are the other places
-/// that explain it: the earlier binding, the interface being implemented, the
-/// import that pulled the module in. `notes` say what to do about it and carry
-/// the context LR80 asks for, such as how a generic was instantiated.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
     pub severity: Severity,

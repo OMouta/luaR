@@ -85,8 +85,7 @@ fn name_or_path(cursor: &mut Cursor) -> Pattern {
 
     let span = start.to(cursor.previous_span());
 
-    // A bare name binds whatever is matched. `_` is the one that binds
-    // nothing, and a path or a payload names something instead (LR16.2).
+    // A bare name binds whatever is matched.
     if payload.is_none() && segments.len() == 1 {
         let name = segments.pop().expect("one segment");
         let kind = if name == "_" {

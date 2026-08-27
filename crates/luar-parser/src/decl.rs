@@ -28,8 +28,7 @@ pub(crate) fn module(cursor: &mut Cursor) -> Module {
 
         while cursor.eat(TokenKind::Semicolon) {}
 
-        // Nothing consumed means nothing can be read here. The diagnostic is
-        // reported; skipping the token is what lets the rest of the file be.
+        // Nothing consumed means nothing can be read here.
         if cursor.stalled(before) {
             let here = cursor.span();
             if !cursor.reported_since(before) {
@@ -69,8 +68,8 @@ fn item(cursor: &mut Cursor) -> Option<Item> {
     let export_span = cursor.span();
     let exported = cursor.eat_keyword(Keyword::Export);
 
-    // LR12.4, LR31: `const` and `ref` say how a struct is copied, and
-    // `const` alone binds a value (LR5.2), so the `struct` decides.
+    // LR12.4, LR31: `const` and `ref` say how a struct is copied, and `const`
+    // alone binds a value (LR5.2), so the `struct` decides.
     let semantics = if cursor.kind() == TokenKind::Keyword(Keyword::Const)
         && cursor.peek_kind(1) == TokenKind::Keyword(Keyword::Struct)
     {
@@ -124,8 +123,7 @@ fn item(cursor: &mut Cursor) -> Option<Item> {
     let decorated = decorators.first().map(|decorator| decorator.span);
     let function = declaration(cursor, decorators);
 
-    // LR23: a decorator attaches to a declaration. On anything else it would
-    // be read and then dropped, which is worse than not reading it.
+    // LR23: a decorator attaches to a declaration.
     if let (None, Some(span)) = (&function, decorated) {
         let here = cursor.span();
         cursor
@@ -211,9 +209,6 @@ fn import_names(cursor: &mut Cursor, opened: Span) -> Vec<ImportName> {
 }
 
 /// A module-level binding written after `export` (LR52).
-///
-/// A `const` is exported. A `local` is mutable module state, which is
-/// reported and then read anyway, so the rest of the module still parses.
 fn exported_binding(cursor: &mut Cursor, export_span: Span) -> luar_ast::Stmt {
     if cursor.kind() == TokenKind::Keyword(Keyword::Local) {
         let here = cursor.span();
@@ -238,10 +233,6 @@ fn exported_binding(cursor: &mut Cursor, export_span: Span) -> luar_ast::Stmt {
 }
 
 /// A function declaration, if one starts here.
-///
-/// LR89.1: `unsafe` followed by `function` or `static` is the modifier on a
-/// declaration, and `unsafe` followed by anything else opens a block, so the
-/// modifiers are read together and only then does `function` have to follow.
 fn declaration(cursor: &mut Cursor, decorators: Vec<Decorator>) -> Option<Function> {
     let start = cursor.span();
     let mark = cursor.mark();
@@ -271,8 +262,7 @@ fn declaration(cursor: &mut Cursor, decorators: Vec<Decorator>) -> Option<Functi
 
     cursor.advance();
 
-    // LR46, LR89.1: a foreign declaration is its own form. It carries a
-    // signature and no body, so a bodiless one is not a malformed function.
+    // LR46, LR89.1: a foreign declaration is its own form.
     let foreign = decorators
         .iter()
         .find(|decorator| decorator.name == "extern");
@@ -361,9 +351,6 @@ fn function(cursor: &mut Cursor, start: Span, modifiers: Modifiers, bodied: bool
 }
 
 /// `where T: Comparable, U: Hashable & Display` (LR19).
-///
-/// Each bound is read as one type, so `&` composes them the way it composes
-/// any other pair of types (LR17.3).
 fn where_clause(cursor: &mut Cursor) -> Vec<Constraint> {
     if !cursor.eat_keyword(Keyword::Where) {
         return Vec::new();
@@ -555,9 +542,6 @@ fn field(cursor: &mut Cursor, start: Span, visibility: Option<Visibility>) -> Fi
 }
 
 /// `property name: T get ... end [set (v) ... end] end` (LR43).
-///
-/// `get` and `set` are not keywords (LR3.2); they are names the grammar gives
-/// meaning here and nowhere else.
 fn property(cursor: &mut Cursor, start: Span, visibility: Option<Visibility>) -> Property {
     cursor.advance();
 
@@ -938,9 +922,6 @@ fn decorators(cursor: &mut Cursor) -> Vec<Decorator> {
 }
 
 /// `#if ... #elseif ... #else ... #end`, around declarations (LR48).
-///
-/// The directives are `#` followed by the ordinary keywords, so nothing new
-/// is reserved. LR81 keeps `#if` for the compiler, and this is what it is for.
 fn conditional(cursor: &mut Cursor) -> Conditional {
     let start = cursor.span();
     cursor.advance();

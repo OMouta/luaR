@@ -112,9 +112,6 @@ impl<'src> Cursor<'src> {
     }
 
     /// Whether nothing has been consumed since `mark`.
-    ///
-    /// A loop over statements has to know this: a statement that consumed no
-    /// token would be read again forever.
     pub(crate) fn stalled(&self, mark: Mark) -> bool {
         self.at == mark.at
     }
@@ -126,9 +123,6 @@ impl<'src> Cursor<'src> {
     }
 
     /// Goes back to `mark`, dropping whatever was reported since.
-    ///
-    /// Only for a reading the grammar allows the parser to try and abandon,
-    /// where the diagnostics belong to the attempt rather than to the program.
     pub(crate) fn rewind(&mut self, mark: Mark) {
         self.at = mark.at;
         self.split = mark.split;
@@ -136,9 +130,6 @@ impl<'src> Cursor<'src> {
     }
 
     /// Whether a conditional compilation directive starts here (LR48).
-    ///
-    /// A directive is `#` and a keyword, written together, so `#if` reserves
-    /// nothing that `#` and `if` did not already spell.
     pub(crate) fn at_directive(&self, keyword: Keyword) -> bool {
         self.kind() == TokenKind::Hash
             && self.peek_kind(1) == TokenKind::Keyword(keyword)
@@ -190,11 +181,6 @@ impl<'src> Cursor<'src> {
     }
 
     /// Consumes the `>` closing a type-argument list.
-    ///
-    /// `Map<string, List<int>>` ends in one `>>` token, because the lexer
-    /// takes the longest operator it can (LR11.5). Splitting it here, where the
-    /// grammar knows a type argument list is being closed, keeps the lexer
-    /// from having to know what it is inside of.
     pub(crate) fn eat_type_args_close(&mut self) -> bool {
         let span = self.span();
         let rest = |kind| Token::new(kind, Span::new(span.file, span.start + 1, span.end));

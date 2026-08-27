@@ -1,8 +1,4 @@
 //! Patterns (LR16.2).
-//!
-//! Patterns are refutable: matching one may fail, which is what separates them
-//! from the bindings of LR5.3. Nesting is free, so every position that takes a
-//! pattern takes any of them.
 
 use luar_diagnostics::Span;
 

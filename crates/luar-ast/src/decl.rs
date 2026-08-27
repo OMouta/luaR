@@ -235,10 +235,6 @@ pub enum InterfaceMember {
 }
 
 /// An `extend Name for Type` block (LR20).
-///
-/// The block is named, exported, and imported like any other declaration, so
-/// importing a module for one function never changes what a method call means
-/// somewhere else.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Extend {
     pub decorators: Vec<Decorator>,
@@ -261,9 +257,6 @@ pub struct TypeAlias {
 }
 
 /// A decorator, attached to the declaration it precedes (LR23).
-///
-/// What it does is decided when decorators are expanded (LR23.1); here it is
-/// its name and the arguments written with it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Decorator {
     pub name: String,

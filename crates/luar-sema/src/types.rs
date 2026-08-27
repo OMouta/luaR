@@ -1,21 +1,11 @@
 //! The types a LuaR program is written in, and when one accepts another
 //! (LR6, LR4.3, LR39).
-//!
-//! What is here is the shape of a type and the question every checked
-//! assignment asks: may a value of this type go where that type is wanted?
-//! Deciding it is deliberately one-sided. A type this stage does not model
-//! yet answers yes, so a program is reported only where the compiler is sure
-//! it is wrong.
 
 use std::fmt;
 
 use crate::modules::ModuleId;
 
 /// A primitive type (LR6).
-///
-/// `int`, `uint`, and `float` are spellings of `i64`, `u64`, and `f64`
-/// (LR4.3, LR4.4): the same type under two names, on every target. `isize` and
-/// `usize` are distinct types, and exist for FFI and allocator code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Primitive {
     Nil,
@@ -246,9 +236,6 @@ impl Type {
     pub const STRING: Self = Self::Primitive(Primitive::String);
 
     /// Whether a value of type `value` may be used where `self` is wanted.
-    ///
-    /// This type with `nil` taken out of it, which is what a value has once
-    /// a nil check has held (LR8, LR57).
     #[must_use]
     pub fn without_nil(&self) -> Self {
         match self {
@@ -271,10 +258,6 @@ impl Type {
 
     /// This type with `taken` removed from it, which is what a value has
     /// where an `is` test did not hold (LR17.2, LR57).
-    ///
-    /// Only a union has parts to remove. Anything else keeps what it was,
-    /// because a failed test says what the value is not, and that is not a
-    /// type this stage can write down.
     #[must_use]
     pub fn without(&self, taken: &Self) -> Self {
         let Self::Union(members) = self else {
@@ -321,8 +304,8 @@ impl Type {
     /// only what is definitely wrong.
     #[must_use]
     pub fn accepts(&self, value: &Self) -> bool {
-        // `unknown` is the top type and holds anything; what it does not do
-        // is go anywhere else without a check first (LR6.3).
+        // `unknown` is the top type and holds anything; what it does not do is
+        // go anywhere else without a check first (LR6.3).
         if matches!(self, Self::Primitive(Primitive::Unknown)) {
             return true;
         }
@@ -344,8 +327,7 @@ impl Type {
             (Self::Primitive(target), Self::IntegerLiteral(literal)) => target.holds(*literal),
             (Self::Primitive(target), Self::FloatLiteral) => target.is_float(),
 
-            // A bracket literal fills either sequence (LR13.1, LR71). Whether
-            // it has N elements waits for `const` evaluation (LR24).
+            // A bracket literal fills either sequence (LR13.1, LR71).
             (Self::Array(element), Self::SequenceLiteral(held)) => element.accepts(held),
             (
                 Self::Builtin {

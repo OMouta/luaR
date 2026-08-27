@@ -1,8 +1,4 @@
 //! The reserved words.
-//!
-//! LR3.2 states the complete keyword set, and LR81 states the words reserved
-//! with no meaning assigned. Both are closed lists, so both are tables here,
-//! checked against the specification by `tests/spec_words.rs`.
 
 /// A word LR3.2 reserves and gives a meaning.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

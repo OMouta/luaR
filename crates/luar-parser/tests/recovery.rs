@@ -1,8 +1,4 @@
 //! Checks that a file reports more than one syntax error per run.
-//!
-//! One error per compile is one round trip per mistake. A parse error turns
-//! the node it was reading into an `Error` and reading continues from the next
-//! declaration, so a file says everything that is wrong with it at once.
 
 use luar_diagnostics::FileId;
 

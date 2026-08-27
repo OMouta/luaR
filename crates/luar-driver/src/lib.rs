@@ -11,35 +11,16 @@ pub enum Check {
     /// The frontend ran. An empty list means the program was accepted.
     Ran(Vec<Diagnostic>),
     /// The frontend does not exist yet.
-    ///
-    /// This is not acceptance. Anything reading a `Check` must treat it as "no
-    /// answer", so that an unbuilt compiler cannot report a program as valid.
-    /// The variant goes away when the frontend lands.
     Unimplemented,
 }
 
 /// Checks `root` and the modules it imports, without producing an artifact.
-///
-/// The frontend reaches as far as the top-level names of each module: every
-/// module the root imports is read and parsed, an import naming nothing is
-/// reported, and so is one naming something the other module does not export.
-/// Each stage added after this one narrows what an accepted program is: the
-/// rest of name resolution, then type checking. A program accepted here and
-/// rejected later was never accepted by the finished compiler, and the test
-/// that says so starts failing the day the stage that rejects it lands.
-///
-/// Imported modules are added to `sources`, so their spans resolve like the
-/// root's.
 #[must_use]
 pub fn check(sources: &mut SourceMap, root: FileId) -> Check {
     Check::Ran(frontend(sources, root).diagnostics)
 }
 
 /// Checks `root` and lowers what was accepted to LIR.
-///
-/// A program with diagnostics is not lowered: lowering assumes the checker
-/// already accepted what it walks, and running it over a rejected program
-/// would report the same mistake a second time in worse words.
 pub fn lower(sources: &mut SourceMap, root: FileId) -> Result<Lowered, Vec<Diagnostic>> {
     let checked = frontend(sources, root);
     if checked.diagnostics.iter().any(Diagnostic::is_error) {
@@ -49,8 +30,8 @@ pub fn lower(sources: &mut SourceMap, root: FileId) -> Result<Lowered, Vec<Diagn
     // LR19: a generic function is a template until a call says what fills it,
     // so this runs over the whole program rather than one module at a time.
     luar_lir::mono::run(&mut lowered.program);
-    // LR18.1: an interface call that can reach one function only is a call
-    // to that function, which is a question about the whole program.
+    // LR18.1: an interface call that can reach one function only is a call to
+    // that function, which is a question about the whole program.
     luar_lir::devirt::run(&mut lowered.program);
     Ok(lowered)
 }

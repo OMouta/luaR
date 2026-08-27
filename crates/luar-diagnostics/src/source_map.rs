@@ -1,19 +1,4 @@
 //! Source text, and the offset-to-position math over it.
-//!
-//! Spans are byte ranges (see [`Span`]), which is what the lexer and parser
-//! want to carry around. Line and column numbers are what a person reading a
-//! diagnostic wants, and they are computed here, at the point of rendering.
-//!
-//! Two things the spec leaves open, decided here:
-//!
-//! - A line ends at `\n`. A `\r` immediately before it is part of the
-//!   terminator, not of the line, so a CRLF file reports the same columns as
-//!   the same file with Unix endings.
-//! - Columns count Unicode scalar values, not bytes and not UTF-16 units. It
-//!   is the count an editor shows, and test directives spell positions by
-//!   hand.
-//!
-//! Both are 1-based, because every tool that reads them is.
 
 use std::path::{Path, PathBuf};
 
@@ -128,8 +113,6 @@ impl SourceMap {
     /// Adds a file and returns the id its spans will carry.
     ///
     /// # Panics
-    ///
-    /// Panics if the file is 4 GiB or larger, since offsets are `u32`.
     pub fn add(&mut self, path: impl Into<PathBuf>, text: impl Into<String>) -> FileId {
         let text = text.into();
         assert!(
@@ -148,8 +131,6 @@ impl SourceMap {
     }
 
     /// # Panics
-    ///
-    /// Panics if the id came from a different `SourceMap`.
     #[must_use]
     pub fn file(&self, id: FileId) -> &SourceFile {
         self.files

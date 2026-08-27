@@ -1,10 +1,4 @@
 //! What a literal denotes (LR4.5, LR4.6, LR4.7).
-//!
-//! The lexer checks a literal and reports what is wrong with it; this turns
-//! one into its value, for whoever is building a syntax tree and has somewhere
-//! to keep it. Both read escapes through the same code, so a literal the lexer
-//! accepted decodes, and one it rejected returns `None` rather than a value
-//! standing in for text that was never valid.
 
 use crate::escape;
 

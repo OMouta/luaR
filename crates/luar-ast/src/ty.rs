@@ -1,7 +1,4 @@
 //! Types as they are written in source.
-//!
-//! This is syntax, not the type system: `luar_sema` resolves these into the
-//! types of LR6 and after, and decides what they mean.
 
 use luar_diagnostics::Span;
 

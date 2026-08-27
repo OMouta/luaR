@@ -116,9 +116,7 @@ fn binary(cursor: &mut Cursor, level: Level) -> Expr {
             return left;
         };
 
-        // The left operand was already reported as missing. Reading an
-        // operator onto it would report its right operand as missing too, and
-        // then the next, turning one mistake into a run of them.
+        // The left operand was already reported as missing.
         if left.kind == ExprKind::Error {
             return left;
         }
@@ -244,9 +242,6 @@ fn conversion(cursor: &mut Cursor) -> Expr {
 }
 
 /// `not x`, `-x`, `~x`, `&x`, `&mut x`, and `x ** y`.
-///
-/// `**` binds tighter than a prefix operator, so `-x ** 2` negates the power
-/// (LR11.7), and it associates to the right.
 fn unary(cursor: &mut Cursor) -> Expr {
     let start = cursor.span();
 
@@ -317,10 +312,7 @@ fn postfix(cursor: &mut Cursor) -> Expr {
 
     loop {
         // LR89.1: `name <` opens type arguments only when what follows parses
-        // as a type list and a `(` comes straight after the `>`. Type
-        // arguments in expression position only ever precede a call, so
-        // `json.decode<User>(text)` is a generic call and `a < b > (c)` is a
-        // comparison.
+        // as a type list and a `(` comes straight after the `>`.
         if cursor.kind() == TokenKind::Lt {
             if let Some(args) = type_arguments(cursor) {
                 value = call(cursor, value, None);
@@ -359,9 +351,7 @@ fn postfix(cursor: &mut Cursor) -> Expr {
                 let (method, _) = cursor.name();
 
                 // LR89.1: a method call is a call, so the same rule decides
-                // its type arguments. They are read here rather than at the
-                // top of the loop because `:` reads its call immediately,
-                // where `.` comes back around.
+                // its type arguments.
                 let generic = (cursor.kind() == TokenKind::Lt)
                     .then(|| type_arguments(cursor))
                     .flatten();
@@ -374,8 +364,7 @@ fn postfix(cursor: &mut Cursor) -> Expr {
                 called
             }
             // `map?[key]` indexes an optional receiver (LR8), while `x?`
-            // propagates an error (LR25.2). The two are told apart by what
-            // follows, and only when it follows immediately.
+            // propagates an error (LR25.2).
             TokenKind::Question
                 if cursor.peek_kind(1) == TokenKind::LeftBracket && cursor.adjacent(1) =>
             {
@@ -393,10 +382,6 @@ fn postfix(cursor: &mut Cursor) -> Expr {
 }
 
 /// Reads `<A, B>` when it is a type-argument list, and nothing otherwise.
-///
-/// The whole reading is speculative: what is written may equally be a
-/// comparison, so the parse is rewound and anything it reported is dropped
-/// unless a `(` confirms it (LR89.1).
 fn type_arguments(cursor: &mut Cursor) -> Option<Vec<Type>> {
     let mark = cursor.mark();
     cursor.advance();
@@ -623,11 +608,6 @@ fn arrow(cursor: &mut Cursor) -> Expr {
 }
 
 /// Whether the parenthesized list starting here is a closure's parameters.
-///
-/// A parenthesized list is a tuple unless `=>` follows it, which is the shape
-/// the type grammar settles with `->` (LR14, LR89.1). Which one it is decides
-/// how the contents are read, so the matching `)` is found first and the token
-/// after it answers the question.
 fn opens_a_closure(cursor: &Cursor) -> bool {
     let mut depth = 0usize;
     let mut ahead = 0;
@@ -668,8 +648,7 @@ fn parenthesized(cursor: &mut Cursor) -> Expr {
     if !cursor.eat(TokenKind::Comma) {
         let end = cursor.span();
         cursor.close(TokenKind::RightParen, opened, ")");
-        // The parentheses are grouping, so the expression stands alone. Its
-        // span covers them, so a diagnostic still points at what was written.
+        // The parentheses are grouping, so the expression stands alone.
         return Expr::new(first.kind, opened.to(end));
     }
 
@@ -687,10 +666,6 @@ fn parenthesized(cursor: &mut Cursor) -> Expr {
 }
 
 /// `if c then a else b` (LR10.1).
-///
-/// In expression position `if` produces a value, so it takes expressions
-/// rather than blocks and needs no `end`. The `else` is required: without one
-/// there is nothing for the expression to be when no branch is taken.
 fn conditional(cursor: &mut Cursor) -> Expr {
     let opened = cursor.span();
     cursor.advance();
@@ -769,16 +744,11 @@ fn match_expression(cursor: &mut Cursor) -> Expr {
 }
 
 /// A name, or the literal a path with braces after it builds.
-///
-/// LR90: `[...]` is always a list, `{ ... }` always a record, `Map { ... }`
-/// always a map. What a literal constructs never depends on where it is
-/// written, so a `{` after a path is always the literal's.
 fn path_or_literal(cursor: &mut Cursor) -> Expr {
     let start = cursor.span();
     let (first, _) = cursor.name();
 
-    // Only a path leads to a literal, and only `.` continues one. Anything
-    // else is a name, and the postfix loop takes it from there.
+    // Only a path leads to a literal, and only `.` continues one.
     if cursor.kind() != TokenKind::Dot && cursor.kind() != TokenKind::LeftBrace {
         return Expr::new(ExprKind::Name(first), start);
     }

@@ -57,8 +57,7 @@ fn a_heading_is_covered_once_all_its_subsections_are() {
     let report = coverage(&sections(SPEC), &cite(&["LR11.1", "LR11.2"]));
     let tested: Vec<String> = report.tested.iter().map(Section::to_string).collect();
 
-    // LR11 has nothing to test beyond its subsections. LR4 still does, since
-    // LR4.3 is untested.
+    // LR11 has nothing to test beyond its subsections.
     assert_eq!(tested, ["LR11", "LR11.1", "LR11.2"]);
 }
 

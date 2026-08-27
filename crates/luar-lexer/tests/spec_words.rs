@@ -1,9 +1,4 @@
 //! Checks the keyword set against LR3.2 and the reserved words against LR81.
-//!
-//! Both are closed lists the specification states in full, so the tables in
-//! the lexer must match them exactly. A word the spec adds and the lexer
-//! misses would otherwise lex as an ordinary identifier, which is the failure
-//! LR81 exists to prevent.
 
 mod common;
 

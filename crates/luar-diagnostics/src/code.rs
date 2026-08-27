@@ -1,10 +1,4 @@
 //! Diagnostic codes.
-//!
-//! A code is the stable name of a normative rule. Wording is free to change
-//! (LR80); the code is not. Tests match on the code, never on the message.
-//!
-//! Codes are declared by the registry in [`crate::codes`], not built by hand,
-//! so that every code in use has a row saying which rule it enforces.
 
 use std::fmt;
 use std::str::FromStr;

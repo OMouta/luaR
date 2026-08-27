@@ -1,13 +1,4 @@
 //! Types as written, resolved to types as held (LR54).
-//!
-//! Every annotation in a program passes through here exactly once: the ones
-//! in a declaration when the table of declarations is built, and the ones
-//! inside a body when that body is checked. Resolving one twice would report
-//! a mistake in it twice.
-//!
-//! A path is resolved against what the module has in scope, so a type named
-//! through an import reaches the module that declares it, and a name that is
-//! not a type is reported here.
 
 use std::collections::HashSet;
 
@@ -164,7 +155,7 @@ impl<'a> Resolver<'a> {
         }
 
         // LR17.1: an alias stands for its target, so what a path naming one
-        // resolves to is the target. Nothing past here sees the alias.
+        // resolves to is the target.
         Some(
             self.aliases
                 .stands_for(module, &name, &args)
