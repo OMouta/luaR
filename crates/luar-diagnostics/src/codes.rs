@@ -248,6 +248,8 @@ registry! {
         "A value crossing or shared between threads has the required marker.";
     active 195 => EXPLICIT_THREAD_MARKER, "LR28",
         "The compiler derives `Send` and `Sync`; user source does not implement them.";
+    active 196 => INVALID_DESTRUCTURE, "LR5.3",
+        "A destructuring binding has the statically known shape it takes apart.";
 }
 
 #[cfg(test)]

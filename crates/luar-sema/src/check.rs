@@ -160,6 +160,8 @@ struct Found {
     ty: Type,
 }
 
+type DestructuredField = (Type, Option<(Option<Visibility>, ModuleId, String)>);
+
 /// What a condition proves about one name where it holds, and where it does
 /// not (LR57).
 struct Narrowing {
@@ -888,15 +890,7 @@ impl Checker<'_> {
             self.expect(&declared, &value, default.span);
         }
 
-        for name in bound(&param.binding) {
-            // A destructured parameter takes the type of a field of what was
-            // passed, which is a shape this stage does not take apart yet.
-            let held = match &param.binding {
-                Binding::Name(_) => declared.clone(),
-                _ => Type::Unresolved,
-            };
-            self.bind(&name, held);
-        }
+        self.declare(&param.binding, declared, param.span);
     }
 
     fn block(&mut self, block: &Block) {
@@ -928,7 +922,7 @@ impl Checker<'_> {
                 let held = self.closure_binding(held, value_type.as_ref().map(|(value, _)| value));
 
                 self.facts.record_binding(stmt.span, held.clone());
-                self.declare(binding, held);
+                self.declare(binding, held, stmt.span);
 
                 // LR5.1: a binding declared with no value holds nothing until
                 // something writes to it.
@@ -953,7 +947,7 @@ impl Checker<'_> {
                 let held = self.closure_binding(held, Some(&initialized));
 
                 self.facts.record_binding(stmt.span, held.clone());
-                self.declare(binding, held);
+                self.declare(binding, held, stmt.span);
                 self.bind_constant(binding);
                 self.evaluable(value);
             }
@@ -1105,7 +1099,7 @@ impl Checker<'_> {
                 for binding in bindings {
                     // What an iterator yields needs the iterator protocol
                     // (LR35), which is not resolved here.
-                    self.declare(binding, Type::Unresolved);
+                    self.declare(binding, Type::Unresolved, stmt.span);
                 }
                 self.enter_loop(label.clone(), None);
                 self.block(body);
@@ -3620,16 +3614,114 @@ impl Checker<'_> {
         ));
     }
 
-    fn declare(&mut self, binding: &Binding, held: Type) {
-        for name in bound(binding) {
-            // A destructured binding takes the types of what it takes apart,
-            // which is a shape this stage does not take apart yet (LR5.3).
-            let held = match binding {
-                Binding::Name(_) => held.clone(),
-                _ => Type::Unresolved,
-            };
-            self.bind(&name, held);
+    fn declare(&mut self, binding: &Binding, held: Type, span: Span) {
+        match binding {
+            Binding::Name(name) => self.bind(name, held),
+            Binding::Record(fields) => {
+                if !self.record_shape(&held) {
+                    self.invalid_destructure(span, &held);
+                    self.bind_unresolved(binding);
+                    return;
+                }
+
+                for field in fields {
+                    let name = field.bound_as.as_ref().unwrap_or(&field.field);
+                    let Some((ty, owner)) = self.destructured_field(&held, &field.field) else {
+                        if !matches!(held, Type::Unresolved) {
+                            self.diagnostics.push(
+                                Diagnostic::error(
+                                    codes::INVALID_DESTRUCTURE,
+                                    field.span,
+                                    format!("`{held}` has no field `{}`", field.field),
+                                )
+                                .note("A record binding names fields in its statically known shape (LR5.3)."),
+                            );
+                        }
+                        self.bind(name, Type::Unresolved);
+                        continue;
+                    };
+
+                    if let Some((visibility, module, declared)) = owner {
+                        self.private(visibility, module, &declared, &field.field, field.span);
+                    }
+                    self.bind(name, ty);
+                }
+            }
+            Binding::Tuple(bindings) => {
+                let Type::Tuple(members) = &held else {
+                    if !matches!(held, Type::Unresolved) {
+                        self.invalid_destructure(span, &held);
+                    }
+                    self.bind_unresolved(binding);
+                    return;
+                };
+
+                if bindings.len() != members.len() {
+                    self.invalid_destructure(span, &held);
+                    self.bind_unresolved(binding);
+                    return;
+                }
+
+                for (binding, member) in bindings.iter().zip(members) {
+                    self.declare(binding, member.clone(), span);
+                }
+            }
+            Binding::Error => {}
         }
+    }
+
+    fn record_shape(&self, held: &Type) -> bool {
+        match held {
+            Type::Record(_) | Type::Unresolved => true,
+            Type::Named { module, name, .. } => {
+                matches!(self.table.get(*module, name), Some(Decl::Struct(_)))
+            }
+            _ => false,
+        }
+    }
+
+    fn destructured_field(&self, held: &Type, name: &str) -> Option<DestructuredField> {
+        match held {
+            Type::Record(fields) => fields
+                .iter()
+                .find(|(field, _)| field == name)
+                .map(|(_, ty)| (ty.clone(), None)),
+            Type::Named {
+                module,
+                name: declared,
+                args,
+            } => {
+                let Some(Decl::Struct(structure)) = self.table.get(*module, declared) else {
+                    return None;
+                };
+                let field = structure.fields.iter().find(|field| field.name == name)?;
+                Some((
+                    substitute(&field.ty, &structure.type_params, args),
+                    Some((field.visibility, *module, declared.clone())),
+                ))
+            }
+            Type::Unresolved => Some((Type::Unresolved, None)),
+            _ => None,
+        }
+    }
+
+    fn bind_unresolved(&mut self, binding: &Binding) {
+        for name in bound(binding) {
+            self.bind(&name, Type::Unresolved);
+        }
+    }
+
+    fn invalid_destructure(&mut self, span: Span, held: &Type) {
+        self.diagnostics.push(
+            Diagnostic::error(
+                codes::INVALID_DESTRUCTURE,
+                span,
+                format!("cannot destructure {held}"),
+            )
+            .note(
+                "Records, structs, and tuples destructure by their statically known shape (LR5.3).",
+            ),
+        );
     }
 
     fn closure_binding(&self, mut declared: Type, value: Option<&Type>) -> Type {
