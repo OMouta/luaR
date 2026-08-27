@@ -3798,6 +3798,8 @@ match_case      = "case" pattern
 
 unsafe_block    = "unsafe" block "end" ;
 
+defer_stmt      = "defer" expression_stmt ;    (* a call, as LR89.1 requires *)
+
 try_stmt        = "try" block
                   { catch_clause }
                   [ "finally" block ]
