@@ -221,6 +221,8 @@ registry! {
         "A return gives a value of the type its function declares.";
     active 172 => CONSTRAINT_NOT_SATISFIED, "LR19",
         "A type argument satisfies what `where` requires of the parameter it fills.";
+    active 173 => INVALID_CAST, "LR33",
+        "`as` converts between numeric types; there is no universal cast.";
 }
 
 #[cfg(test)]

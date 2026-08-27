@@ -1,0 +1,11 @@
+--- expect: compile-error
+--- code: LR0173
+--- span: 10:12
+--- spec: LR33
+struct User
+    name: string
+end
+
+function count(user: User): int
+    return user as int
+end

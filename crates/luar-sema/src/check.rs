@@ -1157,8 +1157,10 @@ impl Checker<'_> {
                 Type::Unresolved
             }
             ExprKind::Cast { value, ty } => {
-                self.expr(value);
-                self.resolve(ty)
+                let held = self.expr(value);
+                let wanted = self.resolve(ty);
+                self.convertible(&held, &wanted, expr.span);
+                wanted
             }
             ExprKind::TypeTest { value, ty } => {
                 self.expr(value);
@@ -2494,6 +2496,41 @@ impl Checker<'_> {
         ));
     }
 
+    /// LR33: `as` is the safe conversion between numeric types, and nothing
+    /// wider. A conversion that can fail is an API returning an optional or a
+    /// `Result`, and a representation cast is `unsafe` (LR29.2).
+    fn convertible(&mut self, held: &Type, wanted: &Type, span: Span) {
+        // A pointer cast is a representation cast, which has its own rule.
+        // Anything unresolved is the compiler saying it does not know.
+        let opaque = |ty: &Type| {
+            matches!(
+                ty,
+                Type::Unresolved
+                    | Type::Pointer { .. }
+                    | Type::Parameter(_)
+                    | Type::Primitive(Primitive::Any | Primitive::Unknown)
+            )
+        };
+        if opaque(held) || opaque(wanted) {
+            return;
+        }
+
+        // Converting a type to itself is a conversion that does nothing, and
+        // saying so is how a reader spells out what a literal is.
+        if held == wanted || (is_numeric(held) && is_numeric(wanted)) {
+            return;
+        }
+
+        self.diagnostics.push(
+            Diagnostic::error(
+                codes::INVALID_CAST,
+                span,
+                format!("`as` does not convert {} to `{wanted}`", article(held)),
+            )
+            .note("`as` converts between numeric types (LR33, LR39)."),
+        );
+    }
+
     /// LR9.1: a `return` gives a value of the declared result.
     fn expect_return(&mut self, wanted: &Type, held: &Type, span: Span) {
         if self.accepts(wanted, held) {
@@ -2866,6 +2903,15 @@ fn unify(left: Type, right: Type) -> Type {
         left
     } else {
         Type::Unresolved
+    }
+}
+
+/// Whether `as` counts this as a number to convert (LR39).
+fn is_numeric(ty: &Type) -> bool {
+    match ty {
+        Type::IntegerLiteral(_) | Type::FloatLiteral => true,
+        Type::Primitive(primitive) => primitive.is_integer() || primitive.is_float(),
+        _ => false,
     }
 }
 

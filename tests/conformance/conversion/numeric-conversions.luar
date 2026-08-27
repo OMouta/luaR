@@ -1,0 +1,11 @@
+--- expect: compile-ok
+--- spec: LR33
+--- spec: LR39
+export function main()
+    local count: i32 = 10
+    local wide: i64 = count as i64
+    local ratio: f64 = count as f64
+    local back: i32 = wide as i32
+    local small: u8 = ratio as u8
+    print(wide, ratio, back, small)
+end

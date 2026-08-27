@@ -1,0 +1,7 @@
+--- expect: compile-error
+--- code: LR0173
+--- span: 6:12
+--- spec: LR33
+function label(count: int): string
+    return count as string
+end
