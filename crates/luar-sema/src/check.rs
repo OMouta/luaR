@@ -275,8 +275,8 @@ fn fit(signature: &Signature, args: &[Argument]) -> Fit {
                 let index = position;
                 position += 1;
                 // Everything from a variadic onward goes to it (LR9.6).
-                Some(index.min(params.len().saturating_sub(1)))
-                    .filter(|_| index < params.len() || (variadic && !params.is_empty()))
+                let fits = index < params.len() || (variadic && !params.is_empty());
+                fits.then_some(index.min(params.len().saturating_sub(1)))
             }
         };
 
