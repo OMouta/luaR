@@ -739,7 +739,7 @@ impl Checker<'_> {
                 self.bind_constant(binding);
                 self.evaluable(value);
             }
-            StmtKind::Assign { target, value, .. } => {
+            StmtKind::Assign { target, op, value } => {
                 // LR57: what a branch proved narrows what the name reads as,
                 // and never what may be written to it.
                 let wanted = match &target.kind {
@@ -747,7 +747,27 @@ impl Checker<'_> {
                     _ => self.expr(target),
                 };
                 let held = self.expr(value);
-                self.expect(&wanted, &held, value.span);
+
+                // LR5.4, LR36: a compound assignment applies the operator it
+                // contains, so a type that operator is not built in for
+                // applies it through the protocol it names.
+                let produced = match op {
+                    Some(op) if !is_numeric(&wanted) => {
+                        protocol_of(*op).map(|(spelling, protocol, method)| {
+                            self.overloaded(
+                                spelling,
+                                protocol,
+                                method,
+                                &wanted,
+                                Some((&held, value.span)),
+                                target.span,
+                            )
+                        })
+                    }
+                    _ => None,
+                };
+
+                self.expect(&wanted, produced.as_ref().unwrap_or(&held), value.span);
 
                 if let ExprKind::Name(name) = &target.kind {
                     // LR5.2: `const` binds once, and it is the binding that is

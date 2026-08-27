@@ -1,0 +1,16 @@
+--- expect: compile-ok
+--- spec: LR36
+--- spec: LR5.4
+struct Money
+    cents: int
+
+    function add(self, other: Money): Money
+        return Money { cents = self.cents + other.cents }
+    end
+end
+
+export function tally(a: Money, b: Money): Money
+    local total = a
+    total += b
+    return total
+end
