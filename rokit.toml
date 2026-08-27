@@ -1,7 +1,8 @@
 # Tools this repository uses. Install them with `rokit install`.
 #
 # The compiler itself needs only a Rust toolchain. Lute runs `luar.luau`, the
-# task runner, so that the everyday commands are short.
+# task runner, so that the everyday commands are short. StyLua formats it.
 
 [tools]
 lute = "luau-lang/lute@1.0.0"
+stylua = "JohnnyMorganz/StyLua@2.5.2"

@@ -14,8 +14,9 @@ cargo build
 
 If you have [Rokit](https://github.com/rojo-rbx/rokit), `rokit install` adds
 [Lute](https://github.com/luau-lang/lute), which runs the task runner in
-`luar.luau`. It only shortens the cargo commands, so skip it if you would
-rather type them out.
+`luar.luau`, and [StyLua](https://github.com/JohnnyMorganz/StyLua), which
+formats it. Everything but the Luau formatting is a cargo command you can type
+out instead.
 
 ## Tests
 
@@ -58,7 +59,7 @@ them.
 | `lute luar lir file.luar` | `cargo run -q -p luarc -- lir file.luar` |
 | `lute luar build` | `cargo build --workspace` |
 | `lute luar unit` | `cargo test --workspace` |
-| `lute luar fmt` | `cargo fmt --all` |
+| `lute luar fmt` | `cargo fmt --all`, then `stylua luar.luau` |
 | `lute luar lint` | `cargo clippy --workspace --all-targets -- -D warnings` |
 | `lute luar ci` | format, lint, unit tests, conformance |
 

@@ -35,6 +35,17 @@ local function luarc(command: string, rest: { string }): number
 	return process.run(args, { stdio = "inherit" }).exitcode
 end
 
+--- Formats the Luau in the repository, or reports on it when `check` is set.
+--- Comes from `rokit.toml`.
+local function stylua(check: boolean): number
+	local args = { "stylua" }
+	if check then
+		table.insert(args, "--check")
+	end
+	table.insert(args, "luar.luau")
+	return process.run(args, { stdio = "inherit" }).exitcode
+end
+
 --- Runs each step until one fails, and reports which one did.
 local function sequence(steps: { { name: string, run: () -> number } }): number
 	for _, step in steps do
@@ -48,6 +59,34 @@ local function sequence(steps: { { name: string, run: () -> number } }): number
 
 	print("\neverything passed")
 	return 0
+end
+
+local function format(): number
+	local code = cargo("fmt", "--all")
+	if code ~= 0 then
+		return code
+	end
+	return stylua(false)
+end
+
+local function checkFormat(): number
+	local code = cargo("fmt", "--all", "--check")
+	if code ~= 0 then
+		return code
+	end
+	return stylua(true)
+end
+
+local function lint(): number
+	return cargo("clippy", "--workspace", "--all-targets", "--", "-D", "warnings")
+end
+
+local function unit(): number
+	return cargo("test", "--workspace")
+end
+
+local function conformance(): number
+	return luarc("test", {})
 end
 
 local commands: { [string]: (rest: { string }) -> number } = {
@@ -70,30 +109,16 @@ local commands: { [string]: (rest: { string }) -> number } = {
 	build = function()
 		return cargo("build", "--workspace")
 	end,
-	unit = function()
-		return cargo("test", "--workspace")
-	end,
-	fmt = function()
-		return cargo("fmt", "--all")
-	end,
-	lint = function()
-		return cargo("clippy", "--workspace", "--all-targets", "--", "-D", "warnings")
-	end,
+	unit = unit,
+	fmt = format,
+	lint = lint,
 
 	ci = function()
 		return sequence({
-			{ name = "format", run = function()
-				return cargo("fmt", "--all", "--check")
-			end },
-			{ name = "lint", run = function()
-				return cargo("clippy", "--workspace", "--all-targets", "--", "-D", "warnings")
-			end },
-			{ name = "unit tests", run = function()
-				return cargo("test", "--workspace")
-			end },
-			{ name = "conformance", run = function()
-				return luarc("test", {})
-			end },
+			{ name = "format", run = checkFormat },
+			{ name = "lint", run = lint },
+			{ name = "unit tests", run = unit },
+			{ name = "conformance", run = conformance },
 		})
 	end,
 }

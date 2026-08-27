@@ -57,8 +57,9 @@ Finding a compiler bug while working on something else does not change this. Fix
 cargo fmt --all
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
+stylua luar.luau
 ```
 
-CI runs those three. A clippy warning fails the build.
+CI runs those four. A clippy warning fails the build.
 
 Keep commits small, one change each, with a short plain subject line and no trailers. A spec change commits alone.

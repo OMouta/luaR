@@ -27,8 +27,14 @@ jobs:
       - name: Install Rust
         run: rustup toolchain install
 
+      - name: Install Rokit
+        uses: CompeyDev/setup-rokit@v0.2.1
+
       - name: Format
         run: cargo fmt --all --check
+
+      - name: Format Luau
+        run: stylua --check luar.luau
 
       # Warnings fail the build. A warning nobody has to fix is a warning
       # everybody stops reading.
@@ -41,3 +47,4 @@ jobs:
       # Runs the conformance suite along with everything else.
       - name: Test
         run: cargo test --workspace
+
