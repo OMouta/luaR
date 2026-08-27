@@ -3031,6 +3031,18 @@ Static methods omit `self`.
 
 This avoids the ambiguity of magic implicit receivers while retaining compact method-call syntax.
 
+`Self` is that same type written down, usable anywhere a type is, inside a `struct`, an `enum`, an `interface`, or an `extend` block:
+
+```lua
+interface Comparable
+    function compare(self, other: Self): int
+end
+```
+
+In a generic declaration `Self` carries the declaration's own parameters, so inside `struct Box<T>` it means `Box<T>`.
+
+`Self` is what lets an interface name the implementing type, which is the difference between a protocol every type implements against itself and one that must be given a type argument to say so (LR35).
+
 ---
 
 ## 66. Constructors
