@@ -976,6 +976,8 @@ end
 local request = Request { path = "/" }
 ```
 
+A default is evaluated where the literal is written, after the fields the literal gives, in the order the struct declares them.
+
 Methods may be declared inside the struct.
 
 ```lua
