@@ -14,7 +14,7 @@ use std::collections::HashMap;
 
 use luar_ast::{
     Argument, ArmBody, BinaryOp as AstBinary, Binding, Block, Branch, Expr, ExprKind, FieldInit,
-    Stmt, StmtKind, UnaryOp as AstUnary,
+    FieldPattern, MatchArm, Pattern, PatternKind, Payload, Stmt, StmtKind, UnaryOp as AstUnary,
 };
 use luar_diagnostics::Span;
 use luar_sema::facts::Facts;
@@ -207,33 +207,71 @@ impl<'a> Body<'a> {
         }
     }
 
+    /// The same, without recording a gap where there is none, for a caller
+    /// that has another way to work the type out.
+    fn maybe_recorded(&self, span: Span) -> Option<Ty> {
+        let ty = self.context.facts.type_of(span)?;
+        types::convert(ty, self.context.ids).ok()
+    }
+
+    /// A value the checker proved holds something, ready to be read through.
+    ///
+    /// LR57: narrowing is what makes `user.id` legal after `user ~= nil`. The
+    /// checker did that proof; the value is still an optional here, and this
+    /// is where it stops being one.
+    fn settled(&mut self, value: Value, span: Span) -> Value {
+        let held = self.function.type_of(value).clone();
+        match held {
+            Ty::Optional(inner) => self.emit(InstKind::Unwrap { value }, *inner, span),
+            _ => value,
+        }
+    }
+
     fn missing_type(&mut self, span: Span, what: impl Into<String>) -> Ty {
         self.gap(span, what);
         Ty::Never
     }
 
-    /// The type both operands of `op` are read at.
+    /// The type an expression definitely has, where it has one.
+    ///
+    /// A binding is read from the value it holds, which is what lowering
+    /// already worked out and is never less than what the checker knows: a
+    /// name a pattern bound is unresolved to the checker and has a type here
+    /// (LR16.2, LR57). A literal has no type of its own until context asks
+    /// for one (LR39).
+    fn known_type(&mut self, expr: &Expr) -> Option<Ty> {
+        if let ExprKind::Name(name) = &expr.kind
+            && let Some(var) = self.lookup(name)
+            && let Some(value) = self.defs.get(&var)
+        {
+            return Some(self.function.type_of(*value).clone());
+        }
+
+        let held = self.context.facts.type_of(expr.span)?;
+        if matches!(
+            held,
+            Type::IntegerLiteral(_)
+                | Type::FloatLiteral
+                | Type::SequenceLiteral(_)
+                | Type::Unresolved
+        ) {
+            return None;
+        }
+        types::convert(held, self.context.ids).ok()
+    }
+
+    /// The type both operands of an operator are read at.
     ///
     /// A literal takes its type from the other operand where the other one
     /// has one, which is the same rule the checker applied (LR39).
     fn operand_type(&mut self, left: &Expr, right: &Expr) -> Ty {
-        let held = |facts: &Facts, expr: &Expr| facts.type_of(expr.span).cloned();
-        let literal = |ty: &Option<Type>| {
-            matches!(
-                ty,
-                Some(Type::IntegerLiteral(_) | Type::FloatLiteral | Type::SequenceLiteral(_))
-                    | None
-            )
-        };
-
-        let held_left = held(self.context.facts, left);
-        let held_right = held(self.context.facts, right);
-        let span = if literal(&held_left) && !literal(&held_right) {
-            right.span
-        } else {
-            left.span
-        };
-        self.recorded(span)
+        if let Some(ty) = self.known_type(left) {
+            return ty;
+        }
+        if let Some(ty) = self.known_type(right) {
+            return ty;
+        }
+        self.recorded(left.span)
     }
 
     // -- statements -------------------------------------------------------
@@ -275,6 +313,7 @@ impl<'a> Body<'a> {
             }
             StmtKind::Break(label) => self.leave(label.as_deref(), Exit::Break, stmt.span),
             StmtKind::Continue(label) => self.leave(label.as_deref(), Exit::Continue, stmt.span),
+            StmtKind::Match { scrutinee, arms } => self.match_stmt(scrutinee, arms),
             // LR29.2: `unsafe` is a promise the checker made the caller keep.
             // Nothing about what the block does changes here.
             StmtKind::Unsafe(block) => self.block(block),
@@ -422,6 +461,331 @@ impl<'a> Body<'a> {
         self.switch_to(exit);
         self.defs = entering;
         self.bind_params(exit, &carried);
+    }
+
+    /// LR16.1: the cases are tried in the order they are written, and the
+    /// first whose pattern matches and whose guard holds runs.
+    fn match_stmt(&mut self, scrutinee: &Expr, arms: &[MatchArm]) {
+        let subject = self.expr(scrutinee, None);
+        let join = self.function.add_block();
+        let entering = self.defs.clone();
+        let mut arrivals = Vec::new();
+
+        for arm in arms {
+            let next = self.function.add_block();
+            self.scopes.push(Vec::new());
+            self.arm(subject, arm, next);
+
+            match &arm.body {
+                ArmBody::Block(body) => self.block(body),
+                ArmBody::Expr(value) => {
+                    self.expr(value, None);
+                }
+            }
+            if !self.left {
+                arrivals.push(Arrival {
+                    block: self.current,
+                    defs: self.defs.clone(),
+                });
+            }
+
+            self.scopes.pop();
+            self.switch_to(next);
+            self.defs = entering.clone();
+        }
+
+        // LR16.4: the checker proved the cases cover every value, so control
+        // cannot reach past the last one.
+        self.terminate(Terminator::Trap(Trap::Unreachable));
+        self.join(arrivals, join);
+    }
+
+    /// Tests one case, and where it does not hold leaves for `next`.
+    ///
+    /// Where it does hold, lowering carries on in the block the case's
+    /// bindings are in scope in.
+    fn arm(&mut self, subject: Value, arm: &MatchArm, next: BlockId) {
+        self.test(subject, &arm.pattern, next);
+
+        // LR16.3: a guard is tested after the pattern bound what it binds,
+        // because the guard reads those bindings.
+        if let Some(guard) = &arm.guard {
+            let body = self.function.add_block();
+            let condition = self.expr(guard, Some(&Ty::Bool));
+            self.terminate(Terminator::Branch {
+                condition,
+                then: Target::to(body),
+                otherwise: Target::to(next),
+            });
+            self.switch_to(body);
+        }
+    }
+
+    /// Tests `subject` against `pattern`, leaving for `fail` where it does not
+    /// match, and binding what it binds where it does (LR16.2).
+    fn test(&mut self, subject: Value, pattern: &Pattern, fail: BlockId) {
+        let span = pattern.span;
+        match &pattern.kind {
+            // Both match anything, so neither branches.
+            PatternKind::Wildcard => {}
+            PatternKind::Binding(name) => {
+                let var = self.declare(name);
+                self.defs.insert(var, subject);
+            }
+
+            PatternKind::Or(alternatives) => {
+                let mut held: Option<Value> = None;
+                for alternative in alternatives {
+                    let Some(test) = self.decides(subject, alternative) else {
+                        self.gap(span, "an alternative that binds inside an or-pattern");
+                        return;
+                    };
+                    held = Some(match held {
+                        None => test,
+                        Some(earlier) => self.emit(
+                            InstKind::Binary {
+                                op: BinaryOp::BitOr,
+                                left: earlier,
+                                right: test,
+                            },
+                            Ty::Bool,
+                            span,
+                        ),
+                    });
+                }
+                if let Some(test) = held {
+                    self.check(test, fail);
+                }
+            }
+
+            PatternKind::Path { segments, payload } => {
+                let Some(name) = segments.last() else {
+                    self.gap(span, "a path pattern naming nothing");
+                    return;
+                };
+                let held = self.function.type_of(subject).clone();
+
+                match self.variant_of(&held, name) {
+                    Some(tag) => {
+                        let test = self.tag_test(subject, tag, span);
+                        self.check(test, fail);
+                        self.bind_payload(subject, tag, payload.as_ref(), fail, span);
+                    }
+                    // LR16.2: a path naming a struct rather than a variant
+                    // tests nothing, and reads the fields it lists.
+                    None => match payload {
+                        Some(Payload::Record { fields, .. }) => {
+                            self.bind_fields(subject, fields, fail, span);
+                        }
+                        _ => self.gap(span, "a path pattern the compiler could not resolve"),
+                    },
+                }
+            }
+
+            PatternKind::Tuple(members) => {
+                let held = self.function.type_of(subject).clone();
+                let Ty::Tuple(types) = held else {
+                    self.gap(span, "a tuple pattern over something that is not a tuple");
+                    return;
+                };
+                if types.len() != members.len() {
+                    self.gap(span, "a tuple pattern of another length");
+                    return;
+                }
+                for (index, (member, ty)) in members.iter().zip(types).enumerate() {
+                    let index = u32::try_from(index).expect("member count fits in u32");
+                    let element = self.emit(
+                        InstKind::GetElement {
+                            tuple: subject,
+                            index,
+                        },
+                        ty,
+                        span,
+                    );
+                    self.test(element, member, fail);
+                }
+            }
+
+            PatternKind::Literal(_) => match self.decides(subject, pattern) {
+                Some(test) => self.check(test, fail),
+                None => self.gap(span, "a literal pattern the compiler could not compare"),
+            },
+
+            PatternKind::Error => {}
+            _ => self.gap(span, "a pattern"),
+        }
+    }
+
+    /// The test a pattern comes down to, where it is one test and binds
+    /// nothing. `None` for every pattern that is more than that.
+    fn decides(&mut self, subject: Value, pattern: &Pattern) -> Option<Value> {
+        let span = pattern.span;
+        match &pattern.kind {
+            PatternKind::Literal(literal) => {
+                let held = self.function.type_of(subject).clone();
+                let value = self.expr(literal, Some(&held));
+                Some(self.emit(
+                    InstKind::Binary {
+                        op: BinaryOp::Equal,
+                        left: subject,
+                        right: value,
+                    },
+                    Ty::Bool,
+                    span,
+                ))
+            }
+            PatternKind::Path {
+                segments,
+                payload: None,
+            } => {
+                let held = self.function.type_of(subject).clone();
+                let tag = self.variant_of(&held, segments.last()?)?;
+                Some(self.tag_test(subject, tag, span))
+            }
+            _ => None,
+        }
+    }
+
+    /// Whether `subject` holds the variant `tag` names (LR16.2).
+    fn tag_test(&mut self, subject: Value, tag: u32, span: Span) -> Value {
+        let held = self.emit(InstKind::GetTag { value: subject }, Ty::INT, span);
+        let wanted = self.emit(InstKind::Const(Const::Int(u64::from(tag))), Ty::INT, span);
+        self.emit(
+            InstKind::Binary {
+                op: BinaryOp::Equal,
+                left: held,
+                right: wanted,
+            },
+            Ty::Bool,
+            span,
+        )
+    }
+
+    /// Carries on where `test` held, and leaves for `fail` where it did not.
+    fn check(&mut self, test: Value, fail: BlockId) {
+        let held = self.function.add_block();
+        self.terminate(Terminator::Branch {
+            condition: test,
+            then: Target::to(held),
+            otherwise: Target::to(fail),
+        });
+        self.switch_to(held);
+    }
+
+    /// Matches what a variant carries, once its tag has proved the variant
+    /// (LR15.2, LR16.2).
+    fn bind_payload(
+        &mut self,
+        subject: Value,
+        variant: u32,
+        payload: Option<&Payload>,
+        fail: BlockId,
+        span: Span,
+    ) {
+        let Some(payload) = payload else {
+            return;
+        };
+        let held = self.function.type_of(subject).clone();
+        let Some(carried) = self.payload_of(&held, variant) else {
+            self.gap(span, "a variant whose payload has no type");
+            return;
+        };
+
+        match payload {
+            Payload::Tuple(patterns) => {
+                if patterns.len() != carried.len() {
+                    self.gap(span, "a payload pattern of another length");
+                    return;
+                }
+                for (index, (pattern, ty)) in patterns.iter().zip(carried).enumerate() {
+                    let field = u32::try_from(index).expect("field count fits in u32");
+                    let value = self.emit(
+                        InstKind::GetPayload {
+                            value: subject,
+                            variant,
+                            field,
+                        },
+                        ty,
+                        span,
+                    );
+                    self.test(value, pattern, fail);
+                }
+            }
+            Payload::Record { fields, .. } => {
+                let Some(names) = self.payload_names(&held, variant) else {
+                    self.gap(span, "a payload whose fields have no names");
+                    return;
+                };
+                for written in fields {
+                    let Some(index) = names.iter().position(|name| *name == written.field) else {
+                        self.gap(written.span, "a payload field the compiler could not find");
+                        continue;
+                    };
+                    let field = u32::try_from(index).expect("field count fits in u32");
+                    let value = self.emit(
+                        InstKind::GetPayload {
+                            value: subject,
+                            variant,
+                            field,
+                        },
+                        carried[index].clone(),
+                        written.span,
+                    );
+                    self.bind_field(value, written, fail);
+                }
+            }
+        }
+    }
+
+    /// Matches the fields a struct or record pattern lists (LR16.2).
+    fn bind_fields(&mut self, subject: Value, fields: &[FieldPattern], fail: BlockId, span: Span) {
+        let held = self.function.type_of(subject).clone();
+        let Some(declared) = self.fields_of(&held) else {
+            self.gap(span, "a record pattern over a type with no fields");
+            return;
+        };
+
+        for written in fields {
+            let Some(index) = declared.iter().position(|(name, _)| *name == written.field) else {
+                self.gap(written.span, "a field the compiler could not find");
+                continue;
+            };
+            let field = u32::try_from(index).expect("field count fits in u32");
+            let value = self.emit(
+                InstKind::GetField {
+                    object: subject,
+                    field,
+                },
+                declared[index].1.clone(),
+                written.span,
+            );
+            self.bind_field(value, written, fail);
+        }
+    }
+
+    /// One field of a record pattern: matched against a pattern where it has
+    /// one, and bound under the name it is written with otherwise (LR16.2).
+    fn bind_field(&mut self, value: Value, written: &FieldPattern, fail: BlockId) {
+        match &written.pattern {
+            Some(pattern) => self.test(value, pattern, fail),
+            None => {
+                let name = written.bound_as.as_ref().unwrap_or(&written.field);
+                let var = self.declare(name);
+                self.defs.insert(var, value);
+            }
+        }
+    }
+
+    /// The names of what a variant carries, in the order it declares them.
+    fn payload_names(&self, ty: &Ty, variant: u32) -> Option<Vec<String>> {
+        let Ty::Named { id, .. } = ty else {
+            return None;
+        };
+        let Shape::Enum(enumeration) = &self.context.program.nominal(*id).shape else {
+            return None;
+        };
+        let held = enumeration.variants.get(variant as usize)?;
+        Some(held.fields.iter().map(|field| field.name.clone()).collect())
     }
 
     /// LR10.6, LR10.7: `break` leaves the loop and `continue` starts its next
@@ -709,7 +1073,7 @@ impl<'a> Body<'a> {
                 ..
             } => self.call(callee, method.as_deref(), args, span),
 
-            ExprKind::Record { fields, .. } => self.record(fields, wanted, span),
+            ExprKind::Record { path, fields } => self.record(path, fields, wanted, span),
             ExprKind::Field {
                 receiver,
                 name,
@@ -766,6 +1130,30 @@ impl<'a> Body<'a> {
     }
 
     fn binary(&mut self, op: AstBinary, left: &Expr, right: &Expr, span: Span) -> Value {
+        // LR8: comparing against `nil` asks whether an optional holds
+        // anything, which is the check that settles it.
+        if matches!(op, AstBinary::Equal | AstBinary::NotEqual) {
+            for (value, other) in [(left, right), (right, left)] {
+                if matches!(other.kind, ExprKind::Nil)
+                    && self.known_type(value).is_some_and(|ty| ty.is_optional())
+                {
+                    let value = self.expr(value, None);
+                    let held = self.emit(InstKind::IsSome { value }, Ty::Bool, span);
+                    return match op {
+                        AstBinary::NotEqual => held,
+                        _ => self.emit(
+                            InstKind::Unary {
+                                op: UnaryOp::Not,
+                                operand: held,
+                            },
+                            Ty::Bool,
+                            span,
+                        ),
+                    };
+                }
+            }
+        }
+
         match op {
             AstBinary::And | AstBinary::Or => self.logical(op == AstBinary::And, left, right, span),
             AstBinary::Coalesce => self.coalesce(left, right, span),
@@ -773,8 +1161,13 @@ impl<'a> Body<'a> {
                 let Some(lowered) = binary_op(op) else {
                     return self.missing(span, "a binary operator");
                 };
-                let ty = self.recorded(span);
                 let operand = self.operand_type(left, right);
+                // Arithmetic on one type produces it (LR39), which is the
+                // answer where the checker had no name for the operands.
+                let ty = match self.maybe_recorded(span) {
+                    Some(recorded) => recorded,
+                    None => operand.clone(),
+                };
                 // LR55: the left operand is evaluated first.
                 let left = self.expr(left, Some(&operand));
                 let right = self.expr(right, Some(&operand));
@@ -924,7 +1317,13 @@ impl<'a> Body<'a> {
     /// LR55: the initializers run in the order they are written, whichever
     /// field each one fills, and the defaults that fill the rest run after
     /// them in the order the type declares them.
-    fn record(&mut self, fields: &[FieldInit], wanted: Option<&Ty>, span: Span) -> Value {
+    fn record(
+        &mut self,
+        path: &[String],
+        fields: &[FieldInit],
+        wanted: Option<&Ty>,
+        span: Span,
+    ) -> Value {
         let ty = match self.recorded(span) {
             Ty::Never => match wanted {
                 Some(wanted) => wanted.clone(),
@@ -932,6 +1331,14 @@ impl<'a> Body<'a> {
             },
             recorded => recorded,
         };
+
+        // LR15.3: a variant carrying named fields is written like a record
+        // literal, and builds an enum value.
+        if let Some(name) = path.last()
+            && let Some(tag) = self.variant_of(&ty, name)
+        {
+            return self.construct_record(ty, tag, fields, span);
+        }
 
         let Some(declared) = self.fields_of(&ty) else {
             return self.missing(span, "a record literal of a type with no fields");
@@ -1002,10 +1409,11 @@ impl<'a> Body<'a> {
         }
 
         let object = self.expr(receiver, None);
-        let held = self.function.type_of(object).clone();
         let result = self.recorded(span);
 
         if !optional {
+            let object = self.settled(object, span);
+            let held = self.function.type_of(object).clone();
             let Some(index) = self.field_index(&held, name) else {
                 return self.missing(span, "a member that is not a stored field");
             };
@@ -1019,7 +1427,7 @@ impl<'a> Body<'a> {
             );
         }
 
-        let Ty::Optional(inner) = held else {
+        let Ty::Optional(inner) = self.function.type_of(object).clone() else {
             return self.missing(span, "`?.` on a value that holds something already");
         };
         let Some(index) = self.field_index(&inner, name) else {
@@ -1073,6 +1481,46 @@ impl<'a> Body<'a> {
             .map(|(argument, held)| self.expr(&argument.value, Some(held)))
             .collect();
 
+        self.emit(
+            InstKind::MakeEnum {
+                ty: ty.clone(),
+                variant,
+                payload,
+            },
+            ty,
+            span,
+        )
+    }
+
+    /// LR15.3: building an enum value whose variant carries named fields.
+    fn construct_record(
+        &mut self,
+        ty: Ty,
+        variant: u32,
+        fields: &[FieldInit],
+        span: Span,
+    ) -> Value {
+        let (Some(names), Some(carried)) = (
+            self.payload_names(&ty, variant),
+            self.payload_of(&ty, variant),
+        ) else {
+            return self.missing(span, "a variant whose payload has no type");
+        };
+
+        let mut filled: Vec<Option<Value>> = vec![None; names.len()];
+        for init in fields {
+            let slot = names.iter().position(|name| *name == init.name);
+            let value = self.expr(&init.value, slot.map(|slot| &carried[slot]));
+            if let Some(slot) = slot {
+                filled[slot] = Some(value);
+            }
+        }
+
+        if filled.iter().any(Option::is_none) {
+            return self.missing(span, "a variant with no value for a field it carries");
+        }
+
+        let payload = filled.into_iter().flatten().collect();
         self.emit(
             InstKind::MakeEnum {
                 ty: ty.clone(),
