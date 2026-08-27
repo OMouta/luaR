@@ -53,6 +53,7 @@ dependencies = [
 name = "luar-lir"
 version = "0.0.0"
 dependencies = [
+ "luar-ast",
  "luar-diagnostics",
  "luar-sema",
 ]
@@ -81,4 +82,5 @@ dependencies = [
  "luar-conformance",
  "luar-diagnostics",
  "luar-driver",
+ "luar-lir",
 ]

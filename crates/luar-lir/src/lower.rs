@@ -1,3 +1,436 @@
 //! Turning a checked program into LIR.
+//!
+//! Two sweeps. The first gives every declared type and every function an id,
+//! because a declaration may name one written later or in another module. The
+//! second fills them in.
+//!
+//! Lowering never guesses. Where the checker left a type unsettled, or where
+//! a construct has no lowering yet, the program keeps its shape and lowering
+//! records a [`Gap`] naming what it did not do. A program with gaps is not one
+//! the backend may be handed, so an unfinished compiler cannot quietly emit
+//! code for a program it only half understood.
 
 pub mod types;
+
+use std::collections::HashMap;
+
+use luar_ast::{Function as AstFunction, Item, Member, Module, Semantics};
+use luar_diagnostics::Span;
+use luar_sema::facts::Facts;
+use luar_sema::modules::{Graph, ModuleId};
+use luar_sema::table::{Decl, EnumType, InterfaceType, Signature, StructType, Table, Variant};
+use luar_sema::types::Type;
+
+use crate::inst::{Terminator, Trap};
+use crate::lower::types::Ids;
+use crate::program::{
+    Enum, Field, FuncId, Function, Interface, Method, Nominal, Program, Shape, Struct,
+};
+use crate::ty::{Ty, TypeId};
+
+/// Something the program does and lowering does not handle yet.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Gap {
+    pub span: Span,
+    pub what: String,
+}
+
+/// A lowered program, and what lowering could not do to it.
+#[derive(Debug)]
+pub struct Lowered {
+    pub program: Program,
+    /// Empty for a program that lowered completely. Anything here means the
+    /// LIR describes less than the source does.
+    pub gaps: Vec<Gap>,
+}
+
+/// Lowers every module in `graph`, which the checker has already accepted.
+#[must_use]
+pub fn lower(graph: &Graph, table: &Table, facts: &Facts) -> Lowered {
+    let _ = facts;
+    let mut lowering = Lowering {
+        graph,
+        table,
+        program: Program::default(),
+        ids: Ids::new(),
+        functions: HashMap::new(),
+        gaps: Vec::new(),
+    };
+
+    lowering.name_types();
+    lowering.build_types();
+    lowering.declare_functions();
+
+    Lowered {
+        program: lowering.program,
+        gaps: lowering.gaps,
+    }
+}
+
+struct Lowering<'a> {
+    graph: &'a Graph,
+    table: &'a Table,
+    program: Program,
+    ids: Ids,
+    /// The function each declaration was given, by the span of the
+    /// declaration. That span is what tells two overloads of one name apart
+    /// (LR40) and what the checker recorded a call as reaching (LR76).
+    functions: HashMap<Span, FuncId>,
+    gaps: Vec<Gap>,
+}
+
+impl Lowering<'_> {
+    fn gap(&mut self, span: Span, what: impl Into<String>) {
+        self.gaps.push(Gap {
+            span,
+            what: what.into(),
+        });
+    }
+
+    /// How a name written in `module` reads in the whole program.
+    ///
+    /// Two modules may declare one name, so a linkage name carries the module
+    /// it came from. The graph keys modules by a resolved path, so no two
+    /// share one.
+    fn qualify(&self, module: ModuleId, name: &str) -> String {
+        let path = self.graph.module(module).path.with_extension("");
+        format!("{}.{name}", path.display()).replace('\\', "/")
+    }
+
+    /// Gives every declared type an id, so that one may name another.
+    fn name_types(&mut self) {
+        let named: Vec<(ModuleId, String)> = self
+            .table
+            .decls()
+            .filter(|(_, _, decl)| {
+                matches!(decl, Decl::Struct(_) | Decl::Enum(_) | Decl::Interface(_))
+            })
+            .map(|(module, name, _)| (module, name.to_owned()))
+            .collect();
+
+        for (module, name) in named {
+            let id = TypeId(u32::try_from(self.ids.len()).expect("type count fits in u32"));
+            self.ids.insert((module, name), id);
+        }
+    }
+
+    /// Fills in what each declared type holds, in the order [`Self::name_types`]
+    /// gave them ids.
+    fn build_types(&mut self) {
+        let mut ordered: Vec<((ModuleId, String), TypeId)> = self
+            .ids
+            .iter()
+            .map(|(key, id)| (key.clone(), *id))
+            .collect();
+        ordered.sort_by_key(|(_, id)| *id);
+
+        let table = self.table;
+        for ((module, name), id) in ordered {
+            let span = self.declaration_span(module, &name);
+            let nominal = match table.get(module, &name) {
+                Some(Decl::Struct(structure)) => self.structure(module, &name, structure, span),
+                Some(Decl::Enum(enumeration)) => self.enumeration(module, &name, enumeration, span),
+                Some(Decl::Interface(interface)) => self.interface(module, &name, interface, span),
+                _ => unreachable!("only declared types were named"),
+            };
+
+            let added = self.program.add_type(nominal);
+            debug_assert_eq!(added, id, "types are built in the order they were named");
+        }
+    }
+
+    fn structure(
+        &mut self,
+        module: ModuleId,
+        name: &str,
+        structure: &StructType,
+        span: Span,
+    ) -> Nominal {
+        let fields = self.fields(
+            structure
+                .fields
+                .iter()
+                .map(|field| (&field.name, &field.ty)),
+            span,
+        );
+
+        Nominal {
+            name: self.qualify(module, name),
+            type_params: structure.type_params.clone(),
+            shape: Shape::Struct(Struct {
+                fields,
+                reference: structure.semantics == Semantics::Ref,
+            }),
+            span,
+        }
+    }
+
+    fn enumeration(
+        &mut self,
+        module: ModuleId,
+        name: &str,
+        enumeration: &EnumType,
+        span: Span,
+    ) -> Nominal {
+        // LR15: a variant's tag is its position, and the position is the one
+        // it was declared at rather than the order the table happens to hold.
+        let declared = self.variant_order(module, name);
+
+        let variants = declared
+            .into_iter()
+            .filter_map(|variant| {
+                let payload = enumeration.variants.get(&variant)?;
+                let fields = match payload {
+                    Variant::Unit => Vec::new(),
+                    Variant::Tuple(types) => {
+                        let named: Vec<(String, &Type)> = types
+                            .iter()
+                            .enumerate()
+                            .map(|(i, ty)| (i.to_string(), ty))
+                            .collect();
+                        self.fields(named.iter().map(|(name, ty)| (name, *ty)), span)
+                    }
+                    Variant::Record(fields) => {
+                        self.fields(fields.iter().map(|field| (&field.name, &field.ty)), span)
+                    }
+                };
+                Some(crate::program::Variant {
+                    name: variant,
+                    fields,
+                })
+            })
+            .collect();
+
+        Nominal {
+            name: self.qualify(module, name),
+            type_params: enumeration.type_params.clone(),
+            shape: Shape::Enum(Enum { variants }),
+            span,
+        }
+    }
+
+    fn interface(
+        &mut self,
+        module: ModuleId,
+        name: &str,
+        interface: &InterfaceType,
+        span: Span,
+    ) -> Nominal {
+        // LR18.1: the slot a `CallVirtual` names is a method's position here,
+        // so the order has to be one every module agrees on. The table holds
+        // methods by name, which is that order.
+        let mut methods = Vec::new();
+        for (method, overloads) in &interface.methods {
+            for signature in overloads {
+                let params = signature
+                    .params
+                    .iter()
+                    .map(|param| self.convert(&param.ty, span))
+                    .collect();
+                let result = self.convert(&signature.result, span);
+                methods.push(Method {
+                    name: method.clone(),
+                    params,
+                    result,
+                });
+            }
+        }
+
+        Nominal {
+            name: self.qualify(module, name),
+            type_params: interface.type_params.clone(),
+            shape: Shape::Interface(Interface {
+                methods,
+                implementors: Vec::new(),
+            }),
+            span,
+        }
+    }
+
+    fn fields<'f>(
+        &mut self,
+        declared: impl Iterator<Item = (&'f String, &'f Type)>,
+        span: Span,
+    ) -> Vec<Field> {
+        declared
+            .map(|(name, ty)| Field {
+                name: name.clone(),
+                ty: self.convert(ty, span),
+            })
+            .collect()
+    }
+
+    /// The LIR type of `ty`, or [`Ty::Never`] with a gap recorded where it has
+    /// no representation. Nothing reads a `never`, so the shape survives while
+    /// the gap says the program did not lower.
+    fn convert(&mut self, ty: &Type, span: Span) -> Ty {
+        match types::convert(ty, &self.ids) {
+            Ok(converted) => converted,
+            Err(refused) => {
+                self.gap(span, refused);
+                Ty::Never
+            }
+        }
+    }
+
+    /// Gives every function with a body an id and a signature.
+    fn declare_functions(&mut self) {
+        let declarations = self.declarations();
+        for (module, path, function) in declarations {
+            self.declare(module, &path, &function);
+        }
+    }
+
+    fn declare(&mut self, module: ModuleId, path: &str, function: &AstFunction) {
+        let span = function.span;
+        let Some(signature) = self.signature(span) else {
+            // A signature the table never built means the declaration was
+            // reported already.
+            return;
+        };
+
+        let mut type_params = signature.type_params.clone();
+        let mut params = Vec::new();
+
+        // LR65: a method takes its receiver as the first argument, which is
+        // what `self` is once the call is written out in full.
+        if signature.takes_self
+            && let Some((owner, owner_params)) = self.owner_of(module, path)
+        {
+            for param in &owner_params {
+                if !type_params.contains(param) {
+                    type_params.insert(0, param.clone());
+                }
+            }
+            params.push(Ty::Named {
+                id: owner,
+                args: owner_params.into_iter().map(Ty::Parameter).collect(),
+            });
+        }
+
+        for param in &signature.params {
+            params.push(self.convert(&param.ty, span));
+        }
+        let result = self.convert(&signature.result, span);
+
+        let mut lowered = Function::new(self.qualify(module, path), params, result, span);
+        lowered.type_params = type_params;
+        lowered.asynchronous = signature.asynchronous;
+        // The body is the next pass's job. Until it runs, the function says
+        // it never returns rather than returning something made up.
+        lowered.block_mut(lowered.entry).term = Some(Terminator::Trap(Trap::Unreachable));
+
+        let id = self.program.add_function(lowered);
+        self.functions.insert(span, id);
+
+        if function.exported && path == "main" {
+            self.program.entry = Some(id);
+        }
+
+        self.gap(span, "a function body");
+    }
+
+    /// The signature the table built for the declaration at `span`.
+    fn signature(&self, span: Span) -> Option<Signature> {
+        self.table
+            .decls()
+            .flat_map(|(_, _, decl)| overloads(decl))
+            .find(|signature| signature.span == span)
+            .cloned()
+    }
+
+    /// The type a method written at `path` belongs to, and its type
+    /// parameters (LR19).
+    fn owner_of(&self, module: ModuleId, path: &str) -> Option<(TypeId, Vec<String>)> {
+        let owner = path.rsplit_once('.')?.0;
+        let id = self.ids.get(&(module, owner.to_owned())).copied()?;
+        Some((id, self.program.nominal(id).type_params.clone()))
+    }
+
+    /// Every function declaration in the program that has a body, with the
+    /// path naming it inside its module.
+    fn declarations(&self) -> Vec<(ModuleId, String, AstFunction)> {
+        let mut found = Vec::new();
+        for (module, node) in self.graph.modules() {
+            collect(&node.ast.items, module, &mut found);
+        }
+        found
+    }
+
+    fn declaration_span(&self, module: ModuleId, name: &str) -> Span {
+        let node = self.graph.module(module);
+        declared_at(&node.ast, name).unwrap_or(node.ast.span)
+    }
+
+    fn variant_order(&self, module: ModuleId, name: &str) -> Vec<String> {
+        let node = self.graph.module(module);
+        node.ast
+            .items
+            .iter()
+            .find_map(|item| match item {
+                Item::Enum(enumeration) if enumeration.name == name => Some(
+                    enumeration
+                        .variants
+                        .iter()
+                        .map(|variant| variant.name.clone())
+                        .collect(),
+                ),
+                _ => None,
+            })
+            .unwrap_or_default()
+    }
+}
+
+fn overloads(decl: &Decl) -> Vec<&Signature> {
+    match decl {
+        Decl::Function(overloads) => overloads.iter().collect(),
+        Decl::Struct(structure) => structure.methods.values().flatten().collect(),
+        Decl::Interface(interface) => interface.methods.values().flatten().collect(),
+        Decl::Extension { methods, .. } => methods.values().flatten().collect(),
+        Decl::Enum(_) | Decl::Alias { .. } => Vec::new(),
+    }
+}
+
+fn collect(items: &[Item], module: ModuleId, found: &mut Vec<(ModuleId, String, AstFunction)>) {
+    for item in items {
+        match item {
+            Item::Function(function) if function.body.is_some() => {
+                found.push((module, function.name.join("."), function.clone()));
+            }
+            Item::Struct(structure) => {
+                for member in &structure.members {
+                    if let Member::Function { function, .. } = member
+                        && function.body.is_some()
+                        && let Some(name) = function.name.last()
+                    {
+                        found.push((
+                            module,
+                            format!("{}.{name}", structure.name),
+                            function.clone(),
+                        ));
+                    }
+                }
+            }
+            Item::Extend(extend) => {
+                for function in &extend.functions {
+                    if function.body.is_some()
+                        && let Some(name) = function.name.last()
+                    {
+                        found.push((module, format!("{}.{name}", extend.name), function.clone()));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Where `name` was declared in `module`, if it names a type.
+fn declared_at(module: &Module, name: &str) -> Option<Span> {
+    module.items.iter().find_map(|item| match item {
+        Item::Struct(structure) if structure.name == name => Some(structure.span),
+        Item::Enum(enumeration) if enumeration.name == name => Some(enumeration.span),
+        Item::Interface(interface) if interface.name == name => Some(interface.span),
+        _ => None,
+    })
+}
