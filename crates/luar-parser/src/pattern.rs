@@ -221,7 +221,7 @@ fn tuple(cursor: &mut Cursor) -> Pattern {
     let end = cursor.span();
     cursor.close(TokenKind::RightParen, opened, ")");
 
-    // One pattern in parentheses is that pattern, as in a type (LR89).
+    // One pattern in parentheses is that pattern (LR89.1).
     if members.len() == 1 && !comma {
         let mut single = members.pop().expect("one member");
         single.span = opened.to(end);

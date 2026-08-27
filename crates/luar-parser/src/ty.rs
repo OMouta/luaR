@@ -90,6 +90,7 @@ fn path(cursor: &mut Cursor) -> Type {
     let mut args = Vec::new();
     if cursor.kind() == TokenKind::Lt {
         cursor.advance();
+        let opened = cursor.previous_span();
         while !cursor.at_type_args_close() && !cursor.at_end() {
             args.push(ty(cursor));
             if !cursor.eat(TokenKind::Comma) {
@@ -99,8 +100,8 @@ fn path(cursor: &mut Cursor) -> Type {
         if !cursor.eat_type_args_close() {
             let here = cursor.span();
             cursor
-                .error(codes::UNCLOSED_DELIMITER, here, "expected `>`")
-                .label(start, "these are the type arguments that are still open");
+                .error(codes::UNCLOSED_DELIMITER, opened, "expected `>`")
+                .label(here, "expected `>` before here");
         }
     }
 

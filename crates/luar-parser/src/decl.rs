@@ -459,8 +459,8 @@ fn structure(
     if !cursor.eat_keyword(Keyword::End) {
         let here = cursor.span();
         cursor
-            .error(codes::UNCLOSED_DELIMITER, here, "expected `end`")
-            .label(start, "this struct is still open");
+            .error(codes::UNCLOSED_DELIMITER, start, "expected `end`")
+            .label(here, "expected `end` before here");
     }
 
     Struct {
@@ -633,8 +633,8 @@ fn type_parameters(cursor: &mut Cursor) -> Vec<String> {
     if !cursor.eat_type_args_close() {
         let here = cursor.span();
         cursor
-            .error(codes::UNCLOSED_DELIMITER, here, "expected `>`")
-            .label(opened, "these type parameters are still open");
+            .error(codes::UNCLOSED_DELIMITER, opened, "expected `>`")
+            .label(here, "expected `>` before here");
     }
 
     params
@@ -648,8 +648,11 @@ fn close(cursor: &mut Cursor, opened: Span, construct: &str) {
 
     let here = cursor.span();
     cursor
-        .error(codes::UNCLOSED_DELIMITER, here, "expected `end`")
-        .label(opened, format!("this `{construct}` is still open"));
+        .error(codes::UNCLOSED_DELIMITER, opened, "expected `end`")
+        .label(
+            here,
+            format!("expected `end` for this `{construct}` before here"),
+        );
 }
 
 /// `enum Name ... end`, whose variants may carry data (LR15).
@@ -945,8 +948,8 @@ fn conditional(cursor: &mut Cursor) -> Conditional {
     if !cursor.eat_directive(Keyword::End) {
         let here = cursor.span();
         cursor
-            .error(codes::UNCLOSED_DELIMITER, here, "expected `#end`")
-            .label(start, "this `#if` is still open");
+            .error(codes::UNCLOSED_DELIMITER, start, "expected `#end`")
+            .label(here, "expected `#end` before here");
     }
 
     Conditional {

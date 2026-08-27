@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use luar_conformance::coverage::{Section, coverage, sections};
+use luar_conformance::coverage::{Section, coverage, normative_sections, sections};
 
 const SPEC: &str = "\
 # A Specification
@@ -91,4 +91,41 @@ fn a_citation_without_a_number_is_not_a_section() {
     assert!(Section::parse("LR").is_none());
     assert!(Section::parse("arithmetic").is_none());
     assert_eq!(Section::parse("11. Operators").unwrap().as_str(), "11");
+}
+
+#[test]
+fn the_normative_directive_selects_ranges_and_individual_sections() {
+    let spec = "\
+# A Specification
+
+<!-- normative: LR1-LR2, LR89.1 -->
+
+## 1. First
+### 1.1 Child
+## 2. Second
+## 3. Example
+## 89. Grammar
+### 89.1 Settled
+";
+
+    let found: Vec<String> = normative_sections(spec)
+        .unwrap()
+        .iter()
+        .map(Section::to_string)
+        .collect();
+
+    assert_eq!(found, ["LR1", "LR1.1", "LR2", "LR89.1"]);
+}
+
+#[test]
+fn a_normative_directive_is_required() {
+    let error = normative_sections(SPEC).unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+}
+
+#[test]
+fn a_malformed_normative_selector_is_rejected() {
+    let spec = "<!-- normative: LR1 through LR2 -->\n## 1. First\n## 2. Second";
+    let error = normative_sections(spec).unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
 }

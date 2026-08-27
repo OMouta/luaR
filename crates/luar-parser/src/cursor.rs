@@ -212,12 +212,13 @@ impl<'src> Cursor<'src> {
             return;
         }
 
+        let here = self.span();
         self.error(
             codes::UNCLOSED_DELIMITER,
-            self.span(),
+            opened,
             format!("expected `{closing}`"),
         )
-        .label(opened, "this is the bracket that is still open");
+        .label(here, format!("expected `{closing}` before here"));
     }
 
     /// Reports anything after the text that was asked for.

@@ -102,15 +102,15 @@ registry! {
         "A character literal holds exactly one Unicode scalar value.";
     active 122 => UNTERMINATED_COMMENT, "LR3.3",
         "A block comment must be closed, at the level it was opened.";
-    active 123 => EXPECTED_EXPRESSION, "LR89",
+    active 123 => EXPECTED_EXPRESSION, "LR89.2",
         "A value is required here, and what is written is not one.";
-    active 124 => UNCLOSED_DELIMITER, "LR89",
-        "An opening bracket must be closed by its matching one.";
+    active 124 => UNCLOSED_DELIMITER, "LR89.2",
+        "An opening delimiter or block must be closed by its matching terminator.";
     active 125 => CHAINED_OPERATOR, "LR11.7",
         "Comparison and range operators do not chain.";
-    active 126 => EXPECTED_TYPE, "LR89",
+    active 126 => EXPECTED_TYPE, "LR89.2",
         "A type is required here, and what is written is not one.";
-    active 127 => INVALID_ASSIGNMENT_TARGET, "LR89",
+    active 127 => INVALID_ASSIGNMENT_TARGET, "LR89.2",
         "Assignment writes to a name, a field, or an element, and nothing else.";
     active 128 => STATEMENT_WITHOUT_EFFECT, "LR89.1",
         "An expression used as a statement must be a call, so that it does something.";
@@ -120,7 +120,7 @@ registry! {
         "One `match` uses block cases or `=>` cases, never both.";
     active 131 => REPEATED_REST_PATTERN, "LR16.2",
         "A sequence pattern has at most one rest pattern.";
-    active 132 => EXPECTED_DECLARATION, "LR89",
+    active 132 => EXPECTED_DECLARATION, "LR89.2",
         "A module holds declarations and statements, and this is neither.";
     active 133 => EXPECTED_ACCESSOR, "LR43",
         "A property says what reading it does, and a setter names what is assigned.";

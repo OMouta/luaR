@@ -98,6 +98,84 @@ pub fn sections(markdown: &str) -> Vec<Section> {
     sections
 }
 
+/// The numbered headings selected by the spec's `normative` directive.
+pub fn normative_sections(markdown: &str) -> io::Result<Vec<Section>> {
+    let mut directive = None;
+
+    for line in markdown.lines() {
+        let line = line.trim();
+        let Some(value) = line
+            .strip_prefix("<!-- normative:")
+            .and_then(|line| line.strip_suffix("-->"))
+        else {
+            continue;
+        };
+
+        if directive.replace(value.trim()).is_some() {
+            return Err(invalid("the spec has more than one normative directive"));
+        }
+    }
+
+    let directive = directive.ok_or_else(|| invalid("the spec has no normative directive"))?;
+    let selectors = directive
+        .split(',')
+        .map(str::trim)
+        .map(selector)
+        .collect::<io::Result<Vec<_>>>()?;
+    let defined = sections(markdown);
+
+    for selected in &selectors {
+        if !defined.iter().any(|section| selected.contains(section)) {
+            return Err(invalid("a normative selector names no spec section"));
+        }
+    }
+
+    Ok(defined
+        .into_iter()
+        .filter(|section| selectors.iter().any(|selected| selected.contains(section)))
+        .collect())
+}
+
+#[derive(Debug, Clone)]
+struct Selector {
+    first: Section,
+    last: Section,
+}
+
+impl Selector {
+    fn contains(&self, section: &Section) -> bool {
+        &self.first <= section && section <= &self.last
+    }
+}
+
+fn selector(text: &str) -> io::Result<Selector> {
+    let (first, last) = match text.split_once('-') {
+        Some((first, last)) => (first, last),
+        None => (text, text),
+    };
+    let first = directive_section(first)?;
+    let last = directive_section(last)?;
+
+    if first > last {
+        return Err(invalid("a normative section range runs backwards"));
+    }
+
+    Ok(Selector { first, last })
+}
+
+fn directive_section(text: &str) -> io::Result<Section> {
+    let text = text.trim();
+    let section = Section::parse(text).ok_or_else(|| invalid("invalid normative section"))?;
+    if section.to_string() != text {
+        return Err(invalid("invalid normative section"));
+    }
+    Ok(section)
+}
+
+fn invalid(message: &str) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, message)
+}
+
 /// What the suite covers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Coverage {
@@ -219,5 +297,8 @@ pub fn citations(root: &Path) -> io::Result<BTreeMap<Section, Vec<String>>> {
 /// Reports coverage of the spec at `spec_path` by the suite at `suite_root`.
 pub fn report(spec_path: &Path, suite_root: &Path) -> io::Result<Coverage> {
     let spec = fs::read_to_string(spec_path)?;
-    Ok(coverage(&sections(&spec), &citations(suite_root)?))
+    Ok(coverage(
+        &normative_sections(&spec)?,
+        &citations(suite_root)?,
+    ))
 }

@@ -571,8 +571,8 @@ fn anonymous(cursor: &mut Cursor, asynchronous: bool) -> Expr {
     if !cursor.eat_keyword(Keyword::End) {
         let here = cursor.span();
         cursor
-            .error(codes::UNCLOSED_DELIMITER, here, "expected `end`")
-            .label(start, "this function is still open");
+            .error(codes::UNCLOSED_DELIMITER, start, "expected `end`")
+            .label(here, "expected `end` before here");
     }
 
     Expr::new(
@@ -730,8 +730,8 @@ fn match_expression(cursor: &mut Cursor) -> Expr {
     let end = cursor.span();
     if !cursor.eat_keyword(Keyword::End) {
         cursor
-            .error(codes::UNCLOSED_DELIMITER, end, "expected `end`")
-            .label(opened, "this `match` is still open");
+            .error(codes::UNCLOSED_DELIMITER, opened, "expected `end`")
+            .label(end, "expected `end` before here");
     }
 
     Expr::new(

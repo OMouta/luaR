@@ -318,8 +318,8 @@ fn repeat_loop(cursor: &mut Cursor, label: Option<String>) -> StmtKind {
     if !cursor.eat_keyword(Keyword::Until) {
         let here = cursor.span();
         cursor
-            .error(codes::UNCLOSED_DELIMITER, here, "expected `until`")
-            .label(opened, "this is the `repeat` it belongs to");
+            .error(codes::UNCLOSED_DELIMITER, opened, "expected `until`")
+            .label(here, "expected `until` before here");
     }
 
     StmtKind::Repeat {
@@ -375,8 +375,11 @@ fn close(cursor: &mut Cursor, opened: Span, construct: &str) {
 
     let here = cursor.span();
     cursor
-        .error(codes::UNCLOSED_DELIMITER, here, "expected `end`")
-        .label(opened, format!("this `{construct}` is still open"));
+        .error(codes::UNCLOSED_DELIMITER, opened, "expected `end`")
+        .label(
+            here,
+            format!("expected `end` for this `{construct}` before here"),
+        );
 }
 
 /// An assignment, or an expression evaluated for what it does (LR5.4).
@@ -403,7 +406,7 @@ fn assignment_or_expression(cursor: &mut Cursor) -> StmtKind {
     let operator_span = cursor.span();
     cursor.advance();
 
-    // LR89: what can be assigned to is a name, a field, or an element.
+    // LR89.2: what can be assigned to is a name, a field, or an element.
     if !is_assignable(&target) {
         cursor
             .error(
@@ -587,8 +590,8 @@ fn conditional_compilation(cursor: &mut Cursor) -> StmtKind {
     if !cursor.eat_directive(Keyword::End) {
         let here = cursor.span();
         cursor
-            .error(codes::UNCLOSED_DELIMITER, here, "expected `#end`")
-            .label(start, "this `#if` is still open");
+            .error(codes::UNCLOSED_DELIMITER, start, "expected `#end`")
+            .label(here, "expected `#end` before here");
     }
 
     StmtKind::Conditional {
