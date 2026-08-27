@@ -2047,7 +2047,7 @@ Unsafe capabilities may include:
 
 Unsafe code does not disable type checking outside the operations explicitly defined as unsafe.
 
-LuaR uses calls rather than extra operators for unsafe memory operations. Arrays, lists, byte strings, and slices provide `unchecked(index)` for a read and `uncheckedSet(index, value)` for a write. Raw pointers provide `read()`, `write(value)`, and `add(offset)`. `std/mem.reinterpret<T>(value)` reinterprets the bits of a plain ABI-representable value or raw pointer as `T`.
+LuaR uses calls rather than extra operators for unsafe memory operations. Arrays, lists, byte strings, and slices provide `unchecked(index: int): T`, where `T` is the element type, and writable receivers provide `uncheckedSet(index: int, value: T): ()`. A read-only or frozen receiver does not provide `uncheckedSet`. Both `*const T` and `*mut T` provide `read(): T` and `add(offset: isize)`, with `add` returning the same pointer type. Only `*mut T` provides `write(value: T): ()`. The `reinterpret<T>(value)` function imported from `std/mem` reinterprets the bits of a plain ABI-representable value or raw pointer as `T`.
 
 Each operation requires an `unsafe` context. `reinterpret` requires source and target to have the same size. It does not convert managed references. The caller must satisfy bounds, alignment, provenance, initialization, and target-validity requirements. Violating one of those requirements has undefined behavior.
 
@@ -3282,7 +3282,7 @@ Taking the address of a temporary, of a `const` binding through `&mut`, or of a 
 
 Managed references are never written as raw pointers in source, and there is no operator that converts one into the other outside `unsafe` reinterpretation.
 
-Pointer dereference and arithmetic use the unsafe methods `read()`, `write(value)`, and `add(offset)` (LR29.2). `std/mem.reinterpret<T>(value)` accepts plain ABI-representable values and raw pointers, never managed references.
+Pointer dereference and arithmetic use the unsafe methods `read()`, `write(value)`, and `add(offset)` (LR29.2). The `reinterpret<T>(value)` function from `std/mem` accepts plain ABI-representable values and raw pointers, never managed references.
 
 ---
 
