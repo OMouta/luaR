@@ -23,7 +23,7 @@ use luar_sema::modules::{Graph, ModuleId};
 use luar_sema::table::{Decl, EnumType, InterfaceType, Signature, StructType, Table, Variant};
 use luar_sema::types::Type;
 
-use crate::inst::{Terminator, Trap};
+use crate::inst::{MethodId, Terminator, Trap};
 use crate::lower::types::Ids;
 use crate::program::{
     Enum, Field, FuncId, Function, Interface, Method, Nominal, Program, Shape, Struct,
@@ -56,6 +56,7 @@ pub fn lower(graph: &Graph, table: &Table, facts: &Facts) -> Lowered {
         program: Program::default(),
         ids: Ids::new(),
         functions: HashMap::new(),
+        virtuals: HashMap::new(),
         bodies: Vec::new(),
         gaps: Vec::new(),
     };
@@ -80,11 +81,36 @@ struct Lowering<'a> {
     /// The function each declaration was given, by the span of the
     /// declaration. That span is what tells two overloads of one name apart
     /// (LR40) and what the checker recorded a call as reaching (LR76).
-    functions: HashMap<Span, FuncId>,
+    functions: HashMap<Span, Callee>,
+    /// The interface method each bodiless declaration stands for, by its
+    /// span. A call reaching one dispatches at runtime (LR18.1).
+    virtuals: HashMap<Span, MethodId>,
     /// The bodies waiting to be lowered, once every function has an id for
     /// the calls between them to name.
     bodies: Vec<Pending>,
     gaps: Vec<Gap>,
+}
+
+/// What a call site needs to know about the function it reaches.
+pub(super) struct Callee {
+    pub id: FuncId,
+    /// Whether the first argument is the receiver (LR65).
+    pub takes_self: bool,
+    /// The parameters, without `self`, in declaration order.
+    pub params: Vec<Parameter>,
+    /// Whether the function is generic, and so needs the type arguments a
+    /// call worked out before it can be compiled (LR19).
+    pub generic: bool,
+}
+
+pub(super) struct Parameter {
+    pub name: String,
+    pub ty: Ty,
+    /// `...values`, which takes every argument from its position on (LR9.6).
+    pub variadic: bool,
+    /// Evaluated at the call site when the call leaves the argument out
+    /// (LR9.4).
+    pub default: Option<luar_ast::Expr>,
 }
 
 /// A declared function whose body has not been lowered yet.
@@ -146,7 +172,9 @@ impl Lowering<'_> {
             let nominal = match table.get(module, &name) {
                 Some(Decl::Struct(structure)) => self.structure(module, &name, structure, span),
                 Some(Decl::Enum(enumeration)) => self.enumeration(module, &name, enumeration, span),
-                Some(Decl::Interface(interface)) => self.interface(module, &name, interface, span),
+                Some(Decl::Interface(interface)) => {
+                    self.interface(module, &name, interface, span, id)
+                }
                 _ => unreachable!("only declared types were named"),
             };
 
@@ -231,6 +259,7 @@ impl Lowering<'_> {
         name: &str,
         interface: &InterfaceType,
         span: Span,
+        id: TypeId,
     ) -> Nominal {
         // LR18.1: the slot a `CallVirtual` names is a method's position here,
         // so the order has to be one every module agrees on. The table holds
@@ -244,6 +273,14 @@ impl Lowering<'_> {
                     .map(|param| self.convert(&param.ty, span))
                     .collect();
                 let result = self.convert(&signature.result, span);
+                let slot = u32::try_from(methods.len()).expect("method count fits in u32");
+                self.virtuals.insert(
+                    signature.span,
+                    MethodId {
+                        interface: id,
+                        slot,
+                    },
+                );
                 methods.push(Method {
                     name: method.clone(),
                     params,
@@ -326,9 +363,20 @@ impl Lowering<'_> {
             });
         }
 
-        for param in &signature.params {
-            params.push(self.convert(&param.ty, span));
+        let mut taken = Vec::new();
+        for (index, param) in signature.params.iter().enumerate() {
+            let ty = self.convert(&param.ty, span);
+            params.push(ty.clone());
             names.push(param.name.clone());
+            taken.push(Parameter {
+                name: param.name.clone(),
+                ty,
+                variadic: param.variadic,
+                default: function
+                    .params
+                    .get(index)
+                    .and_then(|written| written.default.clone()),
+            });
         }
         let result = self.convert(&signature.result, span);
 
@@ -339,8 +387,17 @@ impl Lowering<'_> {
         // rather than returning something made up.
         lowered.block_mut(lowered.entry).term = Some(Terminator::Trap(Trap::Unreachable));
 
+        let generic = !lowered.type_params.is_empty();
         let id = self.program.add_function(lowered);
-        self.functions.insert(span, id);
+        self.functions.insert(
+            span,
+            Callee {
+                id,
+                takes_self: signature.takes_self,
+                params: taken,
+                generic,
+            },
+        );
 
         if function.exported && path == "main" {
             self.program.entry = Some(id);
@@ -354,16 +411,29 @@ impl Lowering<'_> {
     }
 
     /// Fills in every declared function's body.
+    ///
+    /// Every function has an id by now, so a call reaching one written later
+    /// names it like any other.
     fn lower_bodies(&mut self) {
-        for pending in std::mem::take(&mut self.bodies) {
+        let pending = std::mem::take(&mut self.bodies);
+        let mut built = Vec::with_capacity(pending.len());
+
+        for pending in &pending {
             let context = body::Context {
                 facts: self.facts,
                 ids: &self.ids,
+                callees: &self.functions,
+                virtuals: &self.virtuals,
             };
             let shell = self.program.function(pending.id).clone();
-            let (built, gaps) =
-                body::Body::new(context, shell).lower(&pending.names, &pending.body);
-            *self.program.function_mut(pending.id) = built;
+            built.push((
+                pending.id,
+                body::Body::new(context, shell).lower(&pending.names, &pending.body),
+            ));
+        }
+
+        for (id, (function, gaps)) in built {
+            *self.program.function_mut(id) = function;
             self.gaps.extend(gaps);
         }
     }

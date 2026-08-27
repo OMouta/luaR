@@ -13,17 +13,18 @@
 use std::collections::HashMap;
 
 use luar_ast::{
-    ArmBody, BinaryOp as AstBinary, Binding, Block, Branch, Expr, ExprKind, Stmt, StmtKind,
-    UnaryOp as AstUnary,
+    Argument, ArmBody, BinaryOp as AstBinary, Binding, Block, Branch, Expr, ExprKind, Stmt,
+    StmtKind, UnaryOp as AstUnary,
 };
 use luar_diagnostics::Span;
 use luar_sema::facts::Facts;
 
 use luar_sema::types::Type;
 
+use crate::inst::MethodId;
 use crate::inst::{BinaryOp, Const, Inst, InstKind, Target, Terminator, Trap, UnaryOp, Value};
-use crate::lower::Gap;
 use crate::lower::types::{self, Ids};
+use crate::lower::{Callee, Gap};
 use crate::program::{BlockId, Function};
 use crate::ty::Ty;
 
@@ -60,6 +61,11 @@ enum Exit {
 pub(super) struct Context<'a> {
     pub facts: &'a Facts,
     pub ids: &'a Ids,
+    /// What each function declaration became, by the span the checker
+    /// recorded a call as reaching (LR40, LR76).
+    pub callees: &'a HashMap<Span, Callee>,
+    /// The interface methods, which have declarations and no bodies (LR18.1).
+    pub virtuals: &'a HashMap<Span, MethodId>,
 }
 
 pub(super) struct Body<'a> {
@@ -693,6 +699,13 @@ impl<'a> Body<'a> {
                 op, left, right, ..
             } => self.binary(*op, left, right, span),
 
+            ExprKind::Call {
+                callee,
+                method,
+                args,
+                ..
+            } => self.call(callee, method.as_deref(), args, span),
+
             ExprKind::Cast { value, .. } => {
                 // LR33: `as` converts between numeric types, and the type it
                 // converts to is the type of the whole expression.
@@ -748,6 +761,149 @@ impl<'a> Body<'a> {
                 )
             }
         }
+    }
+
+    /// LR9.1: a call passes an argument for every parameter, at the type that
+    /// parameter takes.
+    ///
+    /// LR55: the arguments are evaluated left to right as they are written,
+    /// whatever parameter each one fills, and the defaults that fill the rest
+    /// run after them in the order their parameters were declared (LR9.4).
+    fn call(
+        &mut self,
+        callee: &Expr,
+        method: Option<&str>,
+        args: &[Argument],
+        span: Span,
+    ) -> Value {
+        let Some(declaration) = self.context.facts.call(span) else {
+            return self.missing(span, "a call the checker did not resolve");
+        };
+
+        // LR12.2: `receiver:method(x)` is `Type.method(receiver, x)` written
+        // short, so the receiver is the first argument either way.
+        let receiver = method.map(|_| self.expr(callee, None));
+
+        if let Some(virtual_) = self.context.virtuals.get(&declaration).copied() {
+            return self.dispatch(virtual_, receiver, args, span);
+        }
+
+        let Some(reached) = self.context.callees.get(&declaration) else {
+            return self.missing(span, "a call to a function with no body");
+        };
+
+        if reached.generic {
+            // LR19: the call worked out what fills each type parameter, and
+            // monomorphization needs to be told which. Nothing carries that
+            // from the checker yet.
+            return self.missing(span, "a call to a generic function");
+        }
+        if reached.params.iter().any(|param| param.variadic) {
+            return self.missing(span, "a call to a variadic function");
+        }
+
+        let id = reached.id;
+        let takes_self = reached.takes_self;
+        let wanted: Vec<Ty> = reached
+            .params
+            .iter()
+            .map(|param| param.ty.clone())
+            .collect();
+        let names: Vec<String> = reached
+            .params
+            .iter()
+            .map(|param| param.name.clone())
+            .collect();
+        let defaults: Vec<Option<Expr>> = reached
+            .params
+            .iter()
+            .map(|param| param.default.clone())
+            .collect();
+
+        let mut filled: Vec<Option<Value>> = vec![None; wanted.len()];
+        let mut position = 0;
+        for argument in args {
+            let slot = match &argument.name {
+                // LR9.5: a named argument names the parameter it fills.
+                Some(name) => names.iter().position(|param| param == name),
+                None => {
+                    let slot = position;
+                    position += 1;
+                    Some(slot).filter(|slot| *slot < wanted.len())
+                }
+            };
+            let value = self.expr(&argument.value, slot.map(|slot| &wanted[slot]));
+            if let Some(slot) = slot {
+                filled[slot] = Some(value);
+            }
+        }
+
+        for (slot, default) in defaults.iter().enumerate() {
+            if filled[slot].is_some() {
+                continue;
+            }
+            let Some(default) = default else {
+                return self.missing(span, "a call with no argument for a parameter");
+            };
+            filled[slot] = Some(self.expr(default, Some(&wanted[slot])));
+        }
+
+        let mut passed: Vec<Value> = Vec::with_capacity(filled.len() + 1);
+        if takes_self {
+            match receiver {
+                Some(receiver) => passed.push(receiver),
+                None => return self.missing(span, "a method call with no receiver"),
+            }
+        }
+        for value in filled {
+            match value {
+                Some(value) => passed.push(value),
+                None => return self.missing(span, "a call with no argument for a parameter"),
+            }
+        }
+
+        let result = self.recorded(span);
+        self.emit(
+            InstKind::Call {
+                callee: id,
+                type_args: Vec::new(),
+                args: passed,
+            },
+            result,
+            span,
+        )
+    }
+
+    /// LR18.1: a call through an interface finds its implementation at
+    /// runtime, until devirtualization proves there is only one.
+    fn dispatch(
+        &mut self,
+        method: MethodId,
+        receiver: Option<Value>,
+        args: &[Argument],
+        span: Span,
+    ) -> Value {
+        let Some(receiver) = receiver else {
+            return self.missing(span, "an interface call with no receiver");
+        };
+        if args.iter().any(|argument| argument.name.is_some()) {
+            return self.missing(span, "an interface call with named arguments");
+        }
+
+        let passed: Vec<Value> = args
+            .iter()
+            .map(|argument| self.expr(&argument.value, None))
+            .collect();
+        let result = self.recorded(span);
+        self.emit(
+            InstKind::CallVirtual {
+                method,
+                receiver,
+                args: passed,
+            },
+            result,
+            span,
+        )
     }
 
     /// LR11.4, LR56: `and` does not evaluate its right operand where the left
