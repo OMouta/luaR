@@ -2496,6 +2496,52 @@ impl Checker<'_> {
         ));
     }
 
+    /// LR39: arithmetic is on one numeric type, and there is no promotion
+    /// between two. A literal takes the type of the other operand where it
+    /// fits, which is what keeps `count + 1` writable.
+    fn arithmetic(&mut self, op: BinaryOp, left: &Type, right: &Type, span: Span) -> Type {
+        // Two literals are worked out here, so that what the expression is
+        // worth is known where the bounds are checked (LR39). A sum that
+        // does not fit 64 bits is an `int` like any other.
+        if let (Type::IntegerLiteral(left), Type::IntegerLiteral(right)) = (left, right) {
+            return match fold(op, *left, *right) {
+                Some(value) => Type::IntegerLiteral(value),
+                None => Type::Primitive(Primitive::I64),
+            };
+        }
+
+        if left == right {
+            return left.clone();
+        }
+
+        // Only two numbers are this rule's business. Anything else is a
+        // shape whose operators are its own to define (LR36).
+        if !is_numeric(left) || !is_numeric(right) {
+            return Type::Unresolved;
+        }
+
+        // LR39: a literal is polymorphic until something asks for a type, and
+        // the other operand is what asks.
+        for (literal, concrete) in [(left, right), (right, left)] {
+            if matches!(literal, Type::IntegerLiteral(_) | Type::FloatLiteral)
+                && concrete.accepts(literal)
+            {
+                return concrete.clone();
+            }
+        }
+
+        self.diagnostics.push(
+            Diagnostic::error(
+                codes::MIXED_ARITHMETIC,
+                span,
+                format!("this mixes {} and {}", article(left), article(right)),
+            )
+            .note("Write the conversion, as in `a as i64 + b` (LR39, LR33)."),
+        );
+
+        Type::Unresolved
+    }
+
     /// LR33: `as` is the safe conversion between numeric types, and nothing
     /// wider. A conversion that can fail is an API returning an optional or a
     /// `Result`, and a representation cast is `unsafe` (LR29.2).
@@ -2694,15 +2740,9 @@ impl Checker<'_> {
                 Type::Optional(inner) => *inner,
                 _ => Type::Unresolved,
             },
-            // Arithmetic on one numeric type produces it. Mixing them needs
-            // the promotion rules of LR39, which are not decided here.
-            _ => {
-                if held_left == held_right {
-                    held_left
-                } else {
-                    Type::Unresolved
-                }
-            }
+            // Arithmetic on one numeric type produces it (LR39). What is not
+            // numeric at all waits for the operator protocols of LR36.
+            _ => self.arithmetic(op, &held_left, &held_right, op_span),
         }
     }
 
@@ -2903,6 +2943,21 @@ fn unify(left: Type, right: Type) -> Type {
         left
     } else {
         Type::Unresolved
+    }
+}
+
+/// What two integer literals come to, where that is worth knowing (LR39).
+///
+/// This is not the constant evaluation of LR24. It answers one question: what
+/// a literal expression is worth, so that `local small: u8 = 200 + 100` is
+/// reported rather than accepted on the strength of its first operand.
+fn fold(op: BinaryOp, left: u64, right: u64) -> Option<u64> {
+    match op {
+        BinaryOp::Add => left.checked_add(right),
+        BinaryOp::Subtract => left.checked_sub(right),
+        BinaryOp::Multiply => left.checked_mul(right),
+        BinaryOp::Remainder => left.checked_rem(right),
+        _ => None,
     }
 }
 

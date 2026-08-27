@@ -1,0 +1,6 @@
+--- expect: compile-ok
+--- spec: LR39
+--- spec: LR33
+export function total(count: i32, size: i64): i64
+    return count as i64 + size
+end

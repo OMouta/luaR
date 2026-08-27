@@ -1,0 +1,10 @@
+--- expect: compile-ok
+--- spec: LR39
+export function main()
+    local count: i32 = 7
+    local bumped: i32 = count + 1
+    local fits: u8 = 200 + 55
+    local ratio: f32 = 1.5
+    local scaled: f32 = ratio * 2.0
+    print(bumped, fits, scaled)
+end

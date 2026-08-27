@@ -223,6 +223,8 @@ registry! {
         "A type argument satisfies what `where` requires of the parameter it fills.";
     active 173 => INVALID_CAST, "LR33",
         "`as` converts between numeric types; there is no universal cast.";
+    active 174 => MIXED_ARITHMETIC, "LR39",
+        "Arithmetic is on one numeric type; mixing two means writing the conversion.";
 }
 
 #[cfg(test)]
