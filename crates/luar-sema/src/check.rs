@@ -22,17 +22,19 @@ use luar_diagnostics::{Diagnostic, Span, codes};
 
 use crate::aliases::substitute;
 use crate::annotations::Resolver;
+use crate::facts::Facts;
 use crate::modules::{Graph, ModuleId};
 use crate::names::{Names, Origin, bound};
 use crate::table::{Decl, Field, Overloads, Signature, Table, Variant};
 use crate::types::{Builtin, Primitive, Type};
 
-/// Checks the types of every module in `graph`.
+/// Checks the types of every module in `graph`, and gives back what it worked
+/// out along the way.
 #[must_use]
-pub fn check(graph: &Graph, names: &Names, table: &Table) -> Vec<Diagnostic> {
+pub fn check(graph: &Graph, names: &Names, table: &Table) -> (Facts, Vec<Diagnostic>) {
     let mut diagnostics = Vec::new();
-    walk(graph, names, table, &mut diagnostics);
-    diagnostics
+    let (_, facts) = walk(graph, names, table, &mut diagnostics);
+    (facts, diagnostics)
 }
 
 /// Works out the result of every function that writes none down (LR7).
@@ -48,7 +50,7 @@ pub fn infer_results(graph: &Graph, names: &Names, table: &mut Table) {
 
     for _ in 0..ROUNDS {
         let mut ignored = Vec::new();
-        let collected = walk(graph, names, table, &mut ignored);
+        let (collected, _) = walk(graph, names, table, &mut ignored);
 
         let mut changed = false;
         for span in table.inferred() {
@@ -75,14 +77,15 @@ pub fn infer_results(graph: &Graph, names: &Names, table: &mut Table) {
 }
 
 /// One walk of every module, reporting into `diagnostics` and giving back
-/// what each body returns.
+/// what each body returns and what the walk worked out.
 fn walk(
     graph: &Graph,
     names: &Names,
     table: &Table,
     diagnostics: &mut Vec<Diagnostic>,
-) -> HashMap<Span, Vec<Type>> {
+) -> (HashMap<Span, Vec<Type>>, Facts) {
     let mut collected = HashMap::new();
+    let mut facts = Facts::default();
 
     for (id, node) in graph.modules() {
         let mut checker = Checker {
@@ -100,13 +103,15 @@ fn walk(
             constraints: Vec::new(),
             returns: Vec::new(),
             narrowed: Vec::new(),
+            facts: Facts::default(),
             diagnostics,
         };
         checker.module(&node.ast);
         collected.extend(checker.collected);
+        facts.absorb(checker.facts);
     }
 
-    collected
+    (collected, facts)
 }
 
 struct Checker<'a> {
@@ -147,6 +152,9 @@ struct Checker<'a> {
     /// (LR57). Kept apart from `values` so that a name declared again inside
     /// a branch is a new name rather than the narrowed one.
     narrowed: Vec<HashMap<String, Type>>,
+    /// What this walk worked out, for lowering to read rather than derive
+    /// again.
+    facts: Facts,
     diagnostics: &'a mut Vec<Diagnostic>,
 }
 
@@ -1128,8 +1136,14 @@ impl Checker<'_> {
         }
     }
 
-    /// The type of an expression.
+    /// The type of an expression, recorded for the stages after this one.
     fn expr(&mut self, expr: &Expr) -> Type {
+        let ty = self.expr_type(expr);
+        self.facts.record_type(expr.span, ty.clone());
+        ty
+    }
+
+    fn expr_type(&mut self, expr: &Expr) -> Type {
         match &expr.kind {
             ExprKind::Nil => Type::Primitive(Primitive::Nil),
             ExprKind::Bool(_) => Type::BOOL,
@@ -2096,6 +2110,8 @@ impl Checker<'_> {
                 .note("Write it inside an `unsafe` block (LR29.2)."),
             );
         }
+
+        self.facts.record_call(span, signature.span);
 
         // LR19: a generic call takes its type arguments from what it writes
         // down, and works out the rest from what it passes.
