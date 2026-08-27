@@ -2228,7 +2228,7 @@ One method behind four operators is what stops a type reporting `a < b` and `a >
 
 Dispatch is on the left operand, and neither operand is converted first. `a + b` looks for `add` on the type of `a`, and `b` must fit the parameter that method declares. A type that wants both `Vec2 * f64` and `f64 * Vec2` declares the second on `f64` in an extension block (LR20).
 
-An arithmetic, bitwise, or index operator produces whatever its method returns. `==`, `~=`, `<`, `<=`, `>`, and `>=` produce `bool`.
+An arithmetic, bitwise, or index operator produces whatever its method returns. `==`, `~=`, `<`, `<=`, `>`, and `>=` produce `bool` whatever their method returns, so the protocol pins that method down: `eq` returns `bool` and `compare` returns `int`. A method returning anything else does not implement the protocol, and an operator that would call it is an error.
 
 A compound assignment overloads through the operator it contains, so `a += b` calls `add` (LR5.4).
 
