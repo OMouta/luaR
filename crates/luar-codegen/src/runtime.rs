@@ -30,12 +30,16 @@ const WRITE: &str = "_write";
 #[cfg(not(windows))]
 const WRITE: &str = "write";
 
-/// One handler per trap kind, in [`TRAPS`] order.
-pub(crate) struct Handlers {
-    pub declared: [ModuleFuncId; TRAPS.len()],
+/// What the emitted program reaches at runtime.
+pub(crate) struct Runtime {
+    /// One handler per trap kind, in [`TRAPS`] order.
+    pub handlers: [ModuleFuncId; TRAPS.len()],
+    /// Where aggregate storage comes from. Nothing gives it back, because
+    /// there is no collector yet (LR29).
+    pub allocate: ModuleFuncId,
 }
 
-impl Handlers {
+impl Runtime {
     /// Emits a handler for every trap kind. Each writes which trap it was and
     /// exits, so a trapped program is told apart from one that ran (LR50).
     pub fn emit(
@@ -58,25 +62,41 @@ impl Handlers {
             .declare_function(WRITE, Linkage::Import, &write)
             .map_err(|error| Error::Cranelift(error.to_string()))?;
 
-        let mut declared = Vec::with_capacity(TRAPS.len());
+        let mut allocate = Signature::new(call_conv);
+        allocate.params.push(AbiParam::new(pointer));
+        allocate.returns.push(AbiParam::new(pointer));
+        let allocate = module
+            .declare_function("malloc", Linkage::Import, &allocate)
+            .map_err(|error| Error::Cranelift(error.to_string()))?;
+
+        let mut handlers = Vec::with_capacity(TRAPS.len());
         for trap in TRAPS {
-            declared.push(handler(module, pointer, call_conv, trap, exit, write)?);
+            handlers.push(handler(module, pointer, call_conv, trap, exit, write)?);
         }
         Ok(Self {
-            declared: declared
+            handlers: handlers
                 .try_into()
                 .expect("one handler was emitted per trap kind"),
+            allocate,
         })
     }
 
     /// Puts every handler in `function`'s reference table.
-    pub fn in_function(
+    pub fn handlers_in(
         &self,
         module: &mut ObjectModule,
         function: &mut cranelift_codegen::ir::Function,
     ) -> [FuncRef; TRAPS.len()] {
-        self.declared
+        self.handlers
             .map(|declared| module.declare_func_in_func(declared, function))
+    }
+
+    pub fn allocate_in(
+        &self,
+        module: &mut ObjectModule,
+        function: &mut cranelift_codegen::ir::Function,
+    ) -> FuncRef {
+        module.declare_func_in_func(self.allocate, function)
     }
 }
 

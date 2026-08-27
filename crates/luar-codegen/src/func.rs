@@ -4,15 +4,20 @@ use std::collections::HashMap;
 
 use cranelift_codegen::ir::condcodes::IntCC;
 use cranelift_codegen::ir::{
-    self, AbiParam, Block, FuncRef, InstBuilder, Signature, TrapCode, Type, types,
+    self, AbiParam, Block, FuncRef, InstBuilder, MemFlags, Signature, TrapCode, Type, types,
 };
 use cranelift_frontend::{FunctionBuilder, Switch};
 use luar_lir::inst::{BinaryOp, Const, Inst, InstKind, Terminator, Trap, UnaryOp, Value};
-use luar_lir::program::{BlockId, FuncId, Function};
+use luar_lir::program::{BlockId, FuncId, Function, Program};
 use luar_lir::ty::Ty;
 
 use crate::Gap;
+use crate::layout::{self, TAG, TAG_TYPE};
 use crate::ty::{is_signed, machine};
+
+/// Storage the program built is its own, so nothing else writes it and every
+/// access to it is in range.
+const OWNED: MemFlags = MemFlags::trusted();
 
 /// The trap kinds, in the order the handler table holds them.
 pub(crate) const TRAPS: [Trap; 4] = [
@@ -55,12 +60,16 @@ pub(crate) fn signature(
 }
 
 pub(crate) struct Translator<'a, 'b> {
+    pub program: &'a Program,
     pub function: &'a Function,
     pub builder: FunctionBuilder<'b>,
     pub pointer: Type,
     pub callees: HashMap<FuncId, FuncRef>,
     /// The runtime handler for each trap kind, in [`TRAPS`] order.
     pub handlers: [FuncRef; TRAPS.len()],
+    /// Where an aggregate's storage comes from. Nothing gives it back yet,
+    /// because there is no collector (LR29).
+    pub allocate: FuncRef,
     pub blocks: HashMap<BlockId, Block>,
     pub values: HashMap<Value, ir::Value>,
     pub gaps: Vec<Gap>,
@@ -194,6 +203,61 @@ impl Translator<'_, '_> {
                 type_args,
                 args,
             } => self.call(*callee, type_args, args),
+
+            InstKind::MakeStruct { ty, fields } => self.make(ty, 0, fields),
+            InstKind::MakeTuple(members) => {
+                let ty = inst
+                    .result
+                    .map(|value| self.function.type_of(value).clone());
+                match ty {
+                    Some(ty) => self.make(&ty, 0, members),
+                    None => None,
+                }
+            }
+            InstKind::MakeEnum {
+                ty,
+                variant,
+                payload,
+            } => self.make(ty, 1, payload).inspect(|&built| {
+                let tag = self.builder.ins().iconst(TAG_TYPE, i64::from(*variant));
+                self.builder.ins().store(OWNED, tag, built, TAG);
+            }),
+            InstKind::GetField { object, field } => self.read(*object, *field, inst.result),
+            InstKind::GetElement { tuple, index } => self.read(*tuple, *index, inst.result),
+            // The tag has already proved the variant, so the payload sits
+            // where that variant put it.
+            InstKind::GetPayload { value, field, .. } => self.read(*value, field + 1, inst.result),
+            InstKind::SetField {
+                object,
+                field,
+                value,
+            } => {
+                self.write(*object, *field, *value);
+                None
+            }
+            InstKind::GetTag { value } => {
+                let object = self.value(*value);
+                Some(self.builder.ins().load(TAG_TYPE, OWNED, object, TAG))
+            }
+
+            // LR8: an optional holds whether it holds anything, and then what.
+            InstKind::MakeSome { value } => {
+                let ty = inst.result.map(|held| self.function.type_of(held).clone());
+                let built = ty.and_then(|ty| self.allocate(&ty));
+                built.inspect(|&built| {
+                    let present = self.builder.ins().iconst(TAG_TYPE, 1);
+                    self.builder.ins().store(OWNED, present, built, TAG);
+                    self.write_at(built, 1, *value);
+                })
+            }
+            InstKind::IsSome { value } => {
+                let object = self.value(*value);
+                let tag = self.builder.ins().load(TAG_TYPE, OWNED, object, TAG);
+                let absent = self.builder.ins().iconst(TAG_TYPE, 0);
+                Some(self.builder.ins().icmp(IntCC::NotEqual, tag, absent))
+            }
+            InstKind::Unwrap { value } => self.read(*value, 1, inst.result),
+
             other => {
                 self.gap(describe(other));
                 None
@@ -216,6 +280,17 @@ impl Translator<'_, '_> {
     }
 
     fn constant(&mut self, literal: &Const, result: Option<Value>) -> Option<ir::Value> {
+        // LR8: `nil` in an optional's place is storage that holds nothing.
+        if let Const::Nil = literal
+            && let Some(result) = result
+            && let ty @ Ty::Optional(_) = self.function.type_of(result).clone()
+        {
+            let built = self.allocate(&ty)?;
+            let absent = self.builder.ins().iconst(TAG_TYPE, 0);
+            self.builder.ins().store(OWNED, absent, built, TAG);
+            return Some(built);
+        }
+
         let ty = result.map_or(types::I8, |value| self.machine_or_gap(value));
         let value = match literal {
             Const::Unit => self.builder.ins().iconst(types::I8, 0),
@@ -379,6 +454,51 @@ impl Translator<'_, '_> {
         let passed: Vec<ir::Value> = args.iter().map(|arg| self.value(*arg)).collect();
         let call = self.builder.ins().call(reference, &passed);
         self.builder.inst_results(call).first().copied()
+    }
+
+    /// Storage for an aggregate, with `parts` written into the cells after
+    /// `from`.
+    fn make(&mut self, ty: &Ty, from: u32, parts: &[Value]) -> Option<ir::Value> {
+        let built = self.allocate(ty)?;
+        for (index, part) in parts.iter().enumerate() {
+            let cell = from + u32::try_from(index).unwrap_or(u32::MAX);
+            self.write_at(built, cell, *part);
+        }
+        Some(built)
+    }
+
+    /// Storage large enough for a value of `ty`.
+    fn allocate(&mut self, ty: &Ty) -> Option<ir::Value> {
+        let Some(size) = layout::size(self.program, ty) else {
+            self.gap(format!("storage for a value of type `{ty}`"));
+            return None;
+        };
+        let size = self.builder.ins().iconst(self.pointer, i64::from(size));
+        let call = self.builder.ins().call(self.allocate, &[size]);
+        self.builder.inst_results(call).first().copied()
+    }
+
+    /// Reads cell `index` of the aggregate `object` points at.
+    fn read(&mut self, object: Value, index: u32, result: Option<Value>) -> Option<ir::Value> {
+        let address = self.value(object);
+        let ty = result.map_or(types::I8, |value| self.machine_or_gap(value));
+        Some(
+            self.builder
+                .ins()
+                .load(ty, OWNED, address, layout::offset(index)),
+        )
+    }
+
+    fn write(&mut self, object: Value, index: u32, value: Value) {
+        let address = self.value(object);
+        self.write_at(address, index, value);
+    }
+
+    fn write_at(&mut self, address: ir::Value, index: u32, value: Value) {
+        let written = self.value(value);
+        self.builder
+            .ins()
+            .store(OWNED, written, address, layout::offset(index));
     }
 
     /// Ends the program where it stands, saying which trap it was (LR50).

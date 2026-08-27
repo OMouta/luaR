@@ -3,6 +3,8 @@
 use cranelift_codegen::ir::{Type, types};
 use luar_lir::ty::{IntTy, Ty};
 
+use crate::layout::is_aggregate;
+
 /// The machine type a value of `ty` is held in, or `None` for a type the
 /// backend cannot represent yet.
 ///
@@ -16,6 +18,8 @@ pub fn machine(ty: &Ty, pointer: Type) -> Option<Type> {
         Ty::Int(int) => integer(*int, pointer),
         Ty::Char => types::I32,
         Ty::Never => types::I8,
+        // An aggregate lives in storage and is reached through its address.
+        _ if is_aggregate(ty) => pointer,
         _ => return None,
     };
     Some(machine)

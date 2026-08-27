@@ -1,6 +1,7 @@
 //! Backend: LIR to machine code.
 
 mod func;
+mod layout;
 mod link;
 mod runtime;
 mod ty;
@@ -21,7 +22,7 @@ use luar_lir::ty::Ty;
 pub use crate::link::{LinkError, link};
 
 use crate::func::{Translator, signature};
-use crate::runtime::Handlers;
+use crate::runtime::Runtime;
 use crate::ty::machine;
 
 /// Something the backend cannot emit yet, and the function it is in.
@@ -88,14 +89,14 @@ pub fn compile(program: &Program) -> Result<Object, Error> {
     let builder = ObjectBuilder::new(isa, "luar", cranelift_module::default_libcall_names())
         .map_err(|error| Error::Cranelift(error.to_string()))?;
     let mut module = ObjectModule::new(builder);
-    let handlers = Handlers::emit(&mut module, pointer, call_conv)?;
+    let runtime = Runtime::emit(&mut module, pointer, call_conv)?;
     let mut emitter = Emitter {
         program,
         module,
         pointer,
         call_conv,
         declared: HashMap::new(),
-        handlers,
+        runtime,
         gaps: Vec::new(),
     };
     emitter.declare()?;
@@ -117,7 +118,7 @@ struct Emitter<'a> {
     pointer: types::Type,
     call_conv: CallConv,
     declared: HashMap<FuncId, ModuleFuncId>,
-    handlers: Handlers,
+    runtime: Runtime,
     gaps: Vec<Gap>,
 }
 
@@ -179,14 +180,19 @@ impl Emitter<'_> {
             }
 
             let handlers = self
-                .handlers
-                .in_function(&mut self.module, &mut context.func);
+                .runtime
+                .handlers_in(&mut self.module, &mut context.func);
+            let allocate = self
+                .runtime
+                .allocate_in(&mut self.module, &mut context.func);
             let translator = Translator {
+                program: self.program,
                 function,
                 builder: FunctionBuilder::new(&mut context.func, &mut frame),
                 pointer: self.pointer,
                 callees,
                 handlers,
+                allocate,
                 blocks: HashMap::new(),
                 values: HashMap::new(),
                 gaps: Vec::new(),
