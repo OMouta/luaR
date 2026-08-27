@@ -140,6 +140,12 @@ pub enum Ty {
     /// The type `nil` alone inhabits (LR4.1). A value that may be absent is
     /// an [`Ty::Optional`], not this.
     Nil,
+    /// The type no value has (LR6.2). A value carries it where control never
+    /// reaches the use, so nothing reads one and it needs no representation.
+    Never,
+    /// `any` and `unknown` (LR6.3, LR6.4): a value carrying what it is at
+    /// runtime, because static type is not what says.
+    Dynamic,
     Bool,
     Int(IntTy),
     Float(FloatTy),
@@ -217,6 +223,8 @@ impl fmt::Display for Ty {
         match self {
             Self::Unit => f.write_str("()"),
             Self::Nil => f.write_str("nil"),
+            Self::Never => f.write_str("never"),
+            Self::Dynamic => f.write_str("dynamic"),
             Self::Bool => f.write_str("bool"),
             Self::Int(int) => f.write_str(int.spelling()),
             Self::Float(float) => f.write_str(float.spelling()),

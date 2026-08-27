@@ -17,6 +17,7 @@
 //! which is a phi node written where the jump can see it.
 
 pub mod inst;
+pub mod lower;
 pub mod program;
 pub mod ty;
 
