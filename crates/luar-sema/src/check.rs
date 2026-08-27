@@ -92,6 +92,7 @@ fn walk(
             scope: id,
             values: vec![HashMap::new()],
             constants: vec![HashSet::new()],
+            unwritten: HashSet::new(),
             unsafely: 0,
             extensions: extensions(names, table, id),
             bodies: Vec::new(),
@@ -123,6 +124,9 @@ struct Checker<'a> {
     /// Which of them `const` bound, scope for scope alongside `values`
     /// (LR5.2).
     constants: Vec<HashSet<String>>,
+    /// Bindings declared with a type and no value, which nothing has written
+    /// to yet (LR5.1).
+    unwritten: HashSet<String>,
     /// How many `unsafe` contexts are open around what is being walked
     /// (LR29.2). An `unsafe` function opens one for its whole body.
     unsafely: usize,
@@ -729,6 +733,14 @@ impl Checker<'_> {
                 };
 
                 self.declare(binding, held);
+
+                // LR5.1: a binding declared with no value holds nothing until
+                // something writes to it.
+                if value.is_none() {
+                    for name in bound(binding) {
+                        self.unwritten.insert(name);
+                    }
+                }
             }
             StmtKind::Const {
                 binding, ty, value, ..
@@ -772,6 +784,9 @@ impl Checker<'_> {
                         );
                     }
 
+                    // LR5.1: writing to it is what makes it readable.
+                    self.unwritten.remove(name);
+
                     // LR57: what was proved held for the value that was
                     // there, and the value that is there now was never
                     // checked.
@@ -786,24 +801,38 @@ impl Checker<'_> {
                 // condition failed, and so is the `else`.
                 let mut failed: Vec<Narrowing> = Vec::new();
 
+                // LR5.1: a binding is written to after the `if` only where
+                // every way through it wrote to the binding, so each way is
+                // walked from the same starting point and the results merge.
+                let before = self.unwritten.clone();
+                let mut ways: Vec<HashSet<String>> = Vec::new();
+
                 for branch in branches {
                     self.narrow(&failed, false);
                     self.condition(&branch.condition);
                     let facts = self.facts(&branch.condition);
 
+                    self.unwritten = before.clone();
                     self.narrow(&facts, true);
                     self.block(&branch.body);
                     self.widen();
+                    ways.push(self.unwritten.clone());
 
                     self.widen();
                     failed.extend(facts);
                 }
 
+                // Falling past every condition is a way through too, and it
+                // writes to nothing unless there is an `else`.
+                self.unwritten = before;
                 if let Some(otherwise) = otherwise {
                     self.narrow(&failed, false);
                     self.block(otherwise);
                     self.widen();
                 }
+                ways.push(self.unwritten.clone());
+
+                self.unwritten = ways.into_iter().reduce(union).unwrap_or_default();
             }
             StmtKind::While {
                 condition, body, ..
@@ -1117,7 +1146,23 @@ impl Checker<'_> {
                 }
                 Type::STRING
             }
-            ExprKind::Name(name) => self.name(name),
+            ExprKind::Name(name) => {
+                // LR5.1: the compiler proves a binding was written to before
+                // it is read, and this is where it fails to.
+                if self.unwritten.contains(name) {
+                    self.diagnostics.push(
+                        Diagnostic::error(
+                            codes::UNINITIALIZED_READ,
+                            expr.span,
+                            format!("`{name}` is read before anything writes to it"),
+                        )
+                        .note("A binding declared without a value holds nothing yet (LR5.1)."),
+                    );
+                    self.unwritten.remove(name);
+                }
+
+                self.name(name)
+            }
             ExprKind::Unary { op, operand } => self.unary(*op, operand),
             ExprKind::Binary {
                 op,
@@ -2302,6 +2347,22 @@ impl Checker<'_> {
                         if hidden {
                             self.private(Some(Visibility::Private), *module, declared, name, span);
                         }
+
+                        // LR42: a static has no receiver to be called
+                        // through, so it is reached through its type.
+                        if !takes_self(&overloads) {
+                            self.diagnostics.push(
+                                Diagnostic::error(
+                                    codes::STATIC_THROUGH_INSTANCE,
+                                    span,
+                                    format!("`{name}` is static, and takes no receiver"),
+                                )
+                                .note(format!(
+                                    "Call it through the type, as in `{declared}.{name}()` (LR42)."
+                                )),
+                            );
+                        }
+
                         return Some(overloads);
                     }
                 }
@@ -3202,6 +3263,12 @@ fn fold(op: BinaryOp, left: u64, right: u64) -> Option<u64> {
         BinaryOp::Remainder => left.checked_rem(right),
         _ => None,
     }
+}
+
+/// Everything unwritten on either way through, which is what is still
+/// unwritten where the two ways meet (LR5.1).
+fn union(left: HashSet<String>, right: HashSet<String>) -> HashSet<String> {
+    left.union(&right).cloned().collect()
 }
 
 /// Whether `expr` names storage that stays put, which is what an address can

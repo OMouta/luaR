@@ -1,0 +1,15 @@
+--- expect: compile-ok
+--- spec: LR5.1
+export function count(flag: bool): int
+    local first: int
+    first = 1
+
+    local second: int
+    if flag then
+        second = 1
+    else
+        second = 2
+    end
+
+    return first + second
+end

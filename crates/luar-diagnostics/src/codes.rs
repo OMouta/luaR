@@ -235,6 +235,10 @@ registry! {
         "An address is taken of a binding that stays put, not of a value in flight.";
     active 179 => ADDRESS_OF_CONSTANT, "LR72",
         "`&mut` takes a mutable address, which a `const` binding does not have.";
+    active 180 => UNINITIALIZED_READ, "LR5.1",
+        "A binding declared without a value is written to before it is read.";
+    active 181 => STATIC_THROUGH_INSTANCE, "LR42",
+        "A static takes no receiver, so it is called through its type.";
 }
 
 #[cfg(test)]
