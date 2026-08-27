@@ -1,0 +1,13 @@
+--- expect: run
+--- exit: 5
+--- spec: LR8
+function maybe(present: bool): int?
+    if present then
+        return 5
+    end
+    return nil
+end
+
+export function main(): int
+    return maybe(true) ?? 9
+end

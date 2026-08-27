@@ -1,0 +1,13 @@
+--- expect: run
+--- exit: 10
+--- spec: LR10.3
+--- spec: LR45
+export function main(): int
+    local total = 0
+    local i = 0
+    while i < 5 do
+        total = total + 2
+        i = i + 1
+    end
+    return total
+end

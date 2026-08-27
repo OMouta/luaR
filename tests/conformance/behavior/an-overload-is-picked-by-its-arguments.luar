@@ -1,0 +1,14 @@
+--- expect: run
+--- exit: 2
+--- spec: LR40
+function measure(value: string): int
+    return 1
+end
+
+function measure(value: bool): int
+    return 2
+end
+
+export function main(): int
+    return measure(true)
+end

@@ -1,0 +1,10 @@
+--- expect: run
+--- exit: 9
+--- spec: LR9.4
+function bump(value: int, by: int = 4): int
+    return value + by
+end
+
+export function main(): int
+    return bump(5)
+end

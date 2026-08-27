@@ -1,0 +1,10 @@
+--- expect: run
+--- exit: 1
+--- spec: LR11.3
+--- spec: LR11.4
+export function main(): int
+    if 1 < 2 and not (1 == 2) then
+        return 1
+    end
+    return 0
+end

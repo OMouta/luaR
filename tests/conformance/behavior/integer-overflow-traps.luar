@@ -1,0 +1,9 @@
+--- expect: run
+--- exit: 101
+--- trap: integer-overflow
+--- spec: LR4.3
+export function main(): int
+    local x: u8 = 255
+    local y: u8 = x + 1
+    return y as int
+end

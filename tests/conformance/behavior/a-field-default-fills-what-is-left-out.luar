@@ -1,0 +1,12 @@
+--- expect: run
+--- exit: 8
+--- spec: LR12.2
+struct Request
+    path: string
+    retries: int = 8
+end
+
+export function main(): int
+    local request = Request { path = "/" }
+    return request.retries
+end

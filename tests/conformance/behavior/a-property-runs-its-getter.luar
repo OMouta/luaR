@@ -1,0 +1,18 @@
+--- expect: run
+--- exit: 12
+--- spec: LR43
+struct Rect
+    width: int
+    height: int
+
+    property area: int
+        get
+            return self.width * self.height
+        end
+    end
+end
+
+export function main(): int
+    local rect = Rect { width = 3, height = 4 }
+    return rect.area
+end

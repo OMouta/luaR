@@ -1,0 +1,11 @@
+--- expect: run
+--- exit: 3
+--- spec: LR53
+--- spec: LR54
+export function main(): int
+    local value = 3
+    if true then
+        local value = 9
+    end
+    return value
+end

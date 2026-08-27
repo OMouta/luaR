@@ -1,0 +1,22 @@
+--- expect: run
+--- exit: 4
+--- spec: LR8
+--- spec: LR57
+struct User
+    id: int
+end
+
+function find(present: bool): User?
+    if present then
+        return User { id = 4 }
+    end
+    return nil
+end
+
+export function main(): int
+    local user = find(true)
+    if user ~= nil then
+        return user.id
+    end
+    return 0
+end

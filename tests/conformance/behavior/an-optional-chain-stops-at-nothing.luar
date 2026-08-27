@@ -1,0 +1,15 @@
+--- expect: run
+--- exit: 0
+--- spec: LR8
+struct Address
+    number: int
+end
+
+struct User
+    address: Address?
+end
+
+export function main(): int
+    local user = User { address = nil }
+    return user.address?.number ?? 0
+end

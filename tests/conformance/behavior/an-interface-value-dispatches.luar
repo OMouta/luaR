@@ -1,0 +1,20 @@
+--- expect: run
+--- exit: 5
+--- spec: LR18.1
+interface Sized
+    function size(self): int
+end
+
+struct Small implements Sized
+    function size(self): int
+        return 5
+    end
+end
+
+function measure(value: Sized): int
+    return value:size()
+end
+
+export function main(): int
+    return measure(Small {})
+end

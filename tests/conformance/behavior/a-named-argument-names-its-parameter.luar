@@ -1,0 +1,10 @@
+--- expect: run
+--- exit: 2
+--- spec: LR9.5
+function divide(numerator: int, denominator: int): int
+    return numerator // denominator
+end
+
+export function main(): int
+    return divide(denominator = 5, numerator = 10)
+end

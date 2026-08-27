@@ -1,0 +1,10 @@
+--- expect: run
+--- exit: 6
+--- spec: LR19
+function identity<T>(value: T): T
+    return value
+end
+
+export function main(): int
+    return identity(6)
+end

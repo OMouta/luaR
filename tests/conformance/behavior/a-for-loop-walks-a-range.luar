@@ -1,0 +1,10 @@
+--- expect: run
+--- exit: 10
+--- spec: LR10.4
+export function main(): int
+    local total = 0
+    for i in 0..<5 do
+        total = total + 2
+    end
+    return total
+end

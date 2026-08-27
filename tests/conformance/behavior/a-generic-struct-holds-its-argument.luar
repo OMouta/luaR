@@ -1,0 +1,11 @@
+--- expect: run
+--- exit: 3
+--- spec: LR19
+struct Box<T>
+    value: T
+end
+
+export function main(): int
+    local boxed = Box { value = 3 }
+    return boxed.value
+end

@@ -1,0 +1,11 @@
+--- expect: run
+--- exit: 7
+--- spec: LR9.8
+--- spec: LR9.2
+export function main(): int
+    local base = 5
+    local add = function(extra: int): int
+        return base + extra
+    end
+    return add(2)
+end

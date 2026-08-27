@@ -1,0 +1,5 @@
+--- expect: run
+--- exit: 0
+--- spec: LR45
+export function main()
+end

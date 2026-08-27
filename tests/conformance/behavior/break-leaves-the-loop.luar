@@ -1,0 +1,13 @@
+--- expect: run
+--- exit: 3
+--- spec: LR10.3
+export function main(): int
+    local count = 0
+    while true do
+        count = count + 1
+        if count == 3 then
+            break
+        end
+    end
+    return count
+end

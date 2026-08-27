@@ -1,0 +1,12 @@
+--- expect: run
+--- exit: 5
+--- spec: LR12.2
+struct Point
+    x: int
+    y: int
+end
+
+export function main(): int
+    local point = Point { x = 2, y = 3 }
+    return point.x + point.y
+end

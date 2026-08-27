@@ -1,0 +1,11 @@
+--- expect: run
+--- exit: 12
+--- spec: LR24
+--- spec: LR79
+const rows = 3
+const columns = 4
+const cells = rows * columns
+
+export function main(): int
+    return cells
+end

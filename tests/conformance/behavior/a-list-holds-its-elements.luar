@@ -1,0 +1,8 @@
+--- expect: run
+--- exit: 3
+--- spec: LR13.1
+--- spec: LR37
+export function main(): int
+    local values: List<int> = [3, 5, 7]
+    return values[0]
+end

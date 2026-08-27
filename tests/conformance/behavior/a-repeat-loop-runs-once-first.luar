@@ -1,0 +1,10 @@
+--- expect: run
+--- exit: 1
+--- spec: LR10.3
+export function main(): int
+    local count = 0
+    repeat
+        count = count + 1
+    until count >= 1
+    return count
+end

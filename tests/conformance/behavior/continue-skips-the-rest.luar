@@ -1,0 +1,15 @@
+--- expect: run
+--- exit: 4
+--- spec: LR10.3
+export function main(): int
+    local total = 0
+    local i = 0
+    while i < 4 do
+        i = i + 1
+        if i == 2 then
+            continue
+        end
+        total = total + 1
+    end
+    return total + 1
+end

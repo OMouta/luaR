@@ -1,0 +1,8 @@
+--- expect: run
+--- exit: 101
+--- trap: division-by-zero
+--- spec: LR11.1
+export function main(): int
+    local zero: int = 0
+    return 10 // zero
+end

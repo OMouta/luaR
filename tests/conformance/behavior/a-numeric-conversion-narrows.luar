@@ -1,0 +1,9 @@
+--- expect: run
+--- exit: 44
+--- spec: LR33
+--- spec: LR39
+export function main(): int
+    local wide: i64 = 300
+    local narrow: u8 = wide as u8
+    return narrow as int
+end

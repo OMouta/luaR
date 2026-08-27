@@ -1,0 +1,7 @@
+--- expect: run
+--- exit: 3
+--- spec: LR11.1
+--- spec: LR45
+export function main(): int
+    return 10 // 3
+end

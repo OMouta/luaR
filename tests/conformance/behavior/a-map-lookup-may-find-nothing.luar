@@ -1,0 +1,8 @@
+--- expect: run
+--- exit: 9
+--- spec: LR69
+export function main(): int
+    local ages: Map<string, int> = Map { ada = 36 }
+    local missing = ages["nobody"]
+    return missing ?? 9
+end
