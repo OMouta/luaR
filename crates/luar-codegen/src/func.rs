@@ -4,7 +4,8 @@ use std::collections::HashMap;
 
 use cranelift_codegen::ir::condcodes::IntCC;
 use cranelift_codegen::ir::{
-    self, AbiParam, Block, FuncRef, InstBuilder, MemFlags, Signature, TrapCode, Type, types,
+    self, AbiParam, Block, FuncRef, GlobalValue, InstBuilder, MemFlags, Signature, TrapCode, Type,
+    types,
 };
 use cranelift_frontend::{FunctionBuilder, Switch};
 use luar_lir::inst::{BinaryOp, Const, Inst, InstKind, Terminator, Trap, UnaryOp, Value};
@@ -65,6 +66,8 @@ pub(crate) struct Translator<'a, 'b> {
     pub builder: FunctionBuilder<'b>,
     pub pointer: Type,
     pub callees: HashMap<FuncId, FuncRef>,
+    /// The data object each literal text lives in, by its bytes.
+    pub texts: HashMap<Vec<u8>, GlobalValue>,
     /// The runtime handler for each trap kind, in [`TRAPS`] order.
     pub handlers: [FuncRef; TRAPS.len()],
     /// Where an aggregate's storage comes from. Nothing gives it back yet,
@@ -302,7 +305,9 @@ impl Translator<'_, '_> {
                 let scalar = i64::from(u32::from(*scalar));
                 self.builder.ins().iconst(types::I32, scalar)
             }
-            Const::Nil | Const::Float(_) | Const::Str(_) | Const::Bytes(_) => {
+            Const::Str(text) => return self.text(text.as_bytes()),
+            Const::Bytes(bytes) => return self.text(bytes),
+            Const::Nil | Const::Float(_) => {
                 self.gap("a literal that is not an integer, a boolean, or a character");
                 return None;
             }
@@ -454,6 +459,16 @@ impl Translator<'_, '_> {
         let passed: Vec<ir::Value> = args.iter().map(|arg| self.value(*arg)).collect();
         let call = self.builder.ins().call(reference, &passed);
         self.builder.inst_results(call).first().copied()
+    }
+
+    /// The address of a literal's text, which lives in the object rather than
+    /// being built at runtime (LR4.5).
+    fn text(&mut self, bytes: &[u8]) -> Option<ir::Value> {
+        let Some(&data) = self.texts.get(bytes) else {
+            self.gap("a literal the object has no text for");
+            return None;
+        };
+        Some(self.builder.ins().global_value(self.pointer, data))
     }
 
     /// Storage for an aggregate, with `parts` written into the cells after

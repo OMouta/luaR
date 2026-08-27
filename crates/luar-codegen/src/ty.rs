@@ -18,6 +18,9 @@ pub fn machine(ty: &Ty, pointer: Type) -> Option<Type> {
         Ty::Int(int) => integer(*int, pointer),
         Ty::Char => types::I32,
         Ty::Never => types::I8,
+        // A string is its length and then its bytes, reached through their
+        // address (LR4.5, LR4.7).
+        Ty::Str | Ty::Bytes => pointer,
         // An aggregate lives in storage and is reached through its address.
         _ if is_aggregate(ty) => pointer,
         _ => return None,

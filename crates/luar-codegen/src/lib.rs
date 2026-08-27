@@ -9,14 +9,15 @@ mod ty;
 use std::collections::HashMap;
 
 use cranelift_codegen::Context;
-use cranelift_codegen::ir::{AbiParam, InstBuilder, Signature, types};
+use cranelift_codegen::ir::{AbiParam, GlobalValue, InstBuilder, Signature, types};
 use cranelift_codegen::isa::CallConv;
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
-use cranelift_module::{FuncId as ModuleFuncId, Linkage, Module};
+use cranelift_module::{DataDescription, DataId, FuncId as ModuleFuncId, Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 use luar_diagnostics::Span;
-use luar_lir::program::{FuncId, Program};
+use luar_lir::inst::Const;
+use luar_lir::program::{FuncId, Function, Program};
 use luar_lir::ty::Ty;
 
 pub use crate::link::{LinkError, link};
@@ -97,9 +98,11 @@ pub fn compile(program: &Program) -> Result<Object, Error> {
         call_conv,
         declared: HashMap::new(),
         runtime,
+        texts: HashMap::new(),
         gaps: Vec::new(),
     };
     emitter.declare()?;
+    emitter.constants()?;
     emitter.define()?;
     emitter.entry()?;
 
@@ -119,6 +122,8 @@ struct Emitter<'a> {
     call_conv: CallConv,
     declared: HashMap<FuncId, ModuleFuncId>,
     runtime: Runtime,
+    /// One data object per distinct literal text, by its bytes.
+    texts: HashMap<Vec<u8>, DataId>,
     gaps: Vec<Gap>,
 }
 
@@ -157,6 +162,40 @@ impl Emitter<'_> {
         Ok(())
     }
 
+    /// Writes every string and byte-string literal into the object. Two
+    /// literals spelling the same text share one, which they can because a
+    /// string is immutable (LR4.5).
+    fn constants(&mut self) -> Result<(), Error> {
+        let mut texts = Vec::new();
+        for (_, function) in self.program.functions() {
+            for bytes in literals(function) {
+                if !texts.contains(&bytes) {
+                    texts.push(bytes);
+                }
+            }
+        }
+
+        for (index, bytes) in texts.into_iter().enumerate() {
+            let mut stored = i64::try_from(bytes.len())
+                .unwrap_or(0)
+                .to_le_bytes()
+                .to_vec();
+            stored.extend_from_slice(&bytes);
+
+            let mut description = DataDescription::new();
+            description.define(stored.into_boxed_slice());
+            let data = self
+                .module
+                .declare_data(&format!("luar_text{index}"), Linkage::Local, false, false)
+                .map_err(|error| Error::Cranelift(error.to_string()))?;
+            self.module
+                .define_data(data, &description)
+                .map_err(|error| Error::Cranelift(error.to_string()))?;
+            self.texts.insert(bytes, data);
+        }
+        Ok(())
+    }
+
     fn define(&mut self) -> Result<(), Error> {
         let mut context = Context::new();
         let mut frame = FunctionBuilderContext::new();
@@ -179,6 +218,14 @@ impl Emitter<'_> {
                 }
             }
 
+            let mut texts: HashMap<Vec<u8>, GlobalValue> = HashMap::new();
+            for bytes in literals(function) {
+                if let Some(&data) = self.texts.get(&bytes) {
+                    let value = self.module.declare_data_in_func(data, &mut context.func);
+                    texts.insert(bytes, value);
+                }
+            }
+
             let handlers = self
                 .runtime
                 .handlers_in(&mut self.module, &mut context.func);
@@ -191,6 +238,7 @@ impl Emitter<'_> {
                 builder: FunctionBuilder::new(&mut context.func, &mut frame),
                 pointer: self.pointer,
                 callees,
+                texts,
                 handlers,
                 allocate,
                 blocks: HashMap::new(),
@@ -290,6 +338,24 @@ fn exit_code_type(result: &Ty, pointer: types::Type) -> Option<types::Type> {
         Ty::Int(_) => machine(result, pointer),
         _ => None,
     }
+}
+
+/// Every string and byte-string literal a body holds.
+fn literals(function: &Function) -> Vec<Vec<u8>> {
+    let mut found = Vec::new();
+    for (_, block) in function.blocks() {
+        for inst in &block.insts {
+            let bytes = match &inst.kind {
+                luar_lir::inst::InstKind::Const(Const::Str(text)) => text.clone().into_bytes(),
+                luar_lir::inst::InstKind::Const(Const::Bytes(bytes)) => bytes.clone(),
+                _ => continue,
+            };
+            if !found.contains(&bytes) {
+                found.push(bytes);
+            }
+        }
+    }
+    found
 }
 
 /// Every function a body calls directly.

@@ -8,7 +8,7 @@
 
 use cranelift_codegen::ir::{Type, types};
 use luar_lir::program::{Program, Shape};
-use luar_lir::ty::Ty;
+use luar_lir::ty::{Builtin, Ty};
 
 /// The bytes one part of an aggregate occupies.
 pub const CELL: i32 = 8;
@@ -44,6 +44,12 @@ pub fn size(program: &Program, ty: &Ty) -> Option<i32> {
             }
             Shape::Interface(_) => return None,
         },
+        // LR25.1: `Result` is an enum the language declares for itself, with
+        // one payload whichever way it went.
+        Ty::Builtin {
+            kind: Builtin::Result,
+            ..
+        } => 2,
         Ty::Tuple(members) => u32::try_from(members.len()).ok()?,
         Ty::Record(fields) => u32::try_from(fields.len()).ok()?,
         // Whether it holds anything, and what it holds.
@@ -60,6 +66,13 @@ pub fn size(program: &Program, ty: &Ty) -> Option<i32> {
 pub fn is_aggregate(ty: &Ty) -> bool {
     matches!(
         ty,
-        Ty::Named { .. } | Ty::Tuple(_) | Ty::Record(_) | Ty::Optional(_)
+        Ty::Named { .. }
+            | Ty::Tuple(_)
+            | Ty::Record(_)
+            | Ty::Optional(_)
+            | Ty::Builtin {
+                kind: Builtin::Result,
+                ..
+            }
     )
 }
