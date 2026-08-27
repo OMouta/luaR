@@ -1,0 +1,13 @@
+--- expect: run
+--- exit: 5
+--- spec: LR31
+ref struct Counter
+    value: int
+end
+
+export function main(): int
+    local a = Counter { value = 1 }
+    local b = a
+    b.value = 5
+    return a.value
+end

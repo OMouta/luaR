@@ -1,0 +1,16 @@
+--- expect: run
+--- exit: 1
+--- spec: LR31
+struct Point
+    x: int
+end
+
+function overwrite(point: Point)
+    point.x = 5
+end
+
+export function main(): int
+    local a = Point { x = 1 }
+    overwrite(a)
+    return a.x
+end

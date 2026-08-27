@@ -1,0 +1,14 @@
+--- expect: run
+--- exit: 1
+--- spec: LR31
+--- spec: LR12
+struct Point
+    x: int
+end
+
+export function main(): int
+    local a = Point { x = 1 }
+    local b = a
+    b.x = 5
+    return a.x
+end

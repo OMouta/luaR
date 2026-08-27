@@ -205,6 +205,12 @@ pub enum InstKind {
         captures: Vec<Value>,
     },
 
+    /// A fresh copy of an aggregate, one level deep, which is what a value
+    /// struct is given when it reaches a new holder (LR31).
+    CopyValue {
+        value: Value,
+    },
+
     /// A struct or record value, its fields in declaration order (LR12).
     MakeStruct {
         ty: Ty,
@@ -323,6 +329,7 @@ impl InstKind {
             | Self::Convert { .. }
             | Self::IsType { .. }
             | Self::MakeClosure { .. }
+            | Self::CopyValue { .. }
             | Self::MakeStruct { .. }
             | Self::GetField { .. }
             | Self::MakeEnum { .. }

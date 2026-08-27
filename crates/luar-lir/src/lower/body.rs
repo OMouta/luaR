@@ -1189,7 +1189,7 @@ impl<'a> Body<'a> {
 
         match value {
             Some(value) => {
-                let held = self.expr(value, declared.as_ref());
+                let held = self.stored(value, declared.as_ref());
                 self.bind_value(binding, held, span);
             }
             None => {
@@ -1500,7 +1500,7 @@ impl<'a> Body<'a> {
         value: &Expr,
         span: Span,
     ) -> Value {
-        let right = self.expr(value, Some(wanted));
+        let right = self.stored(value, Some(wanted));
         let (Some(left), Some(op)) = (held, op) else {
             return right;
         };
@@ -1513,7 +1513,7 @@ impl<'a> Body<'a> {
     fn ret(&mut self, value: Option<&Expr>, span: Span) {
         let result = self.declared.clone();
         let value = match value {
-            Some(expr) => self.expr(expr, Some(&result)),
+            Some(expr) => self.stored(expr, Some(&result)),
             None => self.emit(InstKind::Const(Const::Unit), Ty::Unit, span),
         };
         // LR26: a `return` leaves every scope the function has open, so
@@ -1544,6 +1544,37 @@ impl<'a> Body<'a> {
     // -- expressions ------------------------------------------------------
 
     /// Lowers `expr`, and gives back the value it produces.
+    /// LR31: a struct is copied when it reaches a new holder, so a mutation
+    /// through one is not observable through another. A value just built has
+    /// no other holder, so only one read out of a place is copied.
+    fn stored(&mut self, expr: &Expr, wanted: Option<&Ty>) -> Value {
+        let value = self.expr(expr, wanted);
+        if !matches!(
+            expr.kind,
+            ExprKind::Name(_) | ExprKind::Field { .. } | ExprKind::Index { .. }
+        ) {
+            return value;
+        }
+
+        let ty = self.function.type_of(value).clone();
+        if !self.is_value_struct(&ty) {
+            return value;
+        }
+        self.emit(InstKind::CopyValue { value }, ty, expr.span)
+    }
+
+    /// Whether `ty` is a struct with value semantics. A `ref struct` is one
+    /// object every holder observes, so it is never copied (LR31).
+    fn is_value_struct(&self, ty: &Ty) -> bool {
+        let Ty::Named { id, .. } = ty else {
+            return false;
+        };
+        match &self.context.program.nominal(*id).shape {
+            Shape::Struct(structure) => !structure.reference,
+            _ => false,
+        }
+    }
+
     fn expr(&mut self, expr: &Expr, wanted: Option<&Ty>) -> Value {
         let value = self.expr_value(expr, wanted);
         match wanted {
@@ -2083,7 +2114,7 @@ impl<'a> Body<'a> {
                     Some(slot).filter(|slot| *slot < wanted.len())
                 }
             };
-            let value = self.expr(&argument.value, slot.map(|slot| &wanted[slot]));
+            let value = self.stored(&argument.value, slot.map(|slot| &wanted[slot]));
             if let Some(slot) = slot {
                 filled[slot] = Some(value);
             }
@@ -2096,7 +2127,7 @@ impl<'a> Body<'a> {
             let Some(default) = default else {
                 return self.missing(span, "a call with no argument for a parameter");
             };
-            filled[slot] = Some(self.expr(default, Some(&wanted[slot])));
+            filled[slot] = Some(self.stored(default, Some(&wanted[slot])));
         }
 
         let mut passed: Vec<Value> = Vec::with_capacity(filled.len() + 1);
@@ -2231,7 +2262,7 @@ impl<'a> Body<'a> {
         let mut filled: Vec<Option<Value>> = vec![None; declared.len()];
         for init in fields {
             let slot = declared.iter().position(|(name, _)| *name == init.name);
-            let value = self.expr(&init.value, slot.map(|slot| &declared[slot].1));
+            let value = self.stored(&init.value, slot.map(|slot| &declared[slot].1));
             if let Some(slot) = slot {
                 filled[slot] = Some(value);
             }
@@ -2249,7 +2280,7 @@ impl<'a> Body<'a> {
             };
 
             filled[slot] = Some(match default {
-                Some(default) => self.expr(&default, Some(held)),
+                Some(default) => self.stored(&default, Some(held)),
                 // LR12.1: a field a record leaves out is one nothing was given
                 // for, which only an optional field may be.
                 None if held.is_optional() => {
@@ -2377,7 +2408,7 @@ impl<'a> Body<'a> {
         let payload = args
             .iter()
             .zip(&carried)
-            .map(|(argument, held)| self.expr(&argument.value, Some(held)))
+            .map(|(argument, held)| self.stored(&argument.value, Some(held)))
             .collect();
 
         self.emit(
@@ -2503,7 +2534,7 @@ impl<'a> Body<'a> {
         let passed = args
             .iter()
             .zip(&params)
-            .map(|(argument, ty)| self.expr(&argument.value, Some(ty)))
+            .map(|(argument, ty)| self.stored(&argument.value, Some(ty)))
             .collect();
         // LR9.3: what a call through a function value gives back is what the
         // function type says, which is more than the checker settles today.
@@ -2792,7 +2823,7 @@ impl<'a> Body<'a> {
 
         let passed: Vec<Value> = args
             .iter()
-            .map(|argument| self.expr(&argument.value, None))
+            .map(|argument| self.stored(&argument.value, None))
             .collect();
         let result = self.recorded(span);
         self.emit(

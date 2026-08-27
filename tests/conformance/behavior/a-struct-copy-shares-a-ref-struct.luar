@@ -1,0 +1,17 @@
+--- expect: run
+--- exit: 7
+--- spec: LR31
+ref struct Counter
+    value: int
+end
+
+struct Holder
+    counter: Counter
+end
+
+export function main(): int
+    local holder = Holder { counter = Counter { value = 1 } }
+    local copy = holder
+    copy.counter.value = 7
+    return holder.counter.value
+end

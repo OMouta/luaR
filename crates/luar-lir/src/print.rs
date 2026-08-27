@@ -198,6 +198,7 @@ fn instruction(inst: &Inst, function: &Function) -> String {
         InstKind::MakeClosure { func, captures } => {
             format!("closure func{}[{}]", func.0, list(captures))
         }
+        InstKind::CopyValue { value } => format!("copy {}", name(*value)),
         InstKind::MakeStruct { ty, fields } => format!("struct {ty} {{ {} }}", list(fields)),
         InstKind::GetField { object, field } => format!("field {}.{field}", name(*object)),
         InstKind::SetField {

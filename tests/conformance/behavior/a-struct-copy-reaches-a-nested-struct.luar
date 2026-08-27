@@ -1,0 +1,18 @@
+--- expect: run
+--- exit: 19
+--- spec: LR31
+struct Counter
+    value: int
+end
+
+struct Pair
+    left: Counter
+    right: Counter
+end
+
+export function main(): int
+    local pair = Pair { left = Counter { value = 9 }, right = Counter { value = 1 } }
+    local copy = pair
+    copy.right.value = 7
+    return pair.right.value * 10 + copy.left.value
+end

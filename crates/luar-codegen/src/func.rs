@@ -207,6 +207,11 @@ impl Translator<'_, '_> {
                 args,
             } => self.call(*callee, type_args, args),
 
+            InstKind::CopyValue { value } => {
+                let ty = self.function.type_of(*value).clone();
+                let source = self.value(*value);
+                self.duplicate(source, &ty, layout::DEPTH)
+            }
             InstKind::MakeStruct { ty, fields } => self.make(ty, 0, fields),
             InstKind::MakeTuple(members) => {
                 let ty = inst
@@ -520,6 +525,47 @@ impl Translator<'_, '_> {
             return None;
         };
         Some(self.builder.ins().global_value(self.pointer, data))
+    }
+
+    /// LR31: fresh storage holding what `source` holds. A cell holding a
+    /// value struct is copied too, because mutating one through a shared
+    /// holder would be observable through the other. A cell holding a
+    /// reference keeps referring to the same object.
+    fn duplicate(&mut self, source: ir::Value, ty: &Ty, depth: u32) -> Option<ir::Value> {
+        let Some(size) = layout::size(self.program, ty) else {
+            self.gap(format!("a copy of a value of type `{ty}`"));
+            return None;
+        };
+        if depth == 0 {
+            self.gap(format!("a copy of a value nested as deeply as `{ty}`"));
+            return None;
+        }
+
+        // An enum or an optional holds whichever part its tag says, so which
+        // cells to copy is not known here.
+        let parts = layout::parts(self.program, ty);
+        if parts.is_none() && layout::holds_value_parts(self.program, ty, layout::DEPTH) {
+            self.gap(format!("a copy of a value of type `{ty}`"));
+            return None;
+        }
+        let parts = parts.unwrap_or_default();
+
+        let copy = self.allocate(ty)?;
+        for (index, cell) in (0..size).step_by(layout::CELL as usize).enumerate() {
+            let held = self.builder.ins().load(TAG_TYPE, OWNED, source, cell);
+            let part = parts
+                .get(index)
+                .filter(|part| layout::holds_value_parts(self.program, part, layout::DEPTH));
+            let written = match part {
+                Some(part) => match self.duplicate(held, &part.clone(), depth - 1) {
+                    Some(copied) => copied,
+                    None => held,
+                },
+                None => held,
+            };
+            self.builder.ins().store(OWNED, written, copy, cell);
+        }
+        Some(copy)
     }
 
     /// Storage for an aggregate, with `parts` written into the cells after

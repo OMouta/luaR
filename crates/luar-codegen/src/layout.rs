@@ -61,6 +61,71 @@ pub fn size(program: &Program, ty: &Ty) -> Option<i32> {
     Some(offset(cells).max(CELL))
 }
 
+/// The type of each cell of an aggregate whose parts are known without
+/// reading it: a struct, a tuple, or a record. An enum holds whichever
+/// variant its tag says, so it is not one of these.
+#[must_use]
+pub fn parts(program: &Program, ty: &Ty) -> Option<Vec<Ty>> {
+    match ty {
+        Ty::Named { id, args } => {
+            let nominal = program.nominal(*id);
+            let Shape::Struct(structure) = &nominal.shape else {
+                return None;
+            };
+            Some(
+                structure
+                    .fields
+                    .iter()
+                    .map(|field| field.ty.substitute(&nominal.type_params, args))
+                    .collect(),
+            )
+        }
+        Ty::Tuple(members) => Some(members.clone()),
+        Ty::Record(fields) => Some(fields.iter().map(|(_, ty)| ty.clone()).collect()),
+        _ => None,
+    }
+}
+
+/// Whether copying a value of `ty` has to copy what it holds rather than
+/// share it. A value struct anywhere inside makes it so, because mutating one
+/// through a shared holder is observable through the other (LR31).
+///
+/// A value struct cannot hold itself, so the walk ends. `depth` stops it
+/// anyway rather than trusting that.
+#[must_use]
+pub fn holds_value_parts(program: &Program, ty: &Ty, depth: u32) -> bool {
+    if depth == 0 {
+        return true;
+    }
+    let inside: Vec<Ty> = match ty {
+        Ty::Named { id, args } => {
+            let nominal = program.nominal(*id);
+            match &nominal.shape {
+                Shape::Struct(structure) if structure.reference => return false,
+                Shape::Struct(_) => return true,
+                Shape::Enum(enumeration) => enumeration
+                    .variants
+                    .iter()
+                    .flat_map(|variant| &variant.fields)
+                    .map(|field| field.ty.substitute(&nominal.type_params, args))
+                    .collect(),
+                Shape::Interface(_) => return false,
+            }
+        }
+        Ty::Tuple(members) => members.clone(),
+        Ty::Record(fields) => fields.iter().map(|(_, ty)| ty.clone()).collect(),
+        Ty::Optional(held) => vec![held.as_ref().clone()],
+        Ty::Builtin { args, .. } => args.clone(),
+        _ => return false,
+    };
+    inside
+        .iter()
+        .any(|part| holds_value_parts(program, part, depth - 1))
+}
+
+/// How far the walk over what a value holds goes before it gives up.
+pub const DEPTH: u32 = 32;
+
 /// Whether values of `ty` live in storage reached through a pointer.
 #[must_use]
 pub fn is_aggregate(ty: &Ty) -> bool {
