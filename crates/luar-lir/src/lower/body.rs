@@ -14,7 +14,8 @@ use std::collections::HashMap;
 
 use luar_ast::{
     Argument, ArmBody, BinaryOp as AstBinary, Binding, Block, Branch, Expr, ExprKind, FieldInit,
-    FieldPattern, MatchArm, Pattern, PatternKind, Payload, Stmt, StmtKind, UnaryOp as AstUnary,
+    FieldPattern, MapEntry, MapKey, MatchArm, Pattern, PatternKind, Payload, Stmt, StmtKind,
+    UnaryOp as AstUnary,
 };
 use luar_diagnostics::Span;
 use luar_sema::facts::Facts;
@@ -26,7 +27,7 @@ use crate::inst::{BinaryOp, Const, Inst, InstKind, Target, Terminator, Trap, Una
 use crate::lower::types::{self, Ids};
 use crate::lower::{Callee, Gap};
 use crate::program::{BlockId, Function, Program, Shape};
-use crate::ty::{Ty, TypeId};
+use crate::ty::{Builtin, IntTy, Ty, TypeId};
 
 /// A binding, told apart from every other one with its name (LR53).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1137,6 +1138,13 @@ impl<'a> Body<'a> {
             } => self.call(callee, method.as_deref(), args, span),
 
             ExprKind::Record { path, fields } => self.record(path, fields, wanted, span),
+            ExprKind::List(values) => self.list(values, wanted, span),
+            ExprKind::Map(entries) => self.map(entries, wanted, span),
+            ExprKind::Index {
+                receiver,
+                index,
+                optional,
+            } => self.index(receiver, index, *optional, span),
             ExprKind::Field {
                 receiver,
                 name,
@@ -1553,6 +1561,108 @@ impl<'a> Body<'a> {
             ty,
             span,
         )
+    }
+
+    /// LR13.1, LR71: `[a, b]` fills a list or a fixed-size array, and which
+    /// one it fills is what context asked for.
+    fn list(&mut self, values: &[Expr], wanted: Option<&Ty>, span: Span) -> Value {
+        let ty = self.settled_type(wanted, span);
+        let element = match &ty {
+            Ty::Builtin { args, .. } => args.first().cloned(),
+            Ty::Array(element) => Some((**element).clone()),
+            _ => None,
+        };
+        let Some(element) = element else {
+            return self.missing(span, "a sequence literal whose elements have no type");
+        };
+
+        let values = values
+            .iter()
+            .map(|value| self.expr(value, Some(&element)))
+            .collect();
+        self.emit(InstKind::MakeList { element, values }, ty, span)
+    }
+
+    /// LR13.2: `Map { ... }` builds a map, by name or by computed key.
+    fn map(&mut self, entries: &[MapEntry], wanted: Option<&Ty>, span: Span) -> Value {
+        let ty = self.settled_type(wanted, span);
+        let Ty::Builtin { args, .. } = &ty else {
+            return self.missing(span, "a map literal whose entries have no type");
+        };
+        let (Some(key), Some(value)) = (args.first().cloned(), args.get(1).cloned()) else {
+            return self.missing(span, "a map literal whose entries have no type");
+        };
+
+        let mut built = Vec::with_capacity(entries.len());
+        for entry in entries {
+            // LR55: an entry's key is written before its value, so it is
+            // evaluated first.
+            let held = match &entry.key {
+                MapKey::Name(name) => {
+                    self.emit(InstKind::Const(Const::Str(name.clone())), key.clone(), span)
+                }
+                MapKey::Computed(computed) => self.expr(computed, Some(&key)),
+            };
+            built.push((held, self.expr(&entry.value, Some(&value))));
+        }
+
+        self.emit(
+            InstKind::MakeMap {
+                key,
+                value,
+                entries: built,
+            },
+            ty,
+            span,
+        )
+    }
+
+    /// LR37: `x[i]` reads what the container holds at `i`. LR69: a map hands
+    /// back an optional, because a key it does not hold is not a mistake.
+    fn index(&mut self, receiver: &Expr, index: &Expr, optional: bool, span: Span) -> Value {
+        if optional {
+            return self.missing(span, "an optional index");
+        }
+
+        // LR55: the container is written before the index, so it is
+        // evaluated first.
+        let container = self.expr(receiver, None);
+        let container = self.settled(container, span);
+        let held = self.function.type_of(container).clone();
+        let Ty::Builtin { args, .. } = &held else {
+            return self.missing(span, "indexing something the compiler cannot index");
+        };
+        let key = args.first().cloned();
+
+        // LR37: a list and an array are keyed by position, and only a map
+        // states what it is keyed by.
+        let wanted = match &held {
+            Ty::Builtin {
+                kind: Builtin::Map | Builtin::FrozenMap,
+                ..
+            } => key,
+            _ => Some(Ty::Int(IntTy::Usize)),
+        };
+
+        let index = self.expr(index, wanted.as_ref());
+        let result = self.recorded(span);
+        self.emit(
+            InstKind::GetIndex {
+                receiver: container,
+                index,
+            },
+            result,
+            span,
+        )
+    }
+
+    /// The type context asked for, or the one the checker settled on where
+    /// nothing did.
+    fn settled_type(&mut self, wanted: Option<&Ty>, span: Span) -> Ty {
+        match wanted {
+            Some(wanted) => wanted.clone(),
+            None => self.recorded(span),
+        }
     }
 
     /// LR15.3: building an enum value whose variant carries named fields.
