@@ -567,6 +567,8 @@ end
 
 Default expressions are evaluated at the call site when the argument is omitted.
 
+They run after the arguments the call writes, in the order their parameters are declared.
+
 ### 9.5 Named Arguments
 
 Any parameter may be passed by name using its declared name and `=`.
