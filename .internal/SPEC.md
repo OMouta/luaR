@@ -4104,7 +4104,7 @@ The rule cannot take a comparison away from a program that has one. `a < b > (c)
 These parser rules are normative even though the grammar sketch above is illustrative.
 
 - A position that requires an expression, type, pattern, or declaration rejects a token sequence that cannot begin one.
-- Every opening `(`, `[`, and `{` is closed by the matching delimiter before its containing construct ends.
+- Every opening `(`, `[`, and `{` is closed by the matching delimiter before its containing construct ends. A block-opening keyword or directive is closed by its required `end`, `until`, or `#end`.
 - An assignment target is a name, field access, or index expression.
 - A syntax diagnostic points at the token that cannot satisfy the required construct. An unclosed-delimiter diagnostic points at its opening delimiter.
 
