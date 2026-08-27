@@ -2685,7 +2685,7 @@ impl Checker<'_> {
         }
 
         let Some((held, operand_span)) = operand else {
-            return candidates[0].result.clone();
+            return self.resolved(&candidates[0], span);
         };
 
         let fitting: Vec<&Signature> = candidates
@@ -2694,7 +2694,7 @@ impl Checker<'_> {
             .collect();
 
         match fitting.as_slice() {
-            [only] => only.result.clone(),
+            [only] => self.resolved(only, span),
             [] => {
                 if !matches!(held, Type::Unresolved) {
                     let wanted = candidates[0].params[0].ty.clone();
@@ -2714,6 +2714,14 @@ impl Checker<'_> {
                 Type::Unresolved
             }
         }
+    }
+
+    /// What an operator produces, written down at the operator's own span so
+    /// that lowering reaches the same method the checker did (LR36, LR55).
+    fn resolved(&mut self, signature: &Signature, span: Span) -> Type {
+        self.facts.record_call(span, signature.span);
+        self.facts.record_type(span, signature.result.clone());
+        signature.result.clone()
     }
 
     /// Whether a decorator that has not run could still add members (LR23.1).
@@ -2992,16 +3000,9 @@ impl Checker<'_> {
             | BinaryOp::LessEqual
             | BinaryOp::Greater
             | BinaryOp::GreaterEqual => {
-                if !compared_builtin(&held_left, &held_right) {
-                    let (spelling, protocol, method) = match op {
-                        BinaryOp::Equal => ("==", "Eq", "eq"),
-                        BinaryOp::NotEqual => ("~=", "Eq", "eq"),
-                        BinaryOp::Less => ("<", "Comparable", "compare"),
-                        BinaryOp::LessEqual => ("<=", "Comparable", "compare"),
-                        BinaryOp::Greater => (">", "Comparable", "compare"),
-                        _ => (">=", "Comparable", "compare"),
-                    };
-
+                if !compared_builtin(&held_left, &held_right)
+                    && let Some((spelling, protocol, method)) = protocol_of(op)
+                {
                     let produced = self.overloaded(
                         spelling,
                         protocol,
@@ -3547,8 +3548,14 @@ fn bitwise(op: BinaryOp) -> bool {
 
 /// The protocol an overloadable operator names, and the method it calls
 /// (LR36). The operators the spec leaves built in have none.
-fn protocol_of(op: BinaryOp) -> Option<(&'static str, &'static str, &'static str)> {
+pub fn protocol_of(op: BinaryOp) -> Option<(&'static str, &'static str, &'static str)> {
     let named = match op {
+        BinaryOp::Equal => ("==", "Eq", "eq"),
+        BinaryOp::NotEqual => ("~=", "Eq", "eq"),
+        BinaryOp::Less => ("<", "Comparable", "compare"),
+        BinaryOp::LessEqual => ("<=", "Comparable", "compare"),
+        BinaryOp::Greater => (">", "Comparable", "compare"),
+        BinaryOp::GreaterEqual => (">=", "Comparable", "compare"),
         BinaryOp::Add => ("+", "Add", "add"),
         BinaryOp::Subtract => ("-", "Sub", "sub"),
         BinaryOp::Multiply => ("*", "Mul", "mul"),
