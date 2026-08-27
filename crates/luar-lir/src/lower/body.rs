@@ -1438,6 +1438,8 @@ impl<'a> Body<'a> {
                 self.emit(InstKind::MakeTuple(values), Ty::Tuple(types), span)
             }
 
+            ExprKind::Try(inner) => self.propagate(inner, span),
+
             ExprKind::Cast { value, .. } => {
                 // LR33: `as` converts between numeric types, and the type it
                 // converts to is the type of the whole expression.
@@ -1467,6 +1469,137 @@ impl<'a> Body<'a> {
             Some(wanted) => wanted.clone(),
             None => self.recorded(span),
         }
+    }
+
+    fn propagate(&mut self, inner: &Expr, span: Span) -> Value {
+        let result = self.expr(inner, None);
+        let Ty::Builtin {
+            kind: Builtin::Result,
+            args,
+        } = self.function.type_of(result).clone()
+        else {
+            return self.missing(span, "`?` on a value that is not a `Result`");
+        };
+        let (Some(value_ty), Some(error_ty)) = (args.first().cloned(), args.get(1).cloned()) else {
+            return self.missing(span, "a `Result` without both type arguments");
+        };
+
+        let returned = self.function.result.clone();
+        let Ty::Builtin {
+            kind: Builtin::Result,
+            args: returned_args,
+        } = &returned
+        else {
+            return self.missing(span, "`?` in a function that does not return `Result`");
+        };
+        let Some(returned_error) = returned_args.get(1).cloned() else {
+            return self.missing(span, "a returned `Result` without an error type");
+        };
+
+        let failed = self.function.add_block();
+        let succeeded = self.function.add_block();
+        let tag = self.emit(InstKind::GetTag { value: result }, Ty::INT, span);
+        let err = self.emit(InstKind::Const(Const::Int(1)), Ty::INT, span);
+        let is_err = self.emit(
+            InstKind::Binary {
+                op: BinaryOp::Equal,
+                left: tag,
+                right: err,
+            },
+            Ty::Bool,
+            span,
+        );
+        self.terminate(Terminator::Branch {
+            condition: is_err,
+            then: Target::to(failed),
+            otherwise: Target::to(succeeded),
+        });
+
+        self.switch_to(failed);
+        let error = self.emit(
+            InstKind::GetPayload {
+                value: result,
+                variant: 1,
+                field: 0,
+            },
+            error_ty,
+            span,
+        );
+        let error = self.propagated_error(error, &returned_error, span);
+        let returned = self.emit(
+            InstKind::MakeEnum {
+                ty: returned.clone(),
+                variant: 1,
+                payload: vec![error],
+            },
+            returned,
+            span,
+        );
+        self.unwind_from(0);
+        self.terminate(Terminator::Return(returned));
+
+        self.switch_to(succeeded);
+        self.emit(
+            InstKind::GetPayload {
+                value: result,
+                variant: 0,
+                field: 0,
+            },
+            value_ty,
+            span,
+        )
+    }
+
+    fn propagated_error(&mut self, error: Value, wanted: &Ty, span: Span) -> Value {
+        if self.function.type_of(error) == wanted {
+            return error;
+        }
+
+        let Some(declaration) = self.context.facts.call(span) else {
+            return self.missing(
+                span,
+                "a propagated error conversion the checker did not resolve",
+            );
+        };
+        if let Some(method) = self.context.virtuals.get(&declaration).copied() {
+            return self.emit(
+                InstKind::CallVirtual {
+                    method,
+                    receiver: error,
+                    args: Vec::new(),
+                },
+                wanted.clone(),
+                span,
+            );
+        }
+
+        let Some(reached) = self.context.callees.get(&declaration) else {
+            return self.missing(span, "a propagated error conversion with no body");
+        };
+        if !reached.takes_self || !reached.params.is_empty() {
+            return self.missing(span, "an invalid propagated error conversion");
+        }
+        let type_args = if reached.type_params.is_empty() {
+            Vec::new()
+        } else {
+            let Some(type_args) = self.type_args(span, reached.type_params.len()) else {
+                return self.missing(
+                    span,
+                    "a propagated error conversion with unknown type arguments",
+                );
+            };
+            type_args
+        };
+
+        self.emit(
+            InstKind::Call {
+                callee: reached.id,
+                type_args,
+                args: vec![error],
+            },
+            wanted.clone(),
+            span,
+        )
     }
 
     fn binary(
@@ -1594,6 +1727,32 @@ impl<'a> Body<'a> {
         args: &[Argument],
         span: Span,
     ) -> Value {
+        if let ExprKind::Field {
+            receiver,
+            name: variant,
+            ..
+        } = &callee.kind
+            && let ExprKind::Name(written) = &receiver.kind
+            && written == "Result"
+            && self.lookup(written).is_none()
+            && let Some(tag) = match variant.as_str() {
+                "Ok" => Some(0),
+                "Err" => Some(1),
+                _ => None,
+            }
+        {
+            let ty = self.recorded(span);
+            if matches!(
+                ty,
+                Ty::Builtin {
+                    kind: Builtin::Result,
+                    ..
+                }
+            ) {
+                return self.construct(ty, tag, args, span);
+            }
+        }
+
         // LR15.3: a variant with a payload is written like a call and builds a
         // value, so it reaches no function and the checker recorded none.
         if let ExprKind::Field {
@@ -2211,6 +2370,14 @@ impl<'a> Body<'a> {
     /// What a variant carries, in the order the enum declares it (LR15.2),
     /// with the arguments the type carries where its parameters were (LR19).
     fn payload_of(&self, ty: &Ty, variant: u32) -> Option<Vec<Ty>> {
+        if let Ty::Builtin {
+            kind: Builtin::Result,
+            args,
+        } = ty
+        {
+            return args.get(variant as usize).cloned().map(|ty| vec![ty]);
+        }
+
         let Ty::Named { id, args } = ty else {
             return None;
         };

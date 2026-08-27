@@ -1,0 +1,23 @@
+--- expect: run
+--- exit: 1
+--- spec: LR25.2
+--- spec: LR26
+ref struct Counter
+    value: int
+
+    function bump(self)
+        self.value += 1
+    end
+end
+
+function propagate(result: Result<int, string>, counter: Counter): Result<int, string>
+    defer counter:bump()
+    local value = result?
+    return Result.Ok<int, string>(value)
+end
+
+export function main(): int
+    local counter = Counter { value = 0 }
+    propagate(Result.Err<int, string>("failed"), counter)
+    return counter.value
+end

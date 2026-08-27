@@ -1,0 +1,14 @@
+--- expect: run
+--- exit: 0
+--- spec: LR25.1
+--- spec: LR25.2
+function increment(result: Result<int, string>): Result<int, string>
+    local value = result?
+    return Result.Ok<int, string>(value + 1)
+end
+
+export function main(): int
+    increment(Result.Ok<int, string>(1))
+    increment(Result.Err<int, string>("failed"))
+    return 0
+end
