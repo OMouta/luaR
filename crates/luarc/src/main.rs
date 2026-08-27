@@ -1,6 +1,7 @@
 //! The LuaR compiler command line.
 
 mod check;
+mod lir;
 mod test;
 
 use std::process::ExitCode;
@@ -13,6 +14,7 @@ usage:
   luarc test [filter]       run the conformance suite, or the tests matching
   luarc coverage            report which spec sections have no test
   luarc run <file>          run a program
+  luarc lir <file>          print what a program lowers to
 
 Paths are relative to the working directory.
 ";
@@ -32,6 +34,7 @@ fn main() -> ExitCode {
         "test" => test::run(rest.first().map(String::as_str)),
         "coverage" => test::coverage(),
         "run" => run(rest),
+        "lir" => lir::run(rest),
         "help" | "--help" | "-h" => {
             print!("{USAGE}");
             ExitCode::SUCCESS

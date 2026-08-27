@@ -11,6 +11,7 @@ repository.workspace = true
 luar-diagnostics = { workspace = true }
 luar-conformance = { workspace = true }
 luar-driver = { workspace = true }
+luar-lir = { workspace = true }
 
 [lints]
 workspace = true

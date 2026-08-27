@@ -3,6 +3,7 @@
 mod graph;
 
 use luar_diagnostics::{Diagnostic, FileId, SourceMap};
+use luar_lir::lower::Lowered;
 
 /// What checking a module produced.
 #[derive(Debug)]
@@ -31,6 +32,36 @@ pub enum Check {
 /// root's.
 #[must_use]
 pub fn check(sources: &mut SourceMap, root: FileId) -> Check {
+    Check::Ran(frontend(sources, root).diagnostics)
+}
+
+/// Checks `root` and lowers what was accepted to LIR.
+///
+/// A program with diagnostics is not lowered: lowering assumes the checker
+/// already accepted what it walks, and running it over a rejected program
+/// would report the same mistake a second time in worse words.
+pub fn lower(sources: &mut SourceMap, root: FileId) -> Result<Lowered, Vec<Diagnostic>> {
+    let checked = frontend(sources, root);
+    if checked.diagnostics.iter().any(Diagnostic::is_error) {
+        return Err(checked.diagnostics);
+    }
+    Ok(luar_lir::lower::lower(
+        &checked.graph,
+        &checked.table,
+        &checked.facts,
+    ))
+}
+
+/// What the frontend produced: everything a later stage reads, and what it
+/// reported.
+struct Frontend {
+    graph: luar_sema::modules::Graph,
+    table: luar_sema::table::Table,
+    facts: luar_sema::facts::Facts,
+    diagnostics: Vec<Diagnostic>,
+}
+
+fn frontend(sources: &mut SourceMap, root: FileId) -> Frontend {
     let (graph, mut diagnostics) = graph::build(sources, root);
     let (names, reported) = luar_sema::names::resolve(&graph);
     diagnostics.extend(reported);
@@ -44,7 +75,13 @@ pub fn check(sources: &mut SourceMap, root: FileId) -> Check {
     // LR7: a function that writes no result gets one worked out before
     // anything is reported, because the calls to it read what it gives back.
     luar_sema::check::infer_results(&graph, &names, &mut table);
-    let (_facts, reported) = luar_sema::check::check(&graph, &names, &table);
+    let (facts, reported) = luar_sema::check::check(&graph, &names, &table);
     diagnostics.extend(reported);
-    Check::Ran(diagnostics)
+
+    Frontend {
+        graph,
+        table,
+        facts,
+        diagnostics,
+    }
 }

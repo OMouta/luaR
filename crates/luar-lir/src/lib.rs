@@ -18,6 +18,7 @@
 
 pub mod inst;
 pub mod lower;
+pub mod print;
 pub mod program;
 pub mod ty;
 
