@@ -1,0 +1,21 @@
+--- expect: run
+--- exit: 101
+--- trap: integer-overflow
+--- spec: LR26
+--- spec: LR10.6
+struct Counter
+    value: u8
+
+    function bump(self): u8
+        return self.value + 1
+    end
+end
+
+export function main(): int
+    local counter = Counter { value = 255 }
+    while true do
+        defer counter:bump()
+        break
+    end
+    return 0
+end
