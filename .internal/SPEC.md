@@ -840,7 +840,7 @@ Both operands must already be `string`. There is no implicit stringification; us
 >=
 ```
 
-Comparison is built in for the primitive types (LR6) and for `string`. Every other type compares through the `Eq` and `Comparable` protocols (LR36).
+Comparison is built in for the primitive types (LR6). Every other type compares through the `Eq` and `Comparable` protocols (LR36).
 
 ### 11.4 Logical Operators
 
