@@ -276,6 +276,14 @@ fn instruction(inst: &Inst, function: &Function) -> String {
             let qualifier = if *mutable { "mut " } else { "" };
             format!("address {qualifier}slot{}", slot.0)
         }
+        InstKind::FieldAddress {
+            mutable,
+            object,
+            field,
+        } => {
+            let qualifier = if *mutable { "mut " } else { "" };
+            format!("address {qualifier}{}.{field}", name(*object))
+        }
         InstKind::Load { pointer } => format!("load {}", name(*pointer)),
         InstKind::Store { pointer, value } => {
             format!("store {} = {}", name(*pointer), name(*value))

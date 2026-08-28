@@ -1,0 +1,19 @@
+--- expect: run
+--- exit: 9
+--- spec: LR29.2
+--- spec: LR72
+--- spec: LR73
+@repr("C")
+struct Pair
+    first: i64
+    second: i64
+end
+
+export function main(): int
+    local pair = Pair { first = 1, second = 2 }
+    unsafe
+        local pointer = &mut pair.second
+        pointer:write(9)
+    end
+    return pair.second
+end

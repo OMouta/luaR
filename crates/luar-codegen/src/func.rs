@@ -338,6 +338,24 @@ impl Translator<'_, '_> {
                 }
                 None
             }
+            InstKind::FieldAddress { object, field, .. } => {
+                let held = self.function.type_of(*object).clone();
+                let target = inst
+                    .result
+                    .map(|result| self.function.type_of(result).clone());
+                match target {
+                    Some(Ty::Pointer { target, .. }) if layout::is_aggregate(&target) => {
+                        self.gap("an address of an aggregate field");
+                        None
+                    }
+                    _ => layout::field_offset(self.program, &held, *field, self.pointer).map(
+                        |offset| {
+                            let address = self.value(*object);
+                            self.builder.ins().iadd_imm(address, i64::from(offset))
+                        },
+                    ),
+                }
+            }
             InstKind::Load { pointer } => match inst.result {
                 Some(result) if layout::is_aggregate(self.function.type_of(result)) => {
                     self.gap("a read of an aggregate through a pointer");

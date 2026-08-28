@@ -1752,26 +1752,49 @@ impl<'a> Body<'a> {
 
             // LR72: a binding whose address is taken lives in a slot, and
             // `&x` is that slot's address.
-            ExprKind::AddressOf { mutable, operand } => {
-                let ExprKind::Name(name) = &operand.kind else {
-                    return self.missing(span, "an address of a field or an element");
-                };
-                let slot = self
-                    .lookup(name)
-                    .and_then(|var| self.slots.get(&var).copied());
-                let Some(slot) = slot else {
-                    return self.missing(span, "an address of a binding a pattern bound");
-                };
-                let ty = self.recorded(span);
-                self.emit(
-                    InstKind::AddressOf {
-                        mutable: *mutable,
-                        slot,
-                    },
-                    ty,
-                    span,
-                )
-            }
+            ExprKind::AddressOf { mutable, operand } => match &operand.kind {
+                ExprKind::Name(name) => {
+                    let slot = self
+                        .lookup(name)
+                        .and_then(|var| self.slots.get(&var).copied());
+                    let Some(slot) = slot else {
+                        return self.missing(span, "an address of a binding a pattern bound");
+                    };
+                    let ty = self.recorded(span);
+                    self.emit(
+                        InstKind::AddressOf {
+                            mutable: *mutable,
+                            slot,
+                        },
+                        ty,
+                        span,
+                    )
+                }
+                ExprKind::Field {
+                    receiver,
+                    name,
+                    optional: false,
+                } => {
+                    let object = self.expr(receiver, None);
+                    let object = self.settled(object, operand.span);
+                    let held = self.function.type_of(object).clone();
+                    let Some(field) = self.field_index(&held, name) else {
+                        return self
+                            .missing(span, "an address of a member that is not a stored field");
+                    };
+                    let ty = self.recorded(span);
+                    self.emit(
+                        InstKind::FieldAddress {
+                            mutable: *mutable,
+                            object,
+                            field,
+                        },
+                        ty,
+                        span,
+                    )
+                }
+                _ => self.missing(span, "an address of an element"),
+            },
 
             ExprKind::Error => self.missing(span, "an expression that did not parse"),
 

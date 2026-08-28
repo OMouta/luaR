@@ -320,6 +320,13 @@ pub enum InstKind {
         mutable: bool,
         slot: SlotId,
     },
+    /// The address of stored field `field` of the aggregate `object` points
+    /// at, which `&x.f` and `&mut x.f` take (LR72).
+    FieldAddress {
+        mutable: bool,
+        object: Value,
+        field: u32,
+    },
     /// Reading and writing through a pointer, both of which need `unsafe`
     /// (LR29.2, LR72).
     Load {
@@ -370,7 +377,8 @@ impl InstKind {
             | Self::Unwrap { .. }
             | Self::MakeDyn { .. }
             | Self::DynValue { .. }
-            | Self::AddressOf { .. } => Effect::None,
+            | Self::AddressOf { .. }
+            | Self::FieldAddress { .. } => Effect::None,
 
             Self::Binary { op, .. } => {
                 if op.can_trap() {
