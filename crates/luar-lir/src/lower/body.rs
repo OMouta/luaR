@@ -450,6 +450,12 @@ impl<'a> Body<'a> {
             StmtKind::Repeat { label, body, until } => {
                 self.repeat_stmt(label.as_deref(), body, until)
             }
+            StmtKind::For {
+                label,
+                bindings,
+                iterable,
+                body,
+            } => self.for_stmt(label.as_deref(), bindings, iterable, body, stmt.span),
             StmtKind::Break(label) => self.leave(label.as_deref(), Exit::Break, stmt.span),
             StmtKind::Continue(label) => self.leave(label.as_deref(), Exit::Continue, stmt.span),
             StmtKind::Match { scrutinee, arms } => self.match_stmt(scrutinee, arms),
@@ -558,6 +564,118 @@ impl<'a> Body<'a> {
             self.jump_to(header, &carried);
         }
         self.loops.pop();
+
+        self.switch_to(exit);
+        self.defs = entering;
+        self.bind_params(exit, &carried);
+    }
+
+    /// LR10.4: a `for` over a range written in place counts from its lower
+    /// bound up to its upper one, and runs zero times where the lower bound
+    /// is the greater. Anything else iterates through the protocol (LR35).
+    fn for_stmt(
+        &mut self,
+        label: Option<&str>,
+        bindings: &[Binding],
+        iterable: &Expr,
+        body: &Block,
+        span: Span,
+    ) {
+        let (
+            ExprKind::Range {
+                start: Some(start),
+                end: Some(end),
+                inclusive,
+            },
+            [Binding::Name(name)],
+        ) = (&iterable.kind, bindings)
+        else {
+            self.gap(
+                span,
+                "a `for` over something that is not a range written in place",
+            );
+            return;
+        };
+
+        let element = self
+            .declared_type(span)
+            .or_else(|| self.known_type(start))
+            .unwrap_or(Ty::Int(IntTy::I64));
+        let first = self.expr(start, Some(&element));
+        let last = self.expr(end, Some(&element));
+
+        let carried = self.carried(body);
+        let header = self.function.add_block();
+        self.open();
+        let var = self.declare(name);
+        self.defs.insert(var, first);
+        let mut passing = carried.clone();
+        passing.push(var);
+        self.jump_to(header, &passing);
+
+        self.switch_to(header);
+        self.add_params(header, &passing);
+        self.bind_params(header, &passing);
+        let entering = self.defs.clone();
+
+        let op = if *inclusive {
+            BinaryOp::LessEqual
+        } else {
+            BinaryOp::Less
+        };
+        let current = self.defs[&var];
+        let condition = self.emit(
+            InstKind::Binary {
+                op,
+                left: current,
+                right: last,
+            },
+            Ty::Bool,
+            span,
+        );
+        let inside = self.function.add_block();
+        let step = self.function.add_block();
+        let exit = self.function.add_block();
+        let leaving: Vec<Value> = carried.iter().map(|held| self.defs[held]).collect();
+        self.add_params(exit, &carried);
+        self.add_params(step, &carried);
+        self.terminate(Terminator::Branch {
+            condition,
+            then: Target::to(inside),
+            otherwise: Target::new(exit, leaving),
+        });
+
+        self.switch_to(inside);
+        self.defs = entering.clone();
+        self.loops.push(Loop {
+            label: label.map(ToOwned::to_owned),
+            again: Some(step),
+            exit,
+            carried: carried.clone(),
+            depth: self.scopes.len(),
+        });
+        self.block(body);
+        if !self.left {
+            self.jump_to(step, &carried);
+        }
+        self.loops.pop();
+
+        self.switch_to(step);
+        self.defs = entering.clone();
+        self.bind_params(step, &carried);
+        let one = self.emit(InstKind::Const(Const::Int(1)), element.clone(), span);
+        let next = self.emit(
+            InstKind::Binary {
+                op: BinaryOp::Add,
+                left: current,
+                right: one,
+            },
+            element,
+            span,
+        );
+        self.defs.insert(var, next);
+        self.jump_to(header, &passing);
+        self.close();
 
         self.switch_to(exit);
         self.defs = entering;

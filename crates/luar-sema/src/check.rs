@@ -1104,12 +1104,37 @@ impl Checker<'_> {
                 iterable,
                 body,
             } => {
-                self.expr(iterable);
+                // LR10.4: a range written in place yields its bounds' type.
+                // Anything else yields what the iterator protocol says
+                // (LR35), which is not resolved here.
+                let element = match (&iterable.kind, bindings.as_slice()) {
+                    (
+                        ExprKind::Range {
+                            start: Some(start),
+                            end: Some(end),
+                            ..
+                        },
+                        [_],
+                    ) => {
+                        let start = self.expr(start);
+                        let end = self.expr(end);
+                        // LR39: a literal bound takes the other bound's type.
+                        match (start, end) {
+                            (Type::IntegerLiteral(_), other) | (other, Type::IntegerLiteral(_)) => {
+                                settle(other)
+                            }
+                            (start, end) => settle(unify(start, end)),
+                        }
+                    }
+                    _ => {
+                        self.expr(iterable);
+                        Type::Unresolved
+                    }
+                };
+                self.facts.record_binding(stmt.span, element.clone());
                 self.push();
                 for binding in bindings {
-                    // What an iterator yields needs the iterator protocol
-                    // (LR35), which is not resolved here.
-                    self.declare(binding, Type::Unresolved, stmt.span);
+                    self.declare(binding, element.clone(), stmt.span);
                 }
                 self.enter_loop(label.clone(), None);
                 self.block(body);
