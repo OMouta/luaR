@@ -21,6 +21,9 @@ use crate::ty::{is_signed, machine};
 /// access to it is in range.
 const OWNED: MemFlags = MemFlags::trusted();
 
+/// Storage a raw pointer names is whatever the program said it is (LR72).
+const FOREIGN: MemFlags = MemFlags::new();
+
 /// The trap kinds, in the order the handler table holds them.
 pub(crate) const TRAPS: [Trap; 4] = [
     Trap::IntegerOverflow,
@@ -332,6 +335,28 @@ impl Translator<'_, '_> {
                 if let Some(stack) = self.slots.get(slot).copied() {
                     let written = self.value(*value);
                     self.builder.ins().stack_store(written, stack, 0);
+                }
+                None
+            }
+            InstKind::Load { pointer } => match inst.result {
+                Some(result) if layout::is_aggregate(self.function.type_of(result)) => {
+                    self.gap("a read of an aggregate through a pointer");
+                    None
+                }
+                Some(result) => {
+                    let address = self.value(*pointer);
+                    let ty = self.machine_or_gap(result);
+                    Some(self.builder.ins().load(ty, FOREIGN, address, 0))
+                }
+                None => None,
+            },
+            InstKind::Store { pointer, value } => {
+                if layout::is_aggregate(self.function.type_of(*value)) {
+                    self.gap("a write of an aggregate through a pointer");
+                } else {
+                    let address = self.value(*pointer);
+                    let written = self.value(*value);
+                    self.builder.ins().store(FOREIGN, written, address, 0);
                 }
                 None
             }
@@ -1016,7 +1041,6 @@ fn describe(kind: &InstKind) -> &'static str {
         InstKind::MakeSome { .. } | InstKind::IsSome { .. } | InstKind::Unwrap { .. } => {
             "an optional"
         }
-        InstKind::Load { .. } | InstKind::Store { .. } => "a pointer",
         _ => "this instruction",
     }
 }

@@ -2039,6 +2039,26 @@ impl<'a> Body<'a> {
 
     /// LR9.1: a call passes an argument for every parameter, at the type that
     /// parameter takes.
+    fn memory_method(
+        &mut self,
+        callee: &Expr,
+        name: &str,
+        target: Ty,
+        args: &[Argument],
+        span: Span,
+    ) -> Value {
+        let pointer = self.expr(callee, None);
+        match (name, args) {
+            ("read", []) => self.emit(InstKind::Load { pointer }, target, span),
+            ("write", [argument]) => {
+                let value = self.stored(&argument.value, Some(&target));
+                self.emit_void(InstKind::Store { pointer, value }, span);
+                self.emit(InstKind::Const(Const::Unit), Ty::Unit, span)
+            }
+            _ => self.missing(span, "pointer arithmetic"),
+        }
+    }
+
     fn call(
         &mut self,
         callee: &Expr,
@@ -2100,6 +2120,14 @@ impl<'a> Body<'a> {
                 .is_some_and(|ty| matches!(ty, Ty::Function { .. }))
         {
             return self.through(callee, args, span);
+        }
+
+        // LR72: a raw pointer's methods reach no declaration; `read` and
+        // `write` are the load and the store themselves.
+        if let Some(name) = method
+            && let Some(Ty::Pointer { target, .. }) = self.known_type(callee)
+        {
+            return self.memory_method(callee, name, *target, args, span);
         }
 
         let Some(declaration) = self.context.facts.call(span) else {

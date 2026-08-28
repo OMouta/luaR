@@ -1,0 +1,12 @@
+--- expect: run
+--- exit: 7
+--- spec: LR29.2
+--- spec: LR72
+export function main(): int
+    local value = 5
+    unsafe
+        local pointer = &mut value
+        pointer:write(pointer:read() + 2)
+    end
+    return value
+end
