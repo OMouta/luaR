@@ -158,6 +158,11 @@ pub enum InstKind {
     HashValue {
         value: Value,
     },
+    /// Adds one field to a derived hash (LR75).
+    HashCombine {
+        state: Value,
+        value: Value,
+    },
 
     /// `x as T`, between numeric types (LR33, LR39).
     Convert {
@@ -331,6 +336,7 @@ impl InstKind {
             Self::Const(_)
             | Self::Unary { .. }
             | Self::HashValue { .. }
+            | Self::HashCombine { .. }
             | Self::Convert { .. }
             | Self::IsType { .. }
             | Self::MakeClosure { .. }

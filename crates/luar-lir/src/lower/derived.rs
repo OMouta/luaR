@@ -78,23 +78,136 @@ impl Lowering<'_> {
     /// them to name.
     pub(super) fn write_derived(&mut self) {
         for (id, span, owner, member) in std::mem::take(&mut self.derived) {
-            if member != "eq" {
-                // Hashing bytes and building a string are runtime operations,
-                // and the instruction set has neither yet (Phase 6, LR35).
-                self.gap(span, format!("a derived `{member}`"));
-                continue;
-            }
-
             let Ty::Named { id: owner, .. } = self.convert(&owner, span) else {
                 continue;
             };
 
-            match self.program.nominal(owner).shape.clone() {
-                Shape::Struct(structure) => self.struct_eq(id, span, &structure),
-                Shape::Enum(enumeration) => self.enum_eq(id, span, &enumeration),
-                Shape::Interface(_) => {}
+            match (member.as_str(), self.program.nominal(owner).shape.clone()) {
+                ("eq", Shape::Struct(structure)) => self.struct_eq(id, span, &structure),
+                ("eq", Shape::Enum(enumeration)) => self.enum_eq(id, span, &enumeration),
+                ("hash", Shape::Struct(structure)) => self.struct_hash(id, span, &structure),
+                ("hash", Shape::Enum(enumeration)) => self.enum_hash(id, span, &enumeration),
+                ("display", _) => self.gap(span, "a derived `display`"),
+                (_, Shape::Interface(_)) => {}
+                _ => self.gap(span, format!("a derived `{member}`")),
             }
         }
+    }
+
+    fn struct_hash(&mut self, id: FuncId, span: Span, structure: &Struct) {
+        let mut function = self.program.function(id).clone();
+        let [value] = *function.block(function.entry).params else {
+            return;
+        };
+        let block = function.entry;
+        let mut state = hash_start(&mut function, block, span);
+
+        for (at, field) in structure.fields.iter().enumerate() {
+            let at = u32::try_from(at).expect("field count fits in u32");
+            let held = emit(
+                &mut function,
+                block,
+                InstKind::GetField {
+                    object: value,
+                    field: at,
+                },
+                field.ty.clone(),
+                span,
+            );
+            let Some(hashed) = self.hash(&mut function, block, held, &field.ty, span) else {
+                self.gap(span, "a derived `hash` over a field it cannot hash");
+                return;
+            };
+            state = combine(&mut function, block, state, hashed, span);
+        }
+
+        function.block_mut(block).term = Some(Terminator::Return(state));
+        *self.program.function_mut(id) = function;
+    }
+
+    fn enum_hash(&mut self, id: FuncId, span: Span, enumeration: &Enum) {
+        let mut function = self.program.function(id).clone();
+        let [value] = *function.block(function.entry).params else {
+            return;
+        };
+        let entry = function.entry;
+        let tag = emit(
+            &mut function,
+            entry,
+            InstKind::GetTag { value },
+            Ty::Int(IntTy::I64),
+            span,
+        );
+        let tag_hash = emit(
+            &mut function,
+            entry,
+            InstKind::HashValue { value: tag },
+            Ty::Int(IntTy::U64),
+            span,
+        );
+        let start = hash_start(&mut function, entry, span);
+        let state = combine(&mut function, entry, start, tag_hash, span);
+
+        let mut cases = Vec::new();
+        for (at, variant) in enumeration.variants.iter().enumerate() {
+            let index = u32::try_from(at).expect("variant count fits in u32");
+            let block = function.add_block();
+            cases.push((at as u64, Target::new(block, Vec::new())));
+            let mut hashed = state;
+
+            for (field, held) in variant.fields.iter().enumerate() {
+                let field = u32::try_from(field).expect("field count fits in u32");
+                let payload = emit(
+                    &mut function,
+                    block,
+                    InstKind::GetPayload {
+                        value,
+                        variant: index,
+                        field,
+                    },
+                    held.ty.clone(),
+                    span,
+                );
+                let Some(field_hash) = self.hash(&mut function, block, payload, &held.ty, span)
+                else {
+                    self.gap(span, "a derived `hash` over a payload it cannot hash");
+                    return;
+                };
+                hashed = combine(&mut function, block, hashed, field_hash, span);
+            }
+            function.block_mut(block).term = Some(Terminator::Return(hashed));
+        }
+
+        let unreached = function.add_block();
+        function.block_mut(unreached).term = Some(Terminator::Trap(Trap::Unreachable));
+        function.block_mut(entry).term = Some(Terminator::Switch {
+            value: tag,
+            cases,
+            default: Target::new(unreached, Vec::new()),
+        });
+        *self.program.function_mut(id) = function;
+    }
+
+    fn hash(
+        &self,
+        function: &mut Function,
+        block: BlockId,
+        value: Value,
+        ty: &Ty,
+        span: Span,
+    ) -> Option<Value> {
+        let kind = match ty {
+            Ty::Named { id, args } => InstKind::Call {
+                callee: self.member_of(*id, "hash")?,
+                type_args: args.clone(),
+                args: vec![value],
+            },
+            Ty::Unit | Ty::Nil | Ty::Bool | Ty::Int(_) | Ty::Char | Ty::Str | Ty::Bytes => {
+                InstKind::HashValue { value }
+            }
+            _ => return None,
+        };
+        Some(emit(function, block, kind, Ty::Int(IntTy::U64), span))
     }
 
     /// LR75: `Eq` compares every field, and the first that differs answers.
@@ -286,6 +399,10 @@ impl Lowering<'_> {
 
     /// The `eq` a named type reaches, written by hand or derived (LR76).
     fn eq_of(&self, owner: TypeId) -> Option<FuncId> {
+        self.member_of(owner, "eq")
+    }
+
+    fn member_of(&self, owner: TypeId, member: &str) -> Option<FuncId> {
         let name = self.program.nominal(owner).name.clone();
         let (module, declared) = self
             .table
@@ -294,13 +411,39 @@ impl Lowering<'_> {
             .map(|(module, declared, _)| (module, declared.to_owned()))?;
 
         let signature = match self.table.get(module, &declared)? {
-            Decl::Struct(structure) => structure.methods.get("eq")?.first()?,
-            Decl::Enum(enumeration) => enumeration.methods.get("eq")?.first()?,
+            Decl::Struct(structure) => structure.methods.get(member)?.first()?,
+            Decl::Enum(enumeration) => enumeration.methods.get(member)?.first()?,
             _ => return None,
         };
 
         self.functions.get(&signature.span).map(|callee| callee.id)
     }
+}
+
+fn hash_start(function: &mut Function, block: BlockId, span: Span) -> Value {
+    emit(
+        function,
+        block,
+        InstKind::Const(Const::Int(0xcbf29ce484222325)),
+        Ty::Int(IntTy::U64),
+        span,
+    )
+}
+
+fn combine(
+    function: &mut Function,
+    block: BlockId,
+    state: Value,
+    value: Value,
+    span: Span,
+) -> Value {
+    emit(
+        function,
+        block,
+        InstKind::HashCombine { state, value },
+        Ty::Int(IntTy::U64),
+        span,
+    )
 }
 
 fn emit(function: &mut Function, block: BlockId, kind: InstKind, ty: Ty, span: Span) -> Value {

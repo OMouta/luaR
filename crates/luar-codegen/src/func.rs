@@ -219,6 +219,12 @@ impl Translator<'_, '_> {
             InstKind::Unary { op, operand } => self.unary(*op, *operand),
             InstKind::Binary { op, left, right } => self.binary(*op, *left, *right),
             InstKind::HashValue { value } => self.hash_value(*value),
+            InstKind::HashCombine { state, value } => {
+                let state = self.value(*state);
+                let value = self.value(*value);
+                let mixed = self.builder.ins().bxor(state, value);
+                Some(self.builder.ins().imul_imm(mixed, 0x100000001b3))
+            }
             InstKind::Convert { value, to } => self.convert(*value, to),
             InstKind::Call {
                 callee,

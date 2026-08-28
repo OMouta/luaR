@@ -1,0 +1,24 @@
+--- expect: run
+--- exit: 1
+--- spec: LR35
+--- spec: LR75
+@derive(Hash)
+struct Label
+    text: string
+    count: int
+end
+
+@derive(Hash)
+enum Event
+    Idle
+    Labelled(Label)
+end
+
+export function main(): int
+    local a = Event.Labelled(Label { text = "lua" .. "r", count = 2 })
+    local b = Event.Labelled(Label { text = "luar", count = 2 })
+    if a:hash() == b:hash() then
+        return 1
+    end
+    return 0
+end

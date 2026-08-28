@@ -156,6 +156,9 @@ fn instruction(inst: &Inst, function: &Function) -> String {
             format!("{} {} {}", binary(*op), name(*left), name(*right))
         }
         InstKind::HashValue { value } => format!("hash {}", name(*value)),
+        InstKind::HashCombine { state, value } => {
+            format!("hash combine {} {}", name(*state), name(*value))
+        }
         InstKind::Convert { value, to } => format!("convert {} to {to}", name(*value)),
         InstKind::IsType { value, ty } => format!("is {} {ty}", name(*value)),
         InstKind::Call {
