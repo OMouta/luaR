@@ -44,6 +44,7 @@ pub(crate) struct Runtime {
     pub hash_bytes: ModuleFuncId,
     pub display_signed: ModuleFuncId,
     pub display_unsigned: ModuleFuncId,
+    pub assertion_failed: ModuleFuncId,
     /// The most recently entered shadow-stack frame.
     roots: DataId,
 }
@@ -79,6 +80,7 @@ impl Runtime {
             define_display_integer(module, pointer, call_conv, collector.allocate, true)?;
         let display_unsigned =
             define_display_integer(module, pointer, call_conv, collector.allocate, false)?;
+        let assertion_failed = define_assertion_failed(module, pointer, call_conv, exit, write)?;
 
         let mut handlers = Vec::with_capacity(TRAPS.len());
         for trap in TRAPS {
@@ -94,6 +96,7 @@ impl Runtime {
             hash_bytes,
             display_signed,
             display_unsigned,
+            assertion_failed,
             roots: collector.roots,
         })
     }
@@ -154,6 +157,14 @@ impl Runtime {
         function: &mut cranelift_codegen::ir::Function,
     ) -> FuncRef {
         module.declare_func_in_func(self.display_unsigned, function)
+    }
+
+    pub fn assertion_failed_in(
+        &self,
+        module: &mut ObjectModule,
+        function: &mut cranelift_codegen::ir::Function,
+    ) -> FuncRef {
+        module.declare_func_in_func(self.assertion_failed, function)
     }
 
     pub fn roots_in(
@@ -660,6 +671,105 @@ fn copy_byte(
     let start = builder.ins().iadd_imm(destination, 8);
     let address = builder.ins().iadd(start, destination_index);
     builder.ins().store(MemFlags::trusted(), byte, address, 0);
+}
+
+fn define_assertion_failed(
+    module: &mut ObjectModule,
+    pointer: types::Type,
+    call_conv: CallConv,
+    exit: ModuleFuncId,
+    write: ModuleFuncId,
+) -> Result<ModuleFuncId, Error> {
+    let prefix_bytes = b"luar: trap: assertion-failed";
+    let separator_bytes = b": ";
+    let newline_bytes = b"\n";
+    let prefix = static_data(module, "luar_assertion_prefix", prefix_bytes)?;
+    let separator = static_data(module, "luar_assertion_separator", separator_bytes)?;
+    let newline = static_data(module, "luar_assertion_newline", newline_bytes)?;
+
+    let mut signature = Signature::new(call_conv);
+    signature.params.push(AbiParam::new(pointer));
+    let declared = module
+        .declare_function("luar_assertion_failed", Linkage::Local, &signature)
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
+
+    let mut context = Context::new();
+    let mut frame = FunctionBuilderContext::new();
+    context.func.signature = signature;
+    let prefix = module.declare_data_in_func(prefix, &mut context.func);
+    let separator = module.declare_data_in_func(separator, &mut context.func);
+    let newline = module.declare_data_in_func(newline, &mut context.func);
+    let write = module.declare_func_in_func(write, &mut context.func);
+    let exit = module.declare_func_in_func(exit, &mut context.func);
+
+    let mut builder = FunctionBuilder::new(&mut context.func, &mut frame);
+    let entry = builder.create_block();
+    let message = builder.create_block();
+    let finish = builder.create_block();
+    builder.append_block_params_for_function_params(entry);
+
+    builder.switch_to_block(entry);
+    let value = builder.block_params(entry)[0];
+    write_static(&mut builder, pointer, write, prefix, prefix_bytes.len());
+    let zero = builder.ins().iconst(pointer, 0);
+    let present = builder.ins().icmp(IntCC::NotEqual, value, zero);
+    builder.ins().brif(present, message, &[], finish, &[]);
+
+    builder.switch_to_block(message);
+    write_static(
+        &mut builder,
+        pointer,
+        write,
+        separator,
+        separator_bytes.len(),
+    );
+    let length = builder
+        .ins()
+        .load(types::I64, MemFlags::trusted(), value, 0);
+    let length = builder.ins().ireduce(types::I32, length);
+    let text = builder.ins().iadd_imm(value, 8);
+    let stderr = builder.ins().iconst(types::I32, STDERR);
+    builder.ins().call(write, &[stderr, text, length]);
+    builder.ins().jump(finish, &[]);
+
+    builder.switch_to_block(finish);
+    write_static(&mut builder, pointer, write, newline, newline_bytes.len());
+    let status = builder.ins().iconst(types::I32, TRAPPED);
+    builder.ins().call(exit, &[status]);
+    builder.ins().trap(AFTER_EXIT);
+    builder.seal_all_blocks();
+    builder.finalize();
+    module
+        .define_function(declared, &mut context)
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
+    Ok(declared)
+}
+
+fn static_data(module: &mut ObjectModule, name: &str, bytes: &[u8]) -> Result<DataId, Error> {
+    let mut description = DataDescription::new();
+    description.define(bytes.to_vec().into_boxed_slice());
+    let data = module
+        .declare_data(name, Linkage::Local, false, false)
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
+    module
+        .define_data(data, &description)
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
+    Ok(data)
+}
+
+fn write_static(
+    builder: &mut FunctionBuilder<'_>,
+    pointer: types::Type,
+    write: FuncRef,
+    data: cranelift_codegen::ir::GlobalValue,
+    length: usize,
+) {
+    let address = builder.ins().global_value(pointer, data);
+    let length = builder
+        .ins()
+        .iconst(types::I32, i64::try_from(length).unwrap_or(0));
+    let stderr = builder.ins().iconst(types::I32, STDERR);
+    builder.ins().call(write, &[stderr, address, length]);
 }
 
 fn handler(

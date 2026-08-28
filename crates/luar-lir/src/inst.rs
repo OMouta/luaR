@@ -110,8 +110,6 @@ pub enum Trap {
     Bounds,
     /// `unreachable()` was reached (LR50).
     Unreachable,
-    /// An assertion's condition was false (LR49).
-    AssertionFailed,
 }
 
 impl Trap {
@@ -122,7 +120,6 @@ impl Trap {
             Self::DivisionByZero => "division-by-zero",
             Self::Bounds => "bounds",
             Self::Unreachable => "unreachable",
-            Self::AssertionFailed => "assertion-failed",
         }
     }
 }

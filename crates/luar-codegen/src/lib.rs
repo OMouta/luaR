@@ -246,6 +246,9 @@ impl Emitter<'_> {
             let display_unsigned = self
                 .runtime
                 .display_unsigned_in(&mut self.module, &mut context.func);
+            let assertion_failed = self
+                .runtime
+                .assertion_failed_in(&mut self.module, &mut context.func);
             let roots = self.runtime.roots_in(&mut self.module, &mut context.func);
             let finalizers = self
                 .program
@@ -272,6 +275,7 @@ impl Emitter<'_> {
                 hash_bytes,
                 display_signed,
                 display_unsigned,
+                assertion_failed,
                 finalizers,
                 roots,
                 root_frame: None,

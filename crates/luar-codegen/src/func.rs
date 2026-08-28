@@ -21,12 +21,11 @@ use crate::ty::{is_signed, machine};
 const OWNED: MemFlags = MemFlags::trusted();
 
 /// The trap kinds, in the order the handler table holds them.
-pub(crate) const TRAPS: [Trap; 5] = [
+pub(crate) const TRAPS: [Trap; 4] = [
     Trap::IntegerOverflow,
     Trap::DivisionByZero,
     Trap::Bounds,
     Trap::Unreachable,
-    Trap::AssertionFailed,
 ];
 
 /// Where `trap`'s handler sits in that table.
@@ -78,6 +77,7 @@ pub(crate) struct Translator<'a, 'b> {
     pub hash_bytes: FuncRef,
     pub display_signed: FuncRef,
     pub display_unsigned: FuncRef,
+    pub assertion_failed: FuncRef,
     pub finalizers: HashMap<Ty, FuncRef>,
     /// The global holding the top shadow-stack frame.
     pub roots: GlobalValue,
@@ -229,10 +229,8 @@ impl Translator<'_, '_> {
                 Some(self.builder.ins().imul_imm(mixed, 0x100000001b3))
             }
             InstKind::DisplayValue { value } => self.display_value(*value),
-            InstKind::Assert { condition, .. } => {
-                let condition = self.value(*condition);
-                let failed = self.builder.ins().icmp_imm(IntCC::Equal, condition, 0);
-                self.trap_if(failed, Trap::AssertionFailed);
+            InstKind::Assert { condition, message } => {
+                self.assert(*condition, *message);
                 None
             }
             InstKind::Convert { value, to } => self.convert(*value, to),
@@ -562,6 +560,23 @@ impl Translator<'_, '_> {
                 None
             }
         }
+    }
+
+    fn assert(&mut self, condition: Value, message: Option<Value>) {
+        let condition = self.value(condition);
+        let failed = self.builder.ins().icmp_imm(IntCC::Equal, condition, 0);
+        let failing = self.builder.create_block();
+        let carry_on = self.builder.create_block();
+        self.builder.ins().brif(failed, failing, &[], carry_on, &[]);
+
+        self.builder.switch_to_block(failing);
+        let message = match message {
+            Some(message) => self.value(message),
+            None => self.builder.ins().iconst(self.pointer, 0),
+        };
+        self.builder.ins().call(self.assertion_failed, &[message]);
+        self.builder.ins().trap(AFTER_HANDLER);
+        self.builder.switch_to_block(carry_on);
     }
 
     /// LR11.1: exponentiation, as repeated multiplication, so LR4.3 decides
