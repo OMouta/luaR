@@ -26,6 +26,8 @@ pub(crate) struct Table {
     /// `(map, key, hash, text) -> bucket`, claimed where the map had none.
     /// It may allocate, so the map has to be reachable from a root.
     pub insert: FuncId,
+    /// `(map, bucket)`: takes the entry out of the bucket `find` returned.
+    pub remove: FuncId,
 }
 
 pub(crate) fn emit(
@@ -38,7 +40,12 @@ pub(crate) fn emit(
     let find = define_find(module, pointer, call_conv, text_equal)?;
     let place = define_place(module, pointer, call_conv)?;
     let insert = define_insert(module, pointer, call_conv, allocate, find, place)?;
-    Ok(Table { find, insert })
+    let remove = define_remove(module, pointer, call_conv)?;
+    Ok(Table {
+        find,
+        insert,
+        remove,
+    })
 }
 
 fn signature(pointer: Type, call_conv: CallConv) -> Signature {
@@ -434,6 +441,129 @@ fn define_insert(
     builder.switch_to_block(done);
     let bucket = builder.block_params(done)[0];
     builder.ins().return_(&[bucket]);
+    builder.seal_all_blocks();
+    builder.finalize();
+    module
+        .define_function(declared, &mut context)
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
+    Ok(declared)
+}
+
+/// `(map, bucket)`: vacates `bucket`, which holds a key, and moves back every
+/// entry that probed past it, so no vacant bucket sits between a key's home
+/// and where it is.
+fn define_remove(
+    module: &mut ObjectModule,
+    pointer: Type,
+    call_conv: CallConv,
+) -> Result<FuncId, Error> {
+    let mut signature = Signature::new(call_conv);
+    signature.params.push(AbiParam::new(pointer));
+    signature.params.push(AbiParam::new(pointer));
+    let declared = module
+        .declare_function("luar_map_remove", Linkage::Local, &signature)
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
+
+    let mut context = Context::new();
+    let mut frame = FunctionBuilderContext::new();
+    context.func.signature = signature;
+    let mut builder = FunctionBuilder::new(&mut context.func, &mut frame);
+    let entry = builder.create_block();
+    let step = builder.create_block();
+    let decide = builder.create_block();
+    let shift = builder.create_block();
+    let vacate = builder.create_block();
+    builder.append_block_params_for_function_params(entry);
+    for block in [step, decide, shift] {
+        builder.append_block_param(block, pointer);
+        builder.append_block_param(block, pointer);
+    }
+    builder.append_block_param(vacate, pointer);
+
+    builder.switch_to_block(entry);
+    let map = builder.block_params(entry)[0];
+    let bucket = builder.block_params(entry)[1];
+    let capacity = builder.ins().load(pointer, OWNED, map, layout::CAPACITY);
+    let buckets = builder.ins().load(pointer, OWNED, map, layout::BUFFER);
+    let mask = builder.ins().iadd_imm(capacity, -1);
+    let count = builder.ins().load(pointer, OWNED, map, layout::LENGTH);
+    let count = builder.ins().iadd_imm(count, -1);
+    builder.ins().store(OWNED, count, map, layout::LENGTH);
+    let offset = builder.ins().isub(bucket, buckets);
+    let hole = builder.ins().udiv_imm(offset, layout::BUCKET_BYTES);
+    builder
+        .ins()
+        .jump(step, &[BlockArg::Value(hole), BlockArg::Value(hole)]);
+
+    // The bucket after the cursor: a vacant one ends the run.
+    builder.switch_to_block(step);
+    let hole = builder.block_params(step)[0];
+    let cursor = builder.block_params(step)[1];
+    let cursor = builder.ins().iadd_imm(cursor, 1);
+    let cursor = builder.ins().band(cursor, mask);
+    let bucket = bucket_at(&mut builder, buckets, cursor);
+    let occupied = builder
+        .ins()
+        .load(pointer, OWNED, bucket, layout::BUCKET_OCCUPIED);
+    let vacant = builder.ins().icmp_imm(IntCC::Equal, occupied, 0);
+    builder.ins().brif(
+        vacant,
+        vacate,
+        &[BlockArg::Value(hole)],
+        decide,
+        &[BlockArg::Value(hole), BlockArg::Value(cursor)],
+    );
+
+    // An entry whose home is at or before the hole along its probe path moves
+    // into the hole.
+    builder.switch_to_block(decide);
+    let hole = builder.block_params(decide)[0];
+    let cursor = builder.block_params(decide)[1];
+    let bucket = bucket_at(&mut builder, buckets, cursor);
+    let hash = builder
+        .ins()
+        .load(pointer, OWNED, bucket, layout::BUCKET_HASH);
+    let home = builder.ins().band(hash, mask);
+    let from_home = builder.ins().isub(cursor, home);
+    let from_home = builder.ins().band(from_home, mask);
+    let from_hole = builder.ins().isub(cursor, hole);
+    let from_hole = builder.ins().band(from_hole, mask);
+    let moves = builder
+        .ins()
+        .icmp(IntCC::UnsignedGreaterThanOrEqual, from_home, from_hole);
+    builder.ins().brif(
+        moves,
+        shift,
+        &[BlockArg::Value(hole), BlockArg::Value(cursor)],
+        step,
+        &[BlockArg::Value(hole), BlockArg::Value(cursor)],
+    );
+
+    builder.switch_to_block(shift);
+    let hole = builder.block_params(shift)[0];
+    let cursor = builder.block_params(shift)[1];
+    let from = bucket_at(&mut builder, buckets, cursor);
+    let to = bucket_at(&mut builder, buckets, hole);
+    for field in [
+        layout::BUCKET_KEY,
+        layout::BUCKET_VALUE,
+        layout::BUCKET_HASH,
+    ] {
+        let word = builder.ins().load(pointer, OWNED, from, field);
+        builder.ins().store(OWNED, word, to, field);
+    }
+    builder
+        .ins()
+        .jump(step, &[BlockArg::Value(cursor), BlockArg::Value(cursor)]);
+
+    builder.switch_to_block(vacate);
+    let hole = builder.block_params(vacate)[0];
+    let bucket = bucket_at(&mut builder, buckets, hole);
+    let zero = builder.ins().iconst(pointer, 0);
+    builder
+        .ins()
+        .store(OWNED, zero, bucket, layout::BUCKET_OCCUPIED);
+    builder.ins().return_(&[]);
     builder.seal_all_blocks();
     builder.finalize();
     module

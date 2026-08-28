@@ -264,6 +264,12 @@ fn instruction(inst: &Inst, function: &Function) -> String {
         InstKind::SetInsert { receiver, value } => {
             format!("insert {} <- {}", name(*receiver), name(*value))
         }
+        InstKind::MapRemove { receiver, key } => {
+            format!("remove {} {}", name(*receiver), name(*key))
+        }
+        InstKind::SetRemove { receiver, value } => {
+            format!("remove {} {}", name(*receiver), name(*value))
+        }
         InstKind::Contains { receiver, value } => {
             format!("contains {} {}", name(*receiver), name(*value))
         }

@@ -1,0 +1,28 @@
+--- expect: run
+--- exit: 36
+--- spec: LR13.2
+--- spec: LR57
+export function main(): int
+    local scores = Map { alice = 10, bob = 20 }
+    local total = 0
+    local removed = scores:remove("alice")
+    if removed ~= nil then
+        total += removed
+    end
+    if scores:remove("carol") ~= nil then
+        total += 100
+    end
+    if scores:contains("alice") then
+        total += 100
+    end
+    local kept = scores:get("bob")
+    if kept ~= nil then
+        total += kept
+    end
+    scores["alice"] = 5
+    local again = scores:remove("alice")
+    if again ~= nil then
+        total += again
+    end
+    return total + scores.length
+end

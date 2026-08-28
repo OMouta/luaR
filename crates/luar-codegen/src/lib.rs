@@ -414,6 +414,9 @@ impl Emitter<'_> {
             let map_insert = self
                 .runtime
                 .map_insert_in(&mut self.module, &mut context.func);
+            let map_remove = self
+                .runtime
+                .map_remove_in(&mut self.module, &mut context.func);
             let roots = self.runtime.roots_in(&mut self.module, &mut context.func);
             let finalizers = self
                 .program
@@ -445,6 +448,7 @@ impl Emitter<'_> {
                 abort,
                 map_find,
                 map_insert,
+                map_remove,
                 finalizers,
                 roots,
                 root_frame: None,

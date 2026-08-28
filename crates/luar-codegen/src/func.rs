@@ -93,6 +93,7 @@ pub(crate) struct Translator<'a, 'b> {
     /// The bucket a map holds a key in, and the bucket it will (LR13.2).
     pub map_find: FuncRef,
     pub map_insert: FuncRef,
+    pub map_remove: FuncRef,
     pub finalizers: HashMap<Ty, FuncRef>,
     /// The global holding the top shadow-stack frame.
     pub roots: GlobalValue,
@@ -402,6 +403,8 @@ impl Translator<'_, '_> {
                 None
             }
             InstKind::Contains { receiver, value } => self.contains(*receiver, *value),
+            InstKind::MapRemove { receiver, key } => self.map_remove(*receiver, *key, inst.result),
+            InstKind::SetRemove { receiver, value } => self.set_remove(*receiver, *value),
             InstKind::Overflowing {
                 mode,
                 op,
@@ -1694,6 +1697,63 @@ impl Translator<'_, '_> {
     }
 
     fn contains(&mut self, receiver: Value, value: Value) -> Option<ir::Value> {
+        let bucket = self.find_bucket(receiver, value)?;
+        Some(self.builder.ins().icmp_imm(IntCC::NotEqual, bucket, 0))
+    }
+
+    fn map_remove(
+        &mut self,
+        receiver: Value,
+        key: Value,
+        result: Option<Value>,
+    ) -> Option<ir::Value> {
+        let optional = self.function.type_of(result?).clone();
+        let Ty::Optional(inner) = &optional else {
+            self.gap("a removal that is not optional");
+            return None;
+        };
+        let Some(machine) = machine(inner, self.pointer) else {
+            self.gap(format!("a map holding `{inner}`"));
+            return None;
+        };
+        let bucket = self.find_bucket(receiver, key)?;
+        let table = self.value(receiver);
+        let present = self.builder.ins().icmp_imm(IntCC::NotEqual, bucket, 0);
+        let built = self.allocate(&optional, 0)?;
+        let tag = self.builder.ins().uextend(TAG_TYPE, present);
+        self.builder.ins().store(OWNED, tag, built, TAG);
+
+        let found = self.builder.create_block();
+        let carry_on = self.builder.create_block();
+        self.builder.ins().brif(present, found, &[], carry_on, &[]);
+        self.builder.switch_to_block(found);
+        let value = self
+            .builder
+            .ins()
+            .load(machine, OWNED, bucket, layout::BUCKET_VALUE);
+        self.builder.ins().store(OWNED, value, built, layout::CELL);
+        self.builder.ins().call(self.map_remove, &[table, bucket]);
+        self.builder.ins().jump(carry_on, &[]);
+        self.builder.switch_to_block(carry_on);
+        Some(built)
+    }
+
+    fn set_remove(&mut self, receiver: Value, value: Value) -> Option<ir::Value> {
+        let bucket = self.find_bucket(receiver, value)?;
+        let table = self.value(receiver);
+        let present = self.builder.ins().icmp_imm(IntCC::NotEqual, bucket, 0);
+        let found = self.builder.create_block();
+        let carry_on = self.builder.create_block();
+        self.builder.ins().brif(present, found, &[], carry_on, &[]);
+        self.builder.switch_to_block(found);
+        self.builder.ins().call(self.map_remove, &[table, bucket]);
+        self.builder.ins().jump(carry_on, &[]);
+        self.builder.switch_to_block(carry_on);
+        Some(present)
+    }
+
+    /// The bucket `key` occupies in the map or set `receiver`, or null.
+    fn find_bucket(&mut self, receiver: Value, key: Value) -> Option<ir::Value> {
         let held = self.function.type_of(receiver).clone();
         let Ty::Builtin {
             kind: Builtin::Map | Builtin::FrozenMap | Builtin::Set | Builtin::FrozenSet,
@@ -1705,15 +1765,14 @@ impl Translator<'_, '_> {
         };
         let text = args.first().and_then(|element| self.key_is_text(element))?;
         let table = self.value(receiver);
-        let hash = self.key_hash(value)?;
-        let word = self.key_word(value);
+        let hash = self.key_hash(key)?;
+        let word = self.key_word(key);
         let text = self.builder.ins().iconst(types::I8, i64::from(text));
         let call = self
             .builder
             .ins()
             .call(self.map_find, &[table, word, hash, text]);
-        let bucket = self.builder.inst_results(call).first().copied()?;
-        Some(self.builder.ins().icmp_imm(IntCC::NotEqual, bucket, 0))
+        self.builder.inst_results(call).first().copied()
     }
 
     /// Bucket `index` of the map or set `receiver`, below its bucket count.

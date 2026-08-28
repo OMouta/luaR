@@ -313,6 +313,16 @@ pub enum InstKind {
         receiver: Value,
         value: Value,
     },
+    /// The value at `key`, taken out of the map, or nothing (LR13.2).
+    MapRemove {
+        receiver: Value,
+        key: Value,
+    },
+    /// Whether the set held `value`, which it no longer does (LR13.3).
+    SetRemove {
+        receiver: Value,
+        value: Value,
+    },
     /// Whether a map holds the key `value` (LR13.2), or a set holds it (LR13.3).
     Contains {
         receiver: Value,
@@ -477,6 +487,8 @@ impl InstKind {
             | Self::ListPush { .. }
             | Self::ListPop { .. }
             | Self::SetInsert { .. }
+            | Self::MapRemove { .. }
+            | Self::SetRemove { .. }
             | Self::Length { .. }
             | Self::Buckets { .. }
             | Self::Occupied { .. }

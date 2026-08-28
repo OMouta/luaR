@@ -1,0 +1,32 @@
+--- expect: run
+--- exit: 23
+--- spec: LR13.3
+--- spec: LR10.5
+export function main(): int
+    local ids = Set { 1, 9, 17, 2 }
+    local total = 0
+    if ids:remove(1) then
+        total += 1
+    end
+    if ids:remove(5) then
+        total += 10
+    end
+    if ids:contains(9) then
+        total += 2
+    end
+    if ids:contains(17) then
+        total += 4
+    end
+    if ids:contains(1) then
+        total += 100
+    end
+    ids:insert(1)
+    if ids:contains(1) then
+        total += 8
+    end
+    local walked = 0
+    for id in ids do
+        walked += 1
+    end
+    return total + ids.length + walked
+end

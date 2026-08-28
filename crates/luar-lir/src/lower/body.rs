@@ -2820,7 +2820,19 @@ impl<'a> Body<'a> {
                 return self.emit(InstKind::ListPop { receiver }, result, span);
             }
             CollectionMutation::MapRemove | CollectionMutation::SetRemove => {
-                return self.missing(span, "a removal");
+                let Some(argument) = args.first() else {
+                    return self.missing(span, "a removal without a key");
+                };
+                let key = self.expr(&argument.value, Some(&element));
+                let result = self.recorded(span);
+                let kind = match mutation {
+                    CollectionMutation::MapRemove => InstKind::MapRemove { receiver, key },
+                    _ => InstKind::SetRemove {
+                        receiver,
+                        value: key,
+                    },
+                };
+                return self.emit(kind, result, span);
             }
             CollectionMutation::ListPush | CollectionMutation::SetInsert => {
                 let Some(argument) = args.first() else {

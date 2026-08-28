@@ -49,6 +49,7 @@ pub(crate) struct Runtime {
     /// The bucket a map holds a key in, and the bucket it will (LR13.2).
     pub map_find: ModuleFuncId,
     pub map_insert: ModuleFuncId,
+    pub map_remove: ModuleFuncId,
     /// The most recently entered shadow-stack frame.
     roots: DataId,
 }
@@ -104,6 +105,7 @@ impl Runtime {
             abort,
             map_find: table.find,
             map_insert: table.insert,
+            map_remove: table.remove,
             roots: collector.roots,
         })
     }
@@ -114,6 +116,14 @@ impl Runtime {
         function: &mut cranelift_codegen::ir::Function,
     ) -> FuncRef {
         module.declare_func_in_func(self.map_find, function)
+    }
+
+    pub fn map_remove_in(
+        &self,
+        module: &mut ObjectModule,
+        function: &mut cranelift_codegen::ir::Function,
+    ) -> FuncRef {
+        module.declare_func_in_func(self.map_remove, function)
     }
 
     pub fn map_insert_in(
