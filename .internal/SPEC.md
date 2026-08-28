@@ -1103,6 +1103,8 @@ The inferred type is `List<string>`. `[...]` always produces a sequence and neve
 
 `values:pop()` removes the last element and returns it, or returns `nil` where the list is empty, a `T?`.
 
+`values:clear()` removes every element and returns `()`.
+
 `values.length` is the number of elements the list holds, an `int`. It is not a field, so it cannot be assigned (LR89.2).
 
 Lists are zero-indexed.
@@ -1165,6 +1167,8 @@ Assigning `map[key] = value` inserts the key or replaces its value.
 
 `scores:remove(key)` removes the entry at `key` and returns its value, or returns `nil` where there is none, a `V?`.
 
+`scores:clear()` removes every entry and returns `()`.
+
 `scores.length` is the number of entries the map holds, an `int`. It is not a field, so it cannot be assigned (LR89.2).
 
 ### 13.3 Sets
@@ -1182,6 +1186,8 @@ local ids = Set { 1, 2, 3 }
 `ids:contains(value)` is whether `value` is present, a `bool`.
 
 `ids:remove(value)` removes `value` and returns whether it was present, a `bool`.
+
+`ids:clear()` removes every element and returns `()`.
 
 `ids.length` is the number of elements the set holds, an `int`. It is not a field, so it cannot be assigned (LR89.2).
 
