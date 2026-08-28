@@ -1,0 +1,15 @@
+--- expect: run
+--- exit: 8
+--- spec: LR13.2
+--- spec: LR13.3
+--- spec: LR59
+export function main(): int
+    local scores = Map { alice = 10, bob = 20 }
+    scores["carol"] = 30
+    scores["alice"] = 11
+    local ids = Set.new<int>()
+    ids:insert(1)
+    ids:insert(1)
+    ids:insert(2)
+    return scores.length * 2 + ids:frozen().length + Map.new<string, int>().length
+end

@@ -319,7 +319,7 @@ pub enum InstKind {
         right: Value,
     },
 
-    /// How many elements a list holds (LR13.1).
+    /// How many elements a collection holds (LR13).
     Length {
         receiver: Value,
     },

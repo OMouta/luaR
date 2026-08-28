@@ -3044,12 +3044,17 @@ impl<'a> Body<'a> {
                 );
             }
 
-            // LR13.1: `length` is read off the list's header.
+            // LR13: `length` is read off the collection's header.
             if name == "length"
                 && matches!(
                     held,
                     Ty::Builtin {
-                        kind: Builtin::List | Builtin::FrozenList,
+                        kind: Builtin::List
+                            | Builtin::FrozenList
+                            | Builtin::Map
+                            | Builtin::FrozenMap
+                            | Builtin::Set
+                            | Builtin::FrozenSet,
                         ..
                     }
                 )
