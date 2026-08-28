@@ -2902,6 +2902,19 @@ impl<'a> Body<'a> {
                 );
             }
 
+            // LR13.1: `length` is read off the list's header.
+            if name == "length"
+                && matches!(
+                    held,
+                    Ty::Builtin {
+                        kind: Builtin::List | Builtin::FrozenList,
+                        ..
+                    }
+                )
+            {
+                return self.emit(InstKind::Length { receiver: object }, Ty::INT, span);
+            }
+
             let Some(index) = self.field_index(&held, name) else {
                 return self.missing(span, "a member that is not a stored field");
             };

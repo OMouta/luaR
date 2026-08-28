@@ -1,0 +1,17 @@
+--- expect: run
+--- exit: 43
+--- spec: LR10.4
+--- spec: LR13.1
+function last(values: FrozenList<int>): int
+    return values[values.length - 1]
+end
+
+export function main(): int
+    local values = [3, 5, 7]
+    local total = 0
+    for i in 0..<values.length do
+        total += values[i] * (i + 1)
+    end
+    values:push(9)
+    return total + last(values:frozen()) - List.new<int>().length
+end

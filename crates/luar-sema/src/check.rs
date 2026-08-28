@@ -980,6 +980,20 @@ impl Checker<'_> {
                         "a frozen collection cannot be assigned through",
                     ));
                 }
+                // LR13.1: `length` is not a field.
+                if let ExprKind::Field { receiver, name, .. } = &target.kind
+                    && name == "length"
+                    && self.facts.type_of(receiver.span).is_some_and(is_list)
+                {
+                    self.diagnostics.push(
+                        Diagnostic::error(
+                            codes::INVALID_ASSIGNMENT_TARGET,
+                            target.span,
+                            "`length` cannot be assigned",
+                        )
+                        .note("Assignment writes to a name, a field, or an element (LR89.2)."),
+                    );
+                }
                 if let ExprKind::Name(name) = &target.kind {
                     self.mark_capture_mutable(name);
                 }
@@ -1796,6 +1810,11 @@ impl Checker<'_> {
             return found.ty;
         }
 
+        // LR13.1: `length` is how many elements a list holds.
+        if is_list(held) && name == "length" {
+            return Type::Primitive(Primitive::I64);
+        }
+
         let Some(owner) = self.known(held) else {
             return Type::Unresolved;
         };
@@ -2197,6 +2216,16 @@ impl Checker<'_> {
                 Decl::Interface(interface) if !interface.expands => Some(declared.clone()),
                 _ => None,
             },
+            Type::Builtin {
+                kind:
+                    Builtin::List
+                    | Builtin::Map
+                    | Builtin::Set
+                    | Builtin::FrozenList
+                    | Builtin::FrozenMap
+                    | Builtin::FrozenSet,
+                ..
+            } => Some(held.to_string()),
             _ => None,
         }
     }
@@ -4626,6 +4655,16 @@ fn collection_mutation_method(
             unsafe_: false,
         },
     ))
+}
+
+fn is_list(ty: &Type) -> bool {
+    matches!(
+        ty,
+        Type::Builtin {
+            kind: Builtin::List | Builtin::FrozenList,
+            ..
+        }
+    )
 }
 
 fn is_frozen_collection(ty: &Type) -> bool {
