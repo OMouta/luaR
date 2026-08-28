@@ -1,0 +1,12 @@
+--- expect: run
+--- exit: 101
+--- stderr: "luar: panic: dependency\nbacktrace:\n  at initialization_dependency.$init\n"
+--- spec: LR78
+import { loaded } from "./support/initialization_dependency"
+
+panic("entry")
+
+export function main()
+    loaded()
+    panic("main")
+end

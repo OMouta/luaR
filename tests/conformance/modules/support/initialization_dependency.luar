@@ -1,0 +1,4 @@
+panic("dependency")
+
+export function loaded()
+end

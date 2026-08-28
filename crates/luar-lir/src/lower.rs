@@ -83,6 +83,7 @@ pub fn lower_in_mode(
     lowering.build_types();
     lowering.find_throwing();
     lowering.declare_functions();
+    lowering.declare_initializers();
     lowering.declare_finalizers();
     lowering.declare_properties();
     lowering.declare_derived();
@@ -408,6 +409,43 @@ impl Lowering<'_> {
         let declarations = self.declarations();
         for (module, path, function) in declarations {
             self.declare(module, &path, &function);
+        }
+    }
+
+    fn declare_initializers(&mut self) {
+        for module in initialization_order(self.graph) {
+            let node = self.graph.module(module);
+            let stmts = node
+                .ast
+                .items
+                .iter()
+                .filter_map(|item| match item {
+                    Item::Stmt(stmt) => Some(stmt.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            if stmts.is_empty() {
+                continue;
+            }
+
+            let mut function = Function::new(
+                self.qualify(module, "$init"),
+                Vec::new(),
+                Ty::Unit,
+                node.ast.span,
+            );
+            function.block_mut(function.entry).term = Some(Terminator::Trap(Trap::Unreachable));
+            let id = self.program.add_function(function);
+            self.program.initializers.push(id);
+            self.bodies.push(Pending {
+                id,
+                bindings: Vec::new(),
+                throws: false,
+                body: luar_ast::Block {
+                    stmts,
+                    span: node.ast.span,
+                },
+            });
         }
     }
 
@@ -919,6 +957,35 @@ fn collect(items: &[Item], module: ModuleId, found: &mut Vec<(ModuleId, String, 
             _ => {}
         }
     }
+}
+
+fn initialization_order(graph: &Graph) -> Vec<ModuleId> {
+    fn visit(
+        graph: &Graph,
+        module: ModuleId,
+        seen: &mut HashSet<ModuleId>,
+        ordered: &mut Vec<ModuleId>,
+    ) {
+        if !seen.insert(module) {
+            return;
+        }
+        for dependency in graph
+            .module(module)
+            .imports
+            .iter()
+            .filter_map(|edge| edge.target)
+        {
+            visit(graph, dependency, seen, ordered);
+        }
+        ordered.push(module);
+    }
+
+    let mut seen = HashSet::new();
+    let mut ordered = Vec::new();
+    for (module, _) in graph.modules() {
+        visit(graph, module, &mut seen, &mut ordered);
+    }
+    ordered
 }
 
 fn is_finalizer(function: &AstFunction) -> bool {

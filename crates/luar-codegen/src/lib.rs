@@ -327,8 +327,8 @@ impl Emitter<'_> {
         Ok(())
     }
 
-    /// LR45: the C entrypoint the linker starts at, which runs `main` and
-    /// turns what it returns into the process exit code.
+    /// LR45, LR78: the C entrypoint runs module initialization, then `main`,
+    /// and turns what `main` returns into the process exit code.
     fn entry(&mut self) -> Result<(), Error> {
         let entry = self.program.entry.ok_or(Error::NoEntry)?;
         let main = self.program.function(entry);
@@ -362,12 +362,25 @@ impl Emitter<'_> {
         let reference = self
             .module
             .declare_func_in_func(declared, &mut context.func);
+        let initializers = self
+            .program
+            .initializers
+            .iter()
+            .filter_map(|initializer| self.declared.get(initializer))
+            .map(|initializer| {
+                self.module
+                    .declare_func_in_func(*initializer, &mut context.func)
+            })
+            .collect::<Vec<_>>();
 
         let mut builder = FunctionBuilder::new(&mut context.func, &mut frame);
         let block = builder.create_block();
         builder.switch_to_block(block);
         builder.seal_block(block);
 
+        for initializer in initializers {
+            builder.ins().call(initializer, &[]);
+        }
         let called = builder.ins().call(reference, &[]);
         let returned = builder.inst_results(called).first().copied();
         // LR45: an entrypoint that returns an integer maps it to the exit

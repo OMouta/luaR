@@ -1,0 +1,10 @@
+--- expect: run
+--- exit: 101
+--- stderr: "luar: panic: first\nbacktrace:\n  at initialization-follows-source-order.$init\n"
+--- spec: LR78
+panic("first")
+panic("second")
+
+export function main()
+    panic("main")
+end
