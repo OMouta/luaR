@@ -1588,7 +1588,7 @@ impl<'a> Body<'a> {
                         kind: Builtin::Map | Builtin::FrozenMap,
                         ..
                     } => (args.first().cloned(), args.get(1).cloned()),
-                    _ => (Some(Ty::Int(IntTy::Usize)), args.first().cloned()),
+                    _ => (Some(Ty::INT), args.first().cloned()),
                 };
                 let Some(element) = element else {
                     self.gap(span, "an assignment into a container with no element type");
@@ -2958,7 +2958,7 @@ impl<'a> Body<'a> {
                 kind: Builtin::Map | Builtin::FrozenMap,
                 ..
             } => key,
-            _ => Some(Ty::Int(IntTy::Usize)),
+            _ => Some(Ty::INT),
         };
 
         let index = self.expr(index, wanted.as_ref());
