@@ -215,6 +215,8 @@ local b = x:saturatingAdd(y)    -- clamps to the type's bounds
 local c = x:checkedAdd(y)       -- int?, nil on overflow
 ```
 
+Every integer type has `wrappingAdd`, `wrappingSub`, `wrappingMul`, `saturatingAdd`, `saturatingSub`, `saturatingMul`, `checkedAdd`, `checkedSub`, and `checkedMul`. Each takes one argument of the receiver's type. A wrapping or saturating method returns the receiver's type, and a checked one returns it optional, `nil` where the ordinary operator would trap.
+
 ### 4.4 Floating-Point Numbers
 
 ```lua
