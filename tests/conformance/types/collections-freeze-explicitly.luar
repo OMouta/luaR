@@ -1,0 +1,12 @@
+--- expect: compile-ok
+--- spec: LR59
+export function main()
+    local values: List<int> = [1, 2]
+    local scores: Map<string, int> = Map { ada = 10 }
+    local ids = Set { 1, 2 }
+
+    local frozenValues: FrozenList<int> = values:frozen()
+    local frozenScores: FrozenMap<string, int> = scores:frozen()
+    local frozenIds: FrozenSet<int> = ids:frozen()
+    print(frozenValues, frozenScores, frozenIds)
+end

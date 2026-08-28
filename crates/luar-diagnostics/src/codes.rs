@@ -262,6 +262,8 @@ registry! {
         "`await` is written in the body of an async function.";
     active 202 => AWAIT_OPERAND, "LR27",
         "`await` applies only to a `Task`.";
+    active 203 => WRITE_TO_FROZEN_COLLECTION, "LR59",
+        "A frozen collection cannot be mutated.";
 }
 
 #[cfg(test)]

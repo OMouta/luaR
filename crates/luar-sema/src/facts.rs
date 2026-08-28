@@ -22,6 +22,7 @@ pub struct Facts {
     bindings: HashMap<Span, Type>,
     type_args: HashMap<Span, Vec<Type>>,
     intrinsics: HashMap<Span, Intrinsic>,
+    freezes: HashSet<Span>,
     /// The names something takes the address of (LR72).
     addressed: HashSet<String>,
 }
@@ -83,6 +84,15 @@ impl Facts {
         self.intrinsics.get(&span).copied()
     }
 
+    pub fn record_freeze(&mut self, span: Span) {
+        self.freezes.insert(span);
+    }
+
+    #[must_use]
+    pub fn freezes(&self, span: Span) -> bool {
+        self.freezes.contains(&span)
+    }
+
     pub fn record_addressed(&mut self, name: String) {
         self.addressed.insert(name);
     }
@@ -101,6 +111,7 @@ impl Facts {
         self.bindings.extend(other.bindings);
         self.type_args.extend(other.type_args);
         self.intrinsics.extend(other.intrinsics);
+        self.freezes.extend(other.freezes);
         self.addressed.extend(other.addressed);
     }
 }

@@ -968,6 +968,18 @@ impl Checker<'_> {
                     ExprKind::Name(name) => self.unnarrowed(name),
                     _ => self.expr(target),
                 };
+                if let ExprKind::Index { receiver, .. } = &target.kind
+                    && self
+                        .facts
+                        .type_of(receiver.span)
+                        .is_some_and(is_frozen_collection)
+                {
+                    self.diagnostics.push(Diagnostic::error(
+                        codes::WRITE_TO_FROZEN_COLLECTION,
+                        target.span,
+                        "a frozen collection cannot be assigned through",
+                    ));
+                }
                 if let ExprKind::Name(name) = &target.kind {
                     self.mark_capture_mutable(name);
                 }
@@ -2587,6 +2599,7 @@ impl Checker<'_> {
             .is_none()
             .then(|| self.predeclared_intrinsic(callee))
             .flatten();
+        let freezes = method.is_some_and(|name| frozen_method(receiver, name, span).is_some());
         let resolved = self.signature_of(callee, method, receiver, span);
 
         // The arguments are expressions whoever is being called, and whatever
@@ -2664,6 +2677,9 @@ impl Checker<'_> {
         self.facts.record_call(span, signature.span);
         if let Some(intrinsic) = intrinsic {
             self.facts.record_intrinsic(span, intrinsic);
+        }
+        if freezes {
+            self.facts.record_freeze(span);
         }
 
         // LR19: a generic call takes its type arguments from what it writes
@@ -2943,6 +2959,9 @@ impl Checker<'_> {
         }
 
         if let Some(signature) = unsafe_memory_method(receiver, name, span) {
+            return Some(vec![signature]);
+        }
+        if let Some(signature) = frozen_method(receiver, name, span) {
             return Some(vec![signature]);
         }
 
@@ -4409,6 +4428,46 @@ fn unsafe_memory_method(receiver: &Type, name: &str, span: Span) -> Option<Signa
         inferred: false,
         unsafe_: true,
     })
+}
+
+fn frozen_method(receiver: &Type, name: &str, span: Span) -> Option<Signature> {
+    if name != "frozen" {
+        return None;
+    }
+    let Type::Builtin { kind, args } = receiver else {
+        return None;
+    };
+    let kind = match kind {
+        Builtin::List => Builtin::FrozenList,
+        Builtin::Map => Builtin::FrozenMap,
+        Builtin::Set => Builtin::FrozenSet,
+        _ => return None,
+    };
+    Some(Signature {
+        asynchronous: false,
+        type_params: Vec::new(),
+        constraints: Vec::new(),
+        params: Vec::new(),
+        result: Type::Builtin {
+            kind,
+            args: args.clone(),
+        },
+        takes_self: true,
+        visibility: None,
+        span,
+        inferred: false,
+        unsafe_: false,
+    })
+}
+
+fn is_frozen_collection(ty: &Type) -> bool {
+    matches!(
+        ty,
+        Type::Builtin {
+            kind: Builtin::FrozenList | Builtin::FrozenMap | Builtin::FrozenSet,
+            ..
+        }
+    )
 }
 
 fn memory_param(name: &str, ty: Type) -> crate::table::Param {
