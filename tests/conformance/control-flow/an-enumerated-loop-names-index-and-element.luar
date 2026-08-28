@@ -1,0 +1,16 @@
+--- expect: run
+--- exit: 23
+--- spec: LR10.5
+--- spec: LR13.1
+--- spec: LR59
+export function main(): int
+    local values = [5, 6, 7]
+    local total = 0
+    for index, value in values:enumerated() do
+        total += index * value
+    end
+    for index, value in values:frozen():enumerated() do
+        total += index
+    end
+    return total
+end

@@ -622,7 +622,7 @@ impl<'a> Body<'a> {
     ) {
         enum Source {
             Range { last: Value, inclusive: bool },
-            List(Value),
+            List { receiver: Value, indexed: bool },
             Table(Value),
         }
 
@@ -655,12 +655,21 @@ impl<'a> Body<'a> {
                 return;
             }
             _ => {
+                let (iterable, indexed) = match &iterable.kind {
+                    ExprKind::Call {
+                        callee,
+                        method: Some(method),
+                        args,
+                        ..
+                    } if method == "enumerated" && args.is_empty() => (callee.as_ref(), true),
+                    _ => (iterable, false),
+                };
                 let receiver = self.expr(iterable, None);
                 let source = match self.function.type_of(receiver) {
                     Ty::Builtin {
                         kind: Builtin::List | Builtin::FrozenList,
                         ..
-                    } => Source::List(receiver),
+                    } => Source::List { receiver, indexed },
                     Ty::Builtin {
                         kind: Builtin::Map | Builtin::FrozenMap | Builtin::Set | Builtin::FrozenSet,
                         ..
@@ -698,7 +707,7 @@ impl<'a> Body<'a> {
                 };
                 (op, last)
             }
-            Source::List(receiver) => (
+            Source::List { receiver, .. } => (
                 BinaryOp::Less,
                 self.emit(InstKind::Length { receiver }, Ty::INT, span),
             ),
@@ -732,7 +741,7 @@ impl<'a> Body<'a> {
         self.defs = entering.clone();
         match source {
             Source::Range { .. } => {}
-            Source::List(receiver) => {
+            Source::List { receiver, indexed } => {
                 let held = self.collection_args(receiver);
                 let element = self.emit(
                     InstKind::GetIndex {
@@ -742,8 +751,13 @@ impl<'a> Body<'a> {
                     held.first().cloned().unwrap_or(Ty::Never),
                     span,
                 );
-                if let Some(binding) = bindings.first() {
-                    self.bind_value(binding, element, span);
+                let yielded = if indexed {
+                    vec![current, element]
+                } else {
+                    vec![element]
+                };
+                for (binding, value) in bindings.iter().zip(yielded) {
+                    self.bind_value(binding, value, span);
                 }
             }
             Source::Table(receiver) => {
