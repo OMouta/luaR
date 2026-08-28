@@ -1161,6 +1161,8 @@ This costs six characters at the one place a dynamic map is created, and buys a 
 
 Assigning `map[key] = value` inserts the key or replaces its value.
 
+`scores:contains(key)` is whether `key` is present, a `bool`.
+
 `scores.length` is the number of entries the map holds, an `int`. It is not a field, so it cannot be assigned (LR89.2).
 
 ### 13.3 Sets
