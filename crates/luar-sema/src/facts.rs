@@ -20,6 +20,7 @@ pub enum Intrinsic {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CollectionMutation {
     ListPush,
+    ListPop,
     SetInsert,
 }
 

@@ -4738,8 +4738,21 @@ fn collection_mutation_method(
     let element = args.first().cloned().unwrap_or(Type::Unresolved);
     let mutation = match (kind, name) {
         (Builtin::List, "push") => CollectionMutation::ListPush,
+        (Builtin::List, "pop") => CollectionMutation::ListPop,
         (Builtin::Set, "insert") => CollectionMutation::SetInsert,
         _ => return None,
+    };
+    let (params, result) = match mutation {
+        CollectionMutation::ListPush | CollectionMutation::SetInsert => (
+            vec![crate::table::Param {
+                name: "value".to_owned(),
+                ty: element,
+                optional: false,
+                variadic: false,
+            }],
+            Type::Tuple(Vec::new()),
+        ),
+        CollectionMutation::ListPop => (Vec::new(), element.optional()),
     };
     Some((
         mutation,
@@ -4747,13 +4760,8 @@ fn collection_mutation_method(
             asynchronous: false,
             type_params: Vec::new(),
             constraints: Vec::new(),
-            params: vec![crate::table::Param {
-                name: "value".to_owned(),
-                ty: element,
-                optional: false,
-                variadic: false,
-            }],
-            result: Type::Tuple(Vec::new()),
+            params,
+            result,
             takes_self: true,
             visibility: None,
             span,
