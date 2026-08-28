@@ -1173,6 +1173,8 @@ local ids = Set { 1, 2, 3 }
 
 `ids:insert(value)` adds `value` if it is absent and returns `()`.
 
+`ids:contains(value)` is whether `value` is present, a `bool`.
+
 `ids.length` is the number of elements the set holds, an `int`. It is not a field, so it cannot be assigned (LR89.2).
 
 ---
