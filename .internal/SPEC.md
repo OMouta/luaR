@@ -4076,6 +4076,7 @@ primary_expr    = literal
                 | list_literal
                 | record_literal
                 | map_literal
+                | set_literal
                 | function_expr
                 | match_expr
                 | if_expr
@@ -4087,6 +4088,8 @@ list_literal    = "[" [ expression_list ] "]" ;
 record_literal  = [ path ] "{" [ field_init { "," field_init } [ "," ] ] "}" ;
 
 map_literal     = "Map" "{" [ map_entry { "," map_entry } [ "," ] ] "}" ;
+
+set_literal     = "Set" "{" [ expression_list ] "}" ;
 
 field_init      = identifier "=" expression ;
 
