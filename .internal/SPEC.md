@@ -771,9 +771,9 @@ for key, value in map do
 end
 ```
 
-A `for` over a `List<T>` or a `FrozenList<T>` binds each element in index order, and the binding is a `T`. One over a `Set<T>` or a `FrozenSet<T>` binds each element once, in no stated order. One over a `Map<K, V>` or a `FrozenMap<K, V>` binds each key and its value once, in no stated order: the first binding is a `K` and the second a `V`.
+A `for` over a `List<T>` or a `FrozenList<T>` binds each element in index order, and the binding is a `T`. One over `values:enumerated()`, where `values` is a `List<T>` or a `FrozenList<T>`, binds each index and the element at it, in index order: the first binding is an `int` and the second a `T`. One over a `Set<T>` or a `FrozenSet<T>` binds each element once, in no stated order. One over a `Map<K, V>` or a `FrozenMap<K, V>` binds each key and its value once, in no stated order: the first binding is a `K` and the second a `V`.
 
-The loop names one binding for each value an iteration yields: one over a range, a list, or a set, and two over a map. Another count is rejected.
+The loop names one binding for each value an iteration yields: one over a range, a list, or a set, and two over a map or over `enumerated()`. Another count is rejected.
 
 Iteration over any other type is defined by the iterable protocol rather than by special-casing tables.
 
