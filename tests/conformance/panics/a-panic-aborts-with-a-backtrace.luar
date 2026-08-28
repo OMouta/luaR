@@ -1,0 +1,18 @@
+--- expect: run
+--- exit: 101
+--- stderr: "luar: panic: broken invariant\nbacktrace:\n  at tests/conformance/panics/a-panic-aborts-with-a-backtrace.stop\n  at tests/conformance/panics/a-panic-aborts-with-a-backtrace.main\n"
+--- spec: LR25.4
+--- spec: LR26
+function overflow()
+    local maximum: u8 = 255
+    local exceeded = maximum + 1
+end
+
+function stop(): int
+    defer overflow()
+    return panic("broken invariant")
+end
+
+export function main(): int
+    return stop()
+end

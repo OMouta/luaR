@@ -164,6 +164,7 @@ fn instruction(inst: &Inst, function: &Function) -> String {
             Some(message) => format!("assert {} {}", name(*condition), name(*message)),
             None => format!("assert {}", name(*condition)),
         },
+        InstKind::Panic { message } => format!("panic {}", name(*message)),
         InstKind::Convert { value, to } => format!("convert {} to {to}", name(*value)),
         InstKind::IsType { value, ty } => format!("is {} {ty}", name(*value)),
         InstKind::Call {

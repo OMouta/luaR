@@ -100,6 +100,7 @@ pub fn compile(program: &Program) -> Result<Object, Error> {
         declared: HashMap::new(),
         runtime,
         texts: HashMap::new(),
+        names: HashMap::new(),
         gaps: Vec::new(),
     };
     emitter.declare()?;
@@ -125,6 +126,8 @@ struct Emitter<'a> {
     runtime: Runtime,
     /// One data object per distinct literal text, by its bytes.
     texts: HashMap<Vec<u8>, DataId>,
+    /// Function names stored for runtime backtraces.
+    names: HashMap<FuncId, DataId>,
     gaps: Vec<Gap>,
 }
 
@@ -194,6 +197,27 @@ impl Emitter<'_> {
                 .map_err(|error| Error::Cranelift(error.to_string()))?;
             self.texts.insert(bytes, data);
         }
+
+        for (id, function) in self.program.functions() {
+            if function.is_template() {
+                continue;
+            }
+            let mut description = DataDescription::new();
+            description.define(function.name.as_bytes().to_vec().into_boxed_slice());
+            let data = self
+                .module
+                .declare_data(
+                    &format!("luar_function_name{}", id.0),
+                    Linkage::Local,
+                    false,
+                    false,
+                )
+                .map_err(|error| Error::Cranelift(error.to_string()))?;
+            self.module
+                .define_data(data, &description)
+                .map_err(|error| Error::Cranelift(error.to_string()))?;
+            self.names.insert(id, data);
+        }
         Ok(())
     }
 
@@ -226,6 +250,9 @@ impl Emitter<'_> {
                     texts.insert(bytes, value);
                 }
             }
+            let function_name = self
+                .module
+                .declare_data_in_func(self.names[&id], &mut context.func);
 
             let handlers = self
                 .runtime
@@ -246,9 +273,7 @@ impl Emitter<'_> {
             let display_unsigned = self
                 .runtime
                 .display_unsigned_in(&mut self.module, &mut context.func);
-            let assertion_failed = self
-                .runtime
-                .assertion_failed_in(&mut self.module, &mut context.func);
+            let abort = self.runtime.abort_in(&mut self.module, &mut context.func);
             let roots = self.runtime.roots_in(&mut self.module, &mut context.func);
             let finalizers = self
                 .program
@@ -264,6 +289,7 @@ impl Emitter<'_> {
             let translator = Translator {
                 program: self.program,
                 function,
+                function_name,
                 builder: FunctionBuilder::new(&mut context.func, &mut frame),
                 pointer: self.pointer,
                 callees,
@@ -275,7 +301,7 @@ impl Emitter<'_> {
                 hash_bytes,
                 display_signed,
                 display_unsigned,
-                assertion_failed,
+                abort,
                 finalizers,
                 roots,
                 root_frame: None,

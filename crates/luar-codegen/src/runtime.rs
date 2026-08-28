@@ -44,7 +44,7 @@ pub(crate) struct Runtime {
     pub hash_bytes: ModuleFuncId,
     pub display_signed: ModuleFuncId,
     pub display_unsigned: ModuleFuncId,
-    pub assertion_failed: ModuleFuncId,
+    pub abort: ModuleFuncId,
     /// The most recently entered shadow-stack frame.
     roots: DataId,
 }
@@ -80,7 +80,7 @@ impl Runtime {
             define_display_integer(module, pointer, call_conv, collector.allocate, true)?;
         let display_unsigned =
             define_display_integer(module, pointer, call_conv, collector.allocate, false)?;
-        let assertion_failed = define_assertion_failed(module, pointer, call_conv, exit, write)?;
+        let abort = define_abort(module, pointer, call_conv, exit, write, collector.roots)?;
 
         let mut handlers = Vec::with_capacity(TRAPS.len());
         for trap in TRAPS {
@@ -96,7 +96,7 @@ impl Runtime {
             hash_bytes,
             display_signed,
             display_unsigned,
-            assertion_failed,
+            abort,
             roots: collector.roots,
         })
     }
@@ -159,12 +159,12 @@ impl Runtime {
         module.declare_func_in_func(self.display_unsigned, function)
     }
 
-    pub fn assertion_failed_in(
+    pub fn abort_in(
         &self,
         module: &mut ObjectModule,
         function: &mut cranelift_codegen::ir::Function,
     ) -> FuncRef {
-        module.declare_func_in_func(self.assertion_failed, function)
+        module.declare_func_in_func(self.abort, function)
     }
 
     pub fn roots_in(
@@ -673,47 +673,88 @@ fn copy_byte(
     builder.ins().store(MemFlags::trusted(), byte, address, 0);
 }
 
-fn define_assertion_failed(
+fn define_abort(
     module: &mut ObjectModule,
     pointer: types::Type,
     call_conv: CallConv,
     exit: ModuleFuncId,
     write: ModuleFuncId,
+    roots: DataId,
 ) -> Result<ModuleFuncId, Error> {
-    let prefix_bytes = b"luar: trap: assertion-failed";
+    let assertion_bytes = b"luar: trap: assertion-failed";
+    let panic_bytes = b"luar: panic";
     let separator_bytes = b": ";
     let newline_bytes = b"\n";
-    let prefix = static_data(module, "luar_assertion_prefix", prefix_bytes)?;
-    let separator = static_data(module, "luar_assertion_separator", separator_bytes)?;
-    let newline = static_data(module, "luar_assertion_newline", newline_bytes)?;
+    let trace_bytes = b"backtrace:\n";
+    let frame_bytes = b"  at ";
+    let assertion = static_data(module, "luar_assertion_prefix", assertion_bytes)?;
+    let panic = static_data(module, "luar_panic_prefix", panic_bytes)?;
+    let separator = static_data(module, "luar_failure_separator", separator_bytes)?;
+    let newline = static_data(module, "luar_failure_newline", newline_bytes)?;
+    let trace = static_data(module, "luar_backtrace_header", trace_bytes)?;
+    let frame_prefix = static_data(module, "luar_backtrace_frame", frame_bytes)?;
 
     let mut signature = Signature::new(call_conv);
+    signature.params.push(AbiParam::new(types::I8));
     signature.params.push(AbiParam::new(pointer));
+    signature.returns.push(AbiParam::new(types::I8));
     let declared = module
-        .declare_function("luar_assertion_failed", Linkage::Local, &signature)
+        .declare_function("luar_abort", Linkage::Local, &signature)
         .map_err(|error| Error::Cranelift(error.to_string()))?;
 
     let mut context = Context::new();
     let mut frame = FunctionBuilderContext::new();
     context.func.signature = signature;
-    let prefix = module.declare_data_in_func(prefix, &mut context.func);
+    let assertion = module.declare_data_in_func(assertion, &mut context.func);
+    let panic = module.declare_data_in_func(panic, &mut context.func);
     let separator = module.declare_data_in_func(separator, &mut context.func);
     let newline = module.declare_data_in_func(newline, &mut context.func);
+    let trace = module.declare_data_in_func(trace, &mut context.func);
+    let frame_prefix = module.declare_data_in_func(frame_prefix, &mut context.func);
+    let roots = module.declare_data_in_func(roots, &mut context.func);
     let write = module.declare_func_in_func(write, &mut context.func);
     let exit = module.declare_func_in_func(exit, &mut context.func);
 
     let mut builder = FunctionBuilder::new(&mut context.func, &mut frame);
     let entry = builder.create_block();
+    let panic_header = builder.create_block();
+    let assertion_header = builder.create_block();
+    let after_header = builder.create_block();
     let message = builder.create_block();
+    let trace_header = builder.create_block();
+    let frames = builder.create_block();
+    let write_frame = builder.create_block();
     let finish = builder.create_block();
     builder.append_block_params_for_function_params(entry);
+    builder.append_block_param(frames, pointer);
+    builder.append_block_param(write_frame, pointer);
 
     builder.switch_to_block(entry);
-    let value = builder.block_params(entry)[0];
-    write_static(&mut builder, pointer, write, prefix, prefix_bytes.len());
+    let kind = builder.block_params(entry)[0];
+    let value = builder.block_params(entry)[1];
+    let is_panic = builder.ins().icmp_imm(IntCC::Equal, kind, 1);
+    builder
+        .ins()
+        .brif(is_panic, panic_header, &[], assertion_header, &[]);
+
+    builder.switch_to_block(panic_header);
+    write_static(&mut builder, pointer, write, panic, panic_bytes.len());
+    builder.ins().jump(after_header, &[]);
+
+    builder.switch_to_block(assertion_header);
+    write_static(
+        &mut builder,
+        pointer,
+        write,
+        assertion,
+        assertion_bytes.len(),
+    );
+    builder.ins().jump(after_header, &[]);
+
+    builder.switch_to_block(after_header);
     let zero = builder.ins().iconst(pointer, 0);
     let present = builder.ins().icmp(IntCC::NotEqual, value, zero);
-    builder.ins().brif(present, message, &[], finish, &[]);
+    builder.ins().brif(present, message, &[], trace_header, &[]);
 
     builder.switch_to_block(message);
     write_static(
@@ -730,10 +771,60 @@ fn define_assertion_failed(
     let text = builder.ins().iadd_imm(value, 8);
     let stderr = builder.ins().iconst(types::I32, STDERR);
     builder.ins().call(write, &[stderr, text, length]);
-    builder.ins().jump(finish, &[]);
+    builder.ins().jump(trace_header, &[]);
+
+    builder.switch_to_block(trace_header);
+    write_static(&mut builder, pointer, write, newline, newline_bytes.len());
+    write_static(&mut builder, pointer, write, trace, trace_bytes.len());
+    let roots = builder.ins().global_value(pointer, roots);
+    let first = builder.ins().load(pointer, MemFlags::trusted(), roots, 0);
+    builder
+        .ins()
+        .jump(frames, &[cranelift_codegen::ir::BlockArg::Value(first)]);
+
+    builder.switch_to_block(frames);
+    let frame = builder.block_params(frames)[0];
+    let zero = builder.ins().iconst(pointer, 0);
+    let exhausted = builder.ins().icmp(IntCC::Equal, frame, zero);
+    builder.ins().brif(
+        exhausted,
+        finish,
+        &[],
+        write_frame,
+        &[cranelift_codegen::ir::BlockArg::Value(frame)],
+    );
+
+    builder.switch_to_block(write_frame);
+    let frame = builder.block_params(write_frame)[0];
+    write_static(
+        &mut builder,
+        pointer,
+        write,
+        frame_prefix,
+        frame_bytes.len(),
+    );
+    let cell = i32::try_from(pointer.bytes()).expect("pointer width fits in i32");
+    let name = builder
+        .ins()
+        .load(pointer, MemFlags::trusted(), frame, cell.saturating_mul(2));
+    let name_length =
+        builder
+            .ins()
+            .load(pointer, MemFlags::trusted(), frame, cell.saturating_mul(3));
+    let name_length = if pointer.bits() > 32 {
+        builder.ins().ireduce(types::I32, name_length)
+    } else {
+        name_length
+    };
+    let stderr = builder.ins().iconst(types::I32, STDERR);
+    builder.ins().call(write, &[stderr, name, name_length]);
+    write_static(&mut builder, pointer, write, newline, newline_bytes.len());
+    let previous = builder.ins().load(pointer, MemFlags::trusted(), frame, 0);
+    builder
+        .ins()
+        .jump(frames, &[cranelift_codegen::ir::BlockArg::Value(previous)]);
 
     builder.switch_to_block(finish);
-    write_static(&mut builder, pointer, write, newline, newline_bytes.len());
     let status = builder.ins().iconst(types::I32, TRAPPED);
     builder.ins().call(exit, &[status]);
     builder.ins().trap(AFTER_EXIT);

@@ -2179,6 +2179,14 @@ impl<'a> Body<'a> {
             return self.emit(InstKind::Const(Const::Unit), Ty::Unit, span);
         }
 
+        if intrinsic == Intrinsic::Panic {
+            let message = args
+                .first()
+                .map(|argument| self.expr(&argument.value, Some(&Ty::Str)))
+                .unwrap_or_else(|| self.missing(span, "a panic message"));
+            return self.emit(InstKind::Panic { message }, Ty::Never, span);
+        }
+
         let mut condition = None;
         let mut message = None;
         let mut position = 0;

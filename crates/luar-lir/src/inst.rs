@@ -172,6 +172,10 @@ pub enum InstKind {
         condition: Value,
         message: Option<Value>,
     },
+    /// `panic(message)` (LR25.4).
+    Panic {
+        message: Value,
+    },
 
     /// `x as T`, between numeric types (LR33, LR39).
     Convert {
@@ -376,7 +380,7 @@ impl InstKind {
                 }
             }
             Self::GetIndex { .. } => Effect::Trap,
-            Self::Assert { .. } => Effect::Trap,
+            Self::Assert { .. } | Self::Panic { .. } => Effect::Trap,
 
             Self::Call { .. }
             | Self::CallIndirect { .. }

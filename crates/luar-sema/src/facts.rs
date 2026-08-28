@@ -11,6 +11,7 @@ use crate::types::Type;
 pub enum Intrinsic {
     Assert,
     DebugAssert,
+    Panic,
 }
 
 /// What the checker knows about one program.

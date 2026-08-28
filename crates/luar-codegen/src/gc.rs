@@ -11,6 +11,9 @@ use crate::Error;
 const COLLECT_AFTER: i64 = 1024 * 1024;
 const OWNED: MemFlags = MemFlags::trusted();
 
+/// Previous frame, root count, function name, and function-name length.
+pub(crate) const ROOT_FRAME_HEADER: i32 = 4;
+
 pub(crate) struct Collector {
     pub allocate: FuncId,
     pub roots: DataId,
@@ -325,7 +328,9 @@ fn define_mark_roots(
     builder.switch_to_block(mark_slot);
     let offset = builder.ins().imul_imm(index, cell);
     let address = builder.ins().iadd(frame, offset);
-    let candidate = builder.ins().load(pointer, OWNED, address, size_offset * 2);
+    let candidate = builder
+        .ins()
+        .load(pointer, OWNED, address, size_offset * ROOT_FRAME_HEADER);
     builder.ins().call(mark, &[candidate]);
     let next = builder.ins().iadd_imm(index, 1);
     builder.ins().jump(

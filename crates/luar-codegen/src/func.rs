@@ -13,6 +13,7 @@ use luar_lir::program::{BlockId, FuncId, Function, Program};
 use luar_lir::ty::Ty;
 
 use crate::Gap;
+use crate::gc::ROOT_FRAME_HEADER;
 use crate::layout::{self, TAG, TAG_TYPE};
 use crate::ty::{is_signed, machine};
 
@@ -40,6 +41,8 @@ pub(crate) fn handler_index(trap: Trap) -> usize {
 /// What the machine does after the handler, which never returns. Cranelift
 /// needs a terminator there and no program reaches it.
 const AFTER_HANDLER: TrapCode = TrapCode::unwrap_user(1);
+const ASSERTION_FAILURE: i64 = 0;
+const PANIC_FAILURE: i64 = 1;
 
 /// The Cranelift signature of `function`, or `None` where a parameter or the
 /// result has a type the backend cannot represent yet.
@@ -63,6 +66,7 @@ pub(crate) fn signature(
 pub(crate) struct Translator<'a, 'b> {
     pub program: &'a Program,
     pub function: &'a Function,
+    pub function_name: GlobalValue,
     pub builder: FunctionBuilder<'b>,
     pub pointer: Type,
     pub callees: HashMap<FuncId, FuncRef>,
@@ -77,7 +81,7 @@ pub(crate) struct Translator<'a, 'b> {
     pub hash_bytes: FuncRef,
     pub display_signed: FuncRef,
     pub display_unsigned: FuncRef,
-    pub assertion_failed: FuncRef,
+    pub abort: FuncRef,
     pub finalizers: HashMap<Ty, FuncRef>,
     /// The global holding the top shadow-stack frame.
     pub roots: GlobalValue,
@@ -202,6 +206,10 @@ impl Translator<'_, '_> {
                 switch.emit(&mut self.builder, scrutinee, otherwise);
             }
             Terminator::Return(value) => {
+                if self.function.type_of(*value) == &Ty::Never {
+                    self.raise(Trap::Unreachable);
+                    return;
+                }
                 let value = self.value(*value);
                 self.leave_roots();
                 self.builder.ins().return_(&[value]);
@@ -232,6 +240,12 @@ impl Translator<'_, '_> {
             InstKind::Assert { condition, message } => {
                 self.assert(*condition, *message);
                 None
+            }
+            InstKind::Panic { message } => {
+                let message = self.value(*message);
+                let kind = self.builder.ins().iconst(types::I8, PANIC_FAILURE);
+                let call = self.builder.ins().call(self.abort, &[kind, message]);
+                self.builder.inst_results(call).first().copied()
             }
             InstKind::Convert { value, to } => self.convert(*value, to),
             InstKind::Call {
@@ -331,7 +345,7 @@ impl Translator<'_, '_> {
         let temporary_count = usize::try_from(layout::DEPTH).expect("root depth fits in usize");
         let count =
             i32::try_from(values.len().saturating_add(temporary_count)).unwrap_or(i32::MAX / cell);
-        let size = cell.saturating_mul(count.saturating_add(2));
+        let size = cell.saturating_mul(count.saturating_add(ROOT_FRAME_HEADER));
         let slot = self.builder.create_sized_stack_slot(StackSlotData::new(
             StackSlotKind::ExplicitSlot,
             u32::try_from(size).unwrap_or(u32::MAX),
@@ -339,13 +353,15 @@ impl Translator<'_, '_> {
         ));
         self.root_frame = Some(slot);
         for (index, value) in values.into_iter().enumerate() {
-            let offset = cell.saturating_mul(i32::try_from(index).unwrap_or(i32::MAX) + 2);
+            let offset =
+                cell.saturating_mul(i32::try_from(index).unwrap_or(i32::MAX) + ROOT_FRAME_HEADER);
             self.root_offsets.insert(value, offset);
         }
         let first = self.root_offsets.len();
         for index in 0..temporary_count {
-            let offset = cell
-                .saturating_mul(i32::try_from(first.saturating_add(index)).unwrap_or(i32::MAX) + 2);
+            let offset = cell.saturating_mul(
+                i32::try_from(first.saturating_add(index)).unwrap_or(i32::MAX) + ROOT_FRAME_HEADER,
+            );
             self.temporary_roots.push(offset);
         }
     }
@@ -368,6 +384,20 @@ impl Translator<'_, '_> {
                 .saturating_add(self.temporary_roots.len()) as i64,
         );
         self.builder.ins().store(OWNED, count, frame, cell);
+        let name = self
+            .builder
+            .ins()
+            .global_value(self.pointer, self.function_name);
+        self.builder
+            .ins()
+            .store(OWNED, name, frame, cell.saturating_mul(2));
+        let name_length = self.builder.ins().iconst(
+            self.pointer,
+            i64::try_from(self.function.name.len()).unwrap_or(0),
+        );
+        self.builder
+            .ins()
+            .store(OWNED, name_length, frame, cell.saturating_mul(3));
         let zero = self.builder.ins().iconst(self.pointer, 0);
         for offset in self.root_offsets.values() {
             self.builder.ins().store(OWNED, zero, frame, *offset);
@@ -574,7 +604,8 @@ impl Translator<'_, '_> {
             Some(message) => self.value(message),
             None => self.builder.ins().iconst(self.pointer, 0),
         };
-        self.builder.ins().call(self.assertion_failed, &[message]);
+        let kind = self.builder.ins().iconst(types::I8, ASSERTION_FAILURE);
+        self.builder.ins().call(self.abort, &[kind, message]);
         self.builder.ins().trap(AFTER_HANDLER);
         self.builder.switch_to_block(carry_on);
     }

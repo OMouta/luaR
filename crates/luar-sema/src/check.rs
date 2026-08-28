@@ -3084,6 +3084,7 @@ impl Checker<'_> {
         match name.as_str() {
             "assert" => Some(Intrinsic::Assert),
             "debugAssert" => Some(Intrinsic::DebugAssert),
+            "panic" => Some(Intrinsic::Panic),
             _ => None,
         }
     }
@@ -4380,31 +4381,43 @@ fn memory_param(name: &str, ty: Type) -> crate::table::Param {
 }
 
 fn intrinsic_signature(intrinsic: Intrinsic, span: Span) -> Signature {
-    let mut params = vec![crate::table::Param {
-        name: "condition".to_owned(),
-        ty: Type::BOOL,
-        optional: false,
-        variadic: false,
-    }];
-    if intrinsic == Intrinsic::Assert {
-        params.push(crate::table::Param {
-            name: "message".to_owned(),
-            ty: Type::STRING,
-            optional: true,
-            variadic: false,
-        });
-    }
+    let (params, result) = match intrinsic {
+        Intrinsic::Assert => (
+            vec![
+                intrinsic_param("condition", Type::BOOL, false),
+                intrinsic_param("message", Type::STRING, true),
+            ],
+            Type::Tuple(Vec::new()),
+        ),
+        Intrinsic::DebugAssert => (
+            vec![intrinsic_param("condition", Type::BOOL, false)],
+            Type::Tuple(Vec::new()),
+        ),
+        Intrinsic::Panic => (
+            vec![intrinsic_param("message", Type::STRING, false)],
+            Type::Primitive(Primitive::Never),
+        ),
+    };
     Signature {
         asynchronous: false,
         type_params: Vec::new(),
         constraints: Vec::new(),
         params,
-        result: Type::Tuple(Vec::new()),
+        result,
         takes_self: false,
         visibility: None,
         span,
         inferred: false,
         unsafe_: false,
+    }
+}
+
+fn intrinsic_param(name: &str, ty: Type, optional: bool) -> crate::table::Param {
+    crate::table::Param {
+        name: name.to_owned(),
+        ty,
+        optional,
+        variadic: false,
     }
 }
 
