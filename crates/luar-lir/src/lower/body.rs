@@ -11,6 +11,7 @@ use luar_ast::{
 use luar_diagnostics::Span;
 use luar_sema::check::protocol_of;
 use luar_sema::facts::{Facts, Intrinsic};
+use luar_sema::modules::ModuleId;
 
 use luar_sema::types::Type;
 
@@ -99,6 +100,11 @@ pub(super) struct Context<'a> {
     /// The declarations an exception can escape (LR25.3).
     pub throwing: &'a HashSet<Span>,
     pub program: &'a Program,
+    /// The module the body is written in.
+    pub module: ModuleId,
+    /// Each module-level `const`, with the span of its declaration and its
+    /// initializer (LR24).
+    pub constants: &'a HashMap<(ModuleId, String), (Span, Expr)>,
 }
 
 pub(super) struct Body<'a> {
@@ -128,6 +134,8 @@ pub(super) struct Body<'a> {
     defs: HashMap<Var, Value>,
     /// The stack slot a binding whose address is taken lives in (LR72).
     slots: HashMap<Var, SlotId>,
+    /// The module-level constants being read, outermost first (LR24).
+    expanding: Vec<String>,
     next_var: u32,
     /// The loops open around what is being lowered, innermost last.
     loops: Vec<Loop>,
@@ -165,6 +173,7 @@ impl<'a> Body<'a> {
             throws,
             defs: HashMap::new(),
             slots: HashMap::new(),
+            expanding: Vec::new(),
             next_var: 0,
             loops: Vec::new(),
             mutated: Vec::new(),
@@ -322,6 +331,23 @@ impl<'a> Body<'a> {
         for frame in (depth..self.scopes.len()).rev() {
             self.unwind(frame);
         }
+    }
+
+    /// LR24: a module-level `const` is its initializer, which is pure (LR79),
+    /// worked out where the name is read.
+    fn constant(&mut self, name: &str, wanted: Option<&Ty>, span: Span) -> Value {
+        let key = (self.context.module, name.to_owned());
+        let Some((declared, initializer)) = self.context.constants.get(&key).cloned() else {
+            return self.missing(span, "a name that is not a local binding");
+        };
+        if self.expanding.iter().any(|held| held == name) {
+            return self.missing(span, "a `const` that reads itself");
+        }
+        let declared = self.declared_type(declared);
+        self.expanding.push(name.to_owned());
+        let value = self.expr(&initializer, declared.as_ref().or(wanted));
+        self.expanding.pop();
+        value
     }
 
     /// What `var` holds now: its slot's contents where it has one, and its
@@ -1781,7 +1807,7 @@ impl<'a> Body<'a> {
 
             ExprKind::Name(name) => match self.lookup(name) {
                 Some(var) => self.read_var(var, span),
-                None => self.missing(span, "a name that is not a local binding"),
+                None => self.constant(name, wanted, span),
             },
 
             // LR36: a unary operator the checker sent through a protocol is a

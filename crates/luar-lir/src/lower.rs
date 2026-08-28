@@ -76,9 +76,11 @@ pub fn lower_in_mode(
         bodies: Vec::new(),
         derived: Vec::new(),
         throwing: HashSet::new(),
+        constants: HashMap::new(),
         gaps: Vec::new(),
     };
 
+    lowering.collect_constants();
     lowering.name_types();
     lowering.build_types();
     lowering.find_throwing();
@@ -125,6 +127,9 @@ struct Lowering<'a> {
     /// The declarations an exception can escape, by the span of each
     /// (LR25.3).
     throwing: HashSet<Span>,
+    /// Each module-level `const`, by the module and the name, with the span
+    /// of its declaration and its initializer (LR24).
+    constants: HashMap<(ModuleId, String), (Span, luar_ast::Expr)>,
     gaps: Vec<Gap>,
 }
 
@@ -167,6 +172,7 @@ pub(super) struct Property {
 /// A declared function whose body has not been lowered yet.
 struct Pending {
     id: FuncId,
+    module: ModuleId,
     /// What the entry block's parameters bind to, in order.
     bindings: Vec<Binding>,
     /// Whether an exception can escape it (LR25.3).
@@ -195,6 +201,23 @@ impl Lowering<'_> {
     fn qualify(&self, module: ModuleId, name: &str) -> String {
         let path = self.graph.module(module).path.with_extension("");
         format!("{}.{name}", path.display()).replace('\\', "/")
+    }
+
+    fn collect_constants(&mut self) {
+        for (module, node) in self.graph.modules() {
+            for item in &node.ast.items {
+                if let Item::Stmt(stmt) = item
+                    && let luar_ast::StmtKind::Const {
+                        binding: Binding::Name(name),
+                        value,
+                        ..
+                    } = &stmt.kind
+                {
+                    self.constants
+                        .insert((module, name.clone()), (stmt.span, value.clone()));
+                }
+            }
+        }
     }
 
     /// Gives every declared type an id, so that one may name another.
@@ -439,6 +462,7 @@ impl Lowering<'_> {
             let id = self.program.add_function(function);
             self.program.initializers.push(id);
             self.bodies.push(Pending {
+                module,
                 id,
                 bindings: Vec::new(),
                 throws: false,
@@ -492,6 +516,7 @@ impl Lowering<'_> {
             let finalizer = self.program.add_function(lowered);
             self.program.set_finalizer(receiver, finalizer);
             self.bodies.push(Pending {
+                module,
                 id: finalizer,
                 bindings: vec![Binding::Name("self".to_owned())],
                 throws: false,
@@ -588,6 +613,7 @@ impl Lowering<'_> {
 
         if let Some(body) = &function.body {
             self.bodies.push(Pending {
+                module,
                 id,
                 bindings,
                 throws,
@@ -658,6 +684,7 @@ impl Lowering<'_> {
         get.block_mut(get.entry).term = Some(Terminator::Trap(Trap::Unreachable));
         let get = self.program.add_function(get);
         self.bodies.push(Pending {
+            module,
             id: get,
             bindings: vec![Binding::Name("self".to_owned())],
             throws: false,
@@ -676,6 +703,7 @@ impl Lowering<'_> {
             written.block_mut(written.entry).term = Some(Terminator::Trap(Trap::Unreachable));
             let written = self.program.add_function(written);
             self.bodies.push(Pending {
+                module,
                 id: written,
                 bindings: vec![
                     Binding::Name("self".to_owned()),
@@ -803,6 +831,8 @@ impl Lowering<'_> {
                 properties: &self.properties,
                 throwing: &self.throwing,
                 program: &self.program,
+                module: pending.module,
+                constants: &self.constants,
             };
             let shell = self.program.function(pending.id).clone();
             let (function, closures, gaps) = body::Body::new(context, shell, pending.throws).lower(
