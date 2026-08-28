@@ -2458,6 +2458,72 @@ impl<'a> Body<'a> {
     }
 
     fn intrinsic(&mut self, intrinsic: Intrinsic, args: &[Argument], span: Span) -> Value {
+        let constructed = self.recorded(span);
+        match (&intrinsic, &constructed) {
+            (
+                Intrinsic::ListNew,
+                Ty::Builtin {
+                    kind: Builtin::List,
+                    args,
+                },
+            ) => {
+                let Some(element) = args.first().cloned() else {
+                    return self.missing(span, "a list constructor without an element type");
+                };
+                return self.emit(
+                    InstKind::MakeList {
+                        element,
+                        values: Vec::new(),
+                    },
+                    constructed,
+                    span,
+                );
+            }
+            (
+                Intrinsic::MapNew,
+                Ty::Builtin {
+                    kind: Builtin::Map,
+                    args,
+                },
+            ) => {
+                let (Some(key), Some(value)) = (args.first().cloned(), args.get(1).cloned()) else {
+                    return self.missing(span, "a map constructor without key and value types");
+                };
+                return self.emit(
+                    InstKind::MakeMap {
+                        key,
+                        value,
+                        entries: Vec::new(),
+                    },
+                    constructed,
+                    span,
+                );
+            }
+            (
+                Intrinsic::SetNew,
+                Ty::Builtin {
+                    kind: Builtin::Set,
+                    args,
+                },
+            ) => {
+                let Some(element) = args.first().cloned() else {
+                    return self.missing(span, "a set constructor without an element type");
+                };
+                return self.emit(
+                    InstKind::MakeSet {
+                        element,
+                        values: Vec::new(),
+                    },
+                    constructed,
+                    span,
+                );
+            }
+            (Intrinsic::ListNew | Intrinsic::MapNew | Intrinsic::SetNew, _) => {
+                return self.missing(span, "a collection constructor with an unresolved type");
+            }
+            _ => {}
+        }
+
         if intrinsic == Intrinsic::DebugAssert && self.context.mode == CompilationMode::Release {
             return self.emit(InstKind::Const(Const::Unit), Ty::Unit, span);
         }

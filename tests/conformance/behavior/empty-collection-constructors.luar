@@ -1,0 +1,13 @@
+--- expect: run
+--- exit: 60
+--- spec: LR13.1
+--- spec: LR13.2
+--- spec: LR13.3
+export function main(): int
+    local values = List.new<int>()
+    local scores = Map.new<string, int>()
+    local ids = Set.new<int>()
+    local frozenIds = ids:frozen()
+
+    return (values:get(0) ?? 20) + (scores:get("missing") ?? 40)
+end
