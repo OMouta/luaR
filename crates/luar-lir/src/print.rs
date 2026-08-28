@@ -263,6 +263,17 @@ fn instruction(inst: &Inst, function: &Function) -> String {
         InstKind::SetInsert { receiver, value } => {
             format!("insert {} <- {}", name(*receiver), name(*value))
         }
+        InstKind::Length { receiver } => format!("length {}", name(*receiver)),
+        InstKind::Buckets { receiver } => format!("buckets {}", name(*receiver)),
+        InstKind::Occupied { receiver, index } => {
+            format!("occupied {}[{}]", name(*receiver), name(*index))
+        }
+        InstKind::EntryKey { receiver, index } => {
+            format!("key {}[{}]", name(*receiver), name(*index))
+        }
+        InstKind::EntryValue { receiver, index } => {
+            format!("value {}[{}]", name(*receiver), name(*index))
+        }
         InstKind::GetIndex { receiver, index } => {
             format!("index {}[{}]", name(*receiver), name(*index))
         }

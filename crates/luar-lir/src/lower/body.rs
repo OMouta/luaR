@@ -598,7 +598,10 @@ impl<'a> Body<'a> {
 
     /// LR10.4: a `for` over a range written in place counts from its lower
     /// bound up to its upper one, and runs zero times where the lower bound
-    /// is the greater. Anything else iterates through the protocol (LR35).
+    /// is the greater. LR10.5: one over a list counts through its indices,
+    /// and one over a map or a set counts through its buckets and runs the
+    /// body for each that is occupied. Anything else iterates through the
+    /// protocol (LR35).
     fn for_stmt(
         &mut self,
         label: Option<&str>,
@@ -607,36 +610,67 @@ impl<'a> Body<'a> {
         body: &Block,
         span: Span,
     ) {
-        let (
-            ExprKind::Range {
-                start: Some(start),
-                end: Some(end),
-                inclusive,
-            },
-            [Binding::Name(name)],
-        ) = (&iterable.kind, bindings)
-        else {
-            self.gap(
-                span,
-                "a `for` over something that is not a range written in place",
-            );
-            return;
-        };
-
-        let element = self
-            .declared_type(span)
-            .or_else(|| self.known_type(start))
-            .unwrap_or(Ty::Int(IntTy::I64));
-        let first = self.expr(start, Some(&element));
-        let last = self.expr(end, Some(&element));
+        enum Source {
+            Range { last: Value, inclusive: bool },
+            List(Value),
+            Table(Value),
+        }
 
         let carried = self.carried(body);
         let header = self.function.add_block();
         self.open();
-        let var = self.declare(name);
-        self.defs.insert(var, first);
+        let (source, counter, first, element) = match (&iterable.kind, bindings) {
+            (
+                ExprKind::Range {
+                    start: Some(start),
+                    end: Some(end),
+                    inclusive,
+                },
+                [Binding::Name(name)],
+            ) => {
+                let element = self
+                    .declared_type(span)
+                    .or_else(|| self.known_type(start))
+                    .unwrap_or(Ty::Int(IntTy::I64));
+                let first = self.expr(start, Some(&element));
+                let last = self.expr(end, Some(&element));
+                let source = Source::Range {
+                    last,
+                    inclusive: *inclusive,
+                };
+                (source, self.declare(name), first, element)
+            }
+            (ExprKind::Range { .. }, _) => {
+                self.gap(span, "a range loop that does not bind one name");
+                return;
+            }
+            _ => {
+                let receiver = self.expr(iterable, None);
+                let source = match self.function.type_of(receiver) {
+                    Ty::Builtin {
+                        kind: Builtin::List | Builtin::FrozenList,
+                        ..
+                    } => Source::List(receiver),
+                    Ty::Builtin {
+                        kind: Builtin::Map | Builtin::FrozenMap | Builtin::Set | Builtin::FrozenSet,
+                        ..
+                    } => Source::Table(receiver),
+                    _ => {
+                        self.gap(
+                            span,
+                            "a `for` over something that is not a range or a collection",
+                        );
+                        return;
+                    }
+                };
+                let zero = self.emit(InstKind::Const(Const::Int(0)), Ty::INT, span);
+                (source, self.declare(""), zero, Ty::INT)
+            }
+        };
+
+        self.defs.insert(counter, first);
         let mut passing = carried.clone();
-        passing.push(var);
+        passing.push(counter);
         self.jump_to(header, &passing);
 
         self.switch_to(header);
@@ -644,17 +678,30 @@ impl<'a> Body<'a> {
         self.bind_params(header, &passing);
         let entering = self.defs.clone();
 
-        let op = if *inclusive {
-            BinaryOp::LessEqual
-        } else {
-            BinaryOp::Less
+        let current = self.defs[&counter];
+        let (op, bound) = match source {
+            Source::Range { last, inclusive } => {
+                let op = if inclusive {
+                    BinaryOp::LessEqual
+                } else {
+                    BinaryOp::Less
+                };
+                (op, last)
+            }
+            Source::List(receiver) => (
+                BinaryOp::Less,
+                self.emit(InstKind::Length { receiver }, Ty::INT, span),
+            ),
+            Source::Table(receiver) => (
+                BinaryOp::Less,
+                self.emit(InstKind::Buckets { receiver }, Ty::INT, span),
+            ),
         };
-        let current = self.defs[&var];
         let condition = self.emit(
             InstKind::Binary {
                 op,
                 left: current,
-                right: last,
+                right: bound,
             },
             Ty::Bool,
             span,
@@ -668,11 +715,61 @@ impl<'a> Body<'a> {
         self.terminate(Terminator::Branch {
             condition,
             then: Target::to(inside),
-            otherwise: Target::new(exit, leaving),
+            otherwise: Target::new(exit, leaving.clone()),
         });
 
         self.switch_to(inside);
         self.defs = entering.clone();
+        match source {
+            Source::Range { .. } => {}
+            Source::List(receiver) => {
+                let held = self.collection_args(receiver);
+                let element = self.emit(
+                    InstKind::GetIndex {
+                        receiver,
+                        index: current,
+                    },
+                    held.first().cloned().unwrap_or(Ty::Never),
+                    span,
+                );
+                if let Some(binding) = bindings.first() {
+                    self.bind_value(binding, element, span);
+                }
+            }
+            Source::Table(receiver) => {
+                let occupied = self.emit(
+                    InstKind::Occupied {
+                        receiver,
+                        index: current,
+                    },
+                    Ty::Bool,
+                    span,
+                );
+                let found = self.function.add_block();
+                self.terminate(Terminator::Branch {
+                    condition: occupied,
+                    then: Target::to(found),
+                    otherwise: Target::new(step, leaving),
+                });
+                self.switch_to(found);
+
+                let held = self.collection_args(receiver);
+                let reads = [
+                    InstKind::EntryKey {
+                        receiver,
+                        index: current,
+                    },
+                    InstKind::EntryValue {
+                        receiver,
+                        index: current,
+                    },
+                ];
+                for ((binding, read), ty) in bindings.iter().zip(reads).zip(held) {
+                    let value = self.emit(read, ty, span);
+                    self.bind_value(binding, value, span);
+                }
+            }
+        }
         self.loops.push(Loop {
             label: label.map(ToOwned::to_owned),
             again: Some(step),
@@ -699,13 +796,21 @@ impl<'a> Body<'a> {
             element,
             span,
         );
-        self.defs.insert(var, next);
+        self.defs.insert(counter, next);
         self.jump_to(header, &passing);
         self.close();
 
         self.switch_to(exit);
         self.defs = entering;
         self.bind_params(exit, &carried);
+    }
+
+    /// The type arguments of the collection `receiver` holds.
+    fn collection_args(&self, receiver: Value) -> Vec<Ty> {
+        match self.function.type_of(receiver) {
+            Ty::Builtin { args, .. } => args.clone(),
+            _ => Vec::new(),
+        }
     }
 
     /// LR10.3: the body runs before the condition is tested, so the loop runs

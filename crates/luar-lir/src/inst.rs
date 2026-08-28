@@ -301,6 +301,30 @@ pub enum InstKind {
         value: Value,
     },
 
+    /// How many elements a list holds (LR13.1).
+    Length {
+        receiver: Value,
+    },
+    /// How many buckets a map or a set has, occupied or not (LR13.2, LR13.3).
+    /// `Occupied`, `EntryKey`, and `EntryValue` read one bucket by its index
+    /// below that count, which is how a loop over one visits every entry
+    /// once (LR10.5).
+    Buckets {
+        receiver: Value,
+    },
+    Occupied {
+        receiver: Value,
+        index: Value,
+    },
+    EntryKey {
+        receiver: Value,
+        index: Value,
+    },
+    EntryValue {
+        receiver: Value,
+        index: Value,
+    },
+
     /// `x[i]` and `x[i] = v` (LR37). The index is checked against what the
     /// container holds unless a pass proves it in range (LR70).
     GetIndex {
@@ -423,6 +447,11 @@ impl InstKind {
             | Self::SetIndex { .. }
             | Self::ListPush { .. }
             | Self::SetInsert { .. }
+            | Self::Length { .. }
+            | Self::Buckets { .. }
+            | Self::Occupied { .. }
+            | Self::EntryKey { .. }
+            | Self::EntryValue { .. }
             | Self::Load { .. }
             | Self::Store { .. }
             | Self::SlotGet { .. }

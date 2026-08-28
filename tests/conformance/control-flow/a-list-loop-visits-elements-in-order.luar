@@ -1,0 +1,28 @@
+--- expect: run
+--- exit: 155
+--- spec: LR10.5
+--- spec: LR10.6
+--- spec: LR13.1
+--- spec: LR59
+function sum(values: FrozenList<int>): int
+    local total = 0
+    for value in values do
+        total += value
+    end
+    return total
+end
+
+export function main(): int
+    local values = [1, 2, 3, 4, 5, 6]
+    local digits = 0
+    for value in values do
+        if value == 2 then
+            continue
+        end
+        if value == 5 then
+            break
+        end
+        digits = digits * 10 + value
+    end
+    return digits + sum(values:frozen()) + sum(List.new<int>():frozen())
+end

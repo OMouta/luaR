@@ -1,0 +1,21 @@
+--- expect: run
+--- exit: 15
+--- spec: LR10.5
+--- spec: LR13.3
+--- spec: LR59
+function count(ids: FrozenSet<int>): int
+    local seen = 0
+    for id in ids do
+        seen += 1
+    end
+    return seen
+end
+
+export function main(): int
+    local ids = Set { 3, 4, 3, 4, 5 }
+    local total = 0
+    for id in ids do
+        total += id
+    end
+    return total + count(ids:frozen())
+end

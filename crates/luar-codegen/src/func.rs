@@ -398,6 +398,56 @@ impl Translator<'_, '_> {
                 self.set_insert(*receiver, *value);
                 None
             }
+            InstKind::Length { receiver } => {
+                let list = self.value(*receiver);
+                Some(
+                    self.builder
+                        .ins()
+                        .load(self.pointer, OWNED, list, layout::LENGTH),
+                )
+            }
+            InstKind::Buckets { receiver } => {
+                let table = self.value(*receiver);
+                Some(
+                    self.builder
+                        .ins()
+                        .load(self.pointer, OWNED, table, layout::CAPACITY),
+                )
+            }
+            InstKind::Occupied { receiver, index } => {
+                let bucket = self.bucket_address(*receiver, *index);
+                let occupied =
+                    self.builder
+                        .ins()
+                        .load(self.pointer, OWNED, bucket, layout::BUCKET_OCCUPIED);
+                Some(self.builder.ins().icmp_imm(IntCC::NotEqual, occupied, 0))
+            }
+            InstKind::EntryKey { receiver, index } => {
+                let bucket = self.bucket_address(*receiver, *index);
+                let word = self
+                    .builder
+                    .ins()
+                    .load(self.pointer, OWNED, bucket, layout::BUCKET_KEY);
+                let ty = inst
+                    .result
+                    .map_or(self.pointer, |value| self.machine_or_gap(value));
+                Some(if ty.bits() < self.pointer.bits() {
+                    self.builder.ins().ireduce(ty, word)
+                } else {
+                    word
+                })
+            }
+            InstKind::EntryValue { receiver, index } => {
+                let bucket = self.bucket_address(*receiver, *index);
+                let ty = inst
+                    .result
+                    .map_or(types::I8, |value| self.machine_or_gap(value));
+                Some(
+                    self.builder
+                        .ins()
+                        .load(ty, OWNED, bucket, layout::BUCKET_VALUE),
+                )
+            }
             InstKind::GetIndex { receiver, index } => {
                 self.get_index(*receiver, *index, inst.result)
             }
@@ -1509,6 +1559,18 @@ impl Translator<'_, '_> {
         };
         let set = self.value(receiver);
         let _ = self.map_insert(set, value, text);
+    }
+
+    /// Bucket `index` of the map or set `receiver`, below its bucket count.
+    fn bucket_address(&mut self, receiver: Value, index: Value) -> ir::Value {
+        let table = self.value(receiver);
+        let index = self.value(index);
+        let buckets = self
+            .builder
+            .ins()
+            .load(self.pointer, OWNED, table, layout::BUFFER);
+        let offset = self.builder.ins().imul_imm(index, layout::BUCKET_BYTES);
+        self.builder.ins().iadd(buckets, offset)
     }
 
     /// The bucket `key` occupies in `map`, claimed where it had none.

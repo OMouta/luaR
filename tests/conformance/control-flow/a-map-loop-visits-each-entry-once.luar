@@ -1,0 +1,26 @@
+--- expect: run
+--- exit: 233
+--- spec: LR10.5
+--- spec: LR13.2
+--- spec: LR59
+function count(entries: FrozenMap<int, int>): int
+    local seen = 0
+    for key, value in entries do
+        seen += 1
+    end
+    return seen
+end
+
+export function main(): int
+    local weights = Map.new<int, int>()
+    weights[2] = 10
+    weights[3] = 20
+    weights[5] = 30
+    weights[3] = 20
+
+    local total = 0
+    for key, value in weights do
+        total += key * value
+    end
+    return total + count(weights:frozen())
+end
