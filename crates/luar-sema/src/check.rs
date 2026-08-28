@@ -1664,14 +1664,26 @@ impl Checker<'_> {
                     self.built(path, fields, &values, expr.span)
                 }
             }
+            // LR13.2: a map literal is a `Map<K, V>` of what its entries hold.
             ExprKind::Map(entries) => {
-                for entry in entries {
-                    if let MapKey::Computed(key) = &entry.key {
-                        self.expr(key);
-                    }
-                    self.expr(&entry.value);
+                let mut key_type = Type::Unresolved;
+                let mut value_type = Type::Unresolved;
+                for (i, entry) in entries.iter().enumerate() {
+                    let key = match &entry.key {
+                        MapKey::Name(_) => Type::Primitive(Primitive::String),
+                        MapKey::Computed(key) => settle(self.expr(key)),
+                    };
+                    let value = settle(self.expr(&entry.value));
+                    (key_type, value_type) = if i == 0 {
+                        (key, value)
+                    } else {
+                        (unify(key_type, key), unify(value_type, value))
+                    };
                 }
-                Type::Unresolved
+                Type::Builtin {
+                    kind: Builtin::Map,
+                    args: vec![key_type, value_type],
+                }
             }
             ExprKind::Set(items) => {
                 let mut element = Type::Unresolved;
