@@ -4741,19 +4741,28 @@ fn collection_mutation_method(
         (Builtin::List, "push") => CollectionMutation::ListPush,
         (Builtin::List, "pop") => CollectionMutation::ListPop,
         (Builtin::Set, "insert") => CollectionMutation::SetInsert,
+        (Builtin::Map, "remove") => CollectionMutation::MapRemove,
+        (Builtin::Set, "remove") => CollectionMutation::SetRemove,
         _ => return None,
     };
+    let param = |name: &str| {
+        vec![crate::table::Param {
+            name: name.to_owned(),
+            ty: element.clone(),
+            optional: false,
+            variadic: false,
+        }]
+    };
     let (params, result) = match mutation {
-        CollectionMutation::ListPush | CollectionMutation::SetInsert => (
-            vec![crate::table::Param {
-                name: "value".to_owned(),
-                ty: element,
-                optional: false,
-                variadic: false,
-            }],
-            Type::Tuple(Vec::new()),
+        CollectionMutation::ListPush | CollectionMutation::SetInsert => {
+            (param("value"), Type::Tuple(Vec::new()))
+        }
+        CollectionMutation::ListPop => (Vec::new(), element.clone().optional()),
+        CollectionMutation::MapRemove => (
+            param("key"),
+            args.get(1).cloned().unwrap_or(Type::Unresolved).optional(),
         ),
-        CollectionMutation::ListPop => (Vec::new(), element.optional()),
+        CollectionMutation::SetRemove => (param("value"), Type::BOOL),
     };
     Some((
         mutation,

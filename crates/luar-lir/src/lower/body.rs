@@ -2819,6 +2819,9 @@ impl<'a> Body<'a> {
                 let result = self.recorded(span);
                 return self.emit(InstKind::ListPop { receiver }, result, span);
             }
+            CollectionMutation::MapRemove | CollectionMutation::SetRemove => {
+                return self.missing(span, "a removal");
+            }
             CollectionMutation::ListPush | CollectionMutation::SetInsert => {
                 let Some(argument) = args.first() else {
                     return self.missing(span, "a collection mutation without a value");

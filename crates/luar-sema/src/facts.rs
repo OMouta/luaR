@@ -22,6 +22,8 @@ pub enum CollectionMutation {
     ListPush,
     ListPop,
     SetInsert,
+    MapRemove,
+    SetRemove,
 }
 
 /// What `x:wrappingAdd(y)` and its kin do where the ordinary operator would

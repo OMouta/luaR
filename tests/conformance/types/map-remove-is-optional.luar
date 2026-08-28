@@ -1,0 +1,9 @@
+--- expect: compile-error
+--- code: LR0145
+--- span: 7:24
+--- spec: LR13.2
+export function main()
+    local scores = Map { alice = 10 }
+    local score: int = scores:remove("alice")
+    print(score)
+end
