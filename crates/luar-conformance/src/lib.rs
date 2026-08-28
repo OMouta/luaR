@@ -214,14 +214,14 @@ fn execute(
         }
     }
     if let Some(wanted) = &directives.stdout {
-        let got = String::from_utf8_lossy(&produced.stdout);
-        if got != wanted.as_str() {
+        let got = normalized(&produced.stdout);
+        if got != *wanted {
             wrong.push(format!("expected stdout {wanted:?}, got {got:?}"));
         }
     }
     if let Some(wanted) = &directives.stderr {
-        let got = String::from_utf8_lossy(&produced.stderr);
-        if got != wanted.as_str() {
+        let got = normalized(&produced.stderr);
+        if got != *wanted {
             wrong.push(format!("expected stderr {wanted:?}, got {got:?}"));
         }
     }
@@ -238,6 +238,10 @@ fn execute(
     } else {
         Outcome::Failed(wrong.join(", "))
     }
+}
+
+fn normalized(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(bytes).replace("\r\n", "\n")
 }
 
 /// Where a test's program is built. One process runs the suite, and each test
