@@ -1,0 +1,9 @@
+--- expect: run
+--- exit: 40
+--- spec: LR13.2
+--- spec: LR37
+export function main(): int
+    local ages: Map<string, int> = Map { ada = 36, grace = 45 }
+    ages["ada"] = 40
+    return ages["ada"] ?? 0
+end

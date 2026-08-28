@@ -408,6 +408,12 @@ impl Emitter<'_> {
                 .runtime
                 .display_unsigned_in(&mut self.module, &mut context.func);
             let abort = self.runtime.abort_in(&mut self.module, &mut context.func);
+            let map_find = self
+                .runtime
+                .map_find_in(&mut self.module, &mut context.func);
+            let map_insert = self
+                .runtime
+                .map_insert_in(&mut self.module, &mut context.func);
             let roots = self.runtime.roots_in(&mut self.module, &mut context.func);
             let finalizers = self
                 .program
@@ -437,6 +443,8 @@ impl Emitter<'_> {
                 display_signed,
                 display_unsigned,
                 abort,
+                map_find,
+                map_insert,
                 finalizers,
                 roots,
                 root_frame: None,

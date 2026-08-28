@@ -88,6 +88,9 @@ pub(crate) struct Translator<'a, 'b> {
     pub display_signed: FuncRef,
     pub display_unsigned: FuncRef,
     pub abort: FuncRef,
+    /// The bucket a map holds a key in, and the bucket it will (LR13.2).
+    pub map_find: FuncRef,
+    pub map_insert: FuncRef,
     pub finalizers: HashMap<Ty, FuncRef>,
     /// The global holding the top shadow-stack frame.
     pub roots: GlobalValue,
@@ -384,6 +387,7 @@ impl Translator<'_, '_> {
             InstKind::Unwrap { value } => self.read(*value, 1, inst.result),
 
             InstKind::MakeList { values, .. } => self.make_list(inst.result, values),
+            InstKind::MakeMap { entries, .. } => self.make_map(inst.result, entries),
             InstKind::GetIndex { receiver, index } => {
                 self.get_index(*receiver, *index, inst.result)
             }
@@ -1209,10 +1213,127 @@ impl Translator<'_, '_> {
                 let ty = result.map_or(types::I8, |value| self.machine_or_gap(value));
                 Some(self.builder.ins().load(ty, OWNED, address, 0))
             }
+            Ty::Builtin {
+                kind: Builtin::Map,
+                args,
+            } => {
+                let text = self.key_is_text(args.first()?)?;
+                let map = self.value(receiver);
+                let hash = self.key_hash(index)?;
+                let word = self.key_word(index);
+                let text = self.builder.ins().iconst(types::I8, i64::from(text));
+                let call = self
+                    .builder
+                    .ins()
+                    .call(self.map_find, &[map, word, hash, text]);
+                let bucket = self.builder.inst_results(call).first().copied()?;
+
+                // LR69: what the map holds at the key, or nothing.
+                let optional = self.function.type_of(result?).clone();
+                let Ty::Optional(inner) = &optional else {
+                    self.gap("a map lookup that is not optional");
+                    return None;
+                };
+                let Some(machine) = machine(inner, self.pointer) else {
+                    self.gap(format!("a map holding `{inner}`"));
+                    return None;
+                };
+                let built = self.allocate(&optional, 0)?;
+                let present = self.builder.ins().icmp_imm(IntCC::NotEqual, bucket, 0);
+                let tag = self.builder.ins().uextend(TAG_TYPE, present);
+                self.builder.ins().store(OWNED, tag, built, TAG);
+
+                let found = self.builder.create_block();
+                let carry_on = self.builder.create_block();
+                self.builder.ins().brif(present, found, &[], carry_on, &[]);
+                self.builder.switch_to_block(found);
+                let value = self
+                    .builder
+                    .ins()
+                    .load(machine, OWNED, bucket, layout::BUCKET_VALUE);
+                self.builder.ins().store(OWNED, value, built, layout::CELL);
+                self.builder.ins().jump(carry_on, &[]);
+                self.builder.switch_to_block(carry_on);
+                Some(built)
+            }
             _ => {
                 self.gap(format!("indexing a value of type `{held}`"));
                 None
             }
+        }
+    }
+
+    /// LR13.2: a map starts empty and takes its entries one at a time, so
+    /// the runtime decides its capacity.
+    fn make_map(&mut self, result: Option<Value>, entries: &[(Value, Value)]) -> Option<ir::Value> {
+        let ty = self.function.type_of(result?).clone();
+        let Ty::Builtin { args, .. } = &ty else {
+            return None;
+        };
+        let text = self.key_is_text(args.first()?)?;
+        let header = self.allocate(&ty, 0)?;
+        let zero = self.builder.ins().iconst(self.pointer, 0);
+        self.builder
+            .ins()
+            .store(OWNED, zero, header, layout::LENGTH);
+        self.builder
+            .ins()
+            .store(OWNED, zero, header, layout::CAPACITY);
+        self.builder
+            .ins()
+            .store(OWNED, zero, header, layout::BUFFER);
+        for (key, value) in entries {
+            let bucket = self.map_insert(header, *key, text)?;
+            let written = self.value(*value);
+            self.builder
+                .ins()
+                .store(OWNED, written, bucket, layout::BUCKET_VALUE);
+        }
+        Some(header)
+    }
+
+    /// The bucket `key` occupies in `map`, claimed where it had none.
+    fn map_insert(&mut self, map: ir::Value, key: Value, text: bool) -> Option<ir::Value> {
+        let hash = self.key_hash(key)?;
+        let word = self.key_word(key);
+        let text = self.builder.ins().iconst(types::I8, i64::from(text));
+        let call = self
+            .builder
+            .ins()
+            .call(self.map_insert, &[map, word, hash, text]);
+        self.builder.inst_results(call).first().copied()
+    }
+
+    /// Whether keys of `ty` are compared by their text rather than their word,
+    /// or `None` for a key type the runtime cannot compare.
+    fn key_is_text(&mut self, ty: &Ty) -> Option<bool> {
+        match ty {
+            Ty::Str | Ty::Bytes => Some(true),
+            Ty::Bool | Ty::Int(_) | Ty::Char => Some(false),
+            _ => {
+                self.gap(format!("a map keyed by `{ty}`"));
+                None
+            }
+        }
+    }
+
+    fn key_hash(&mut self, key: Value) -> Option<ir::Value> {
+        let hash = self.hash_value(key)?;
+        Some(self.word_of(hash))
+    }
+
+    /// A key as the one word a bucket stores it in.
+    fn key_word(&mut self, key: Value) -> ir::Value {
+        let value = self.value(key);
+        self.word_of(value)
+    }
+
+    fn word_of(&mut self, value: ir::Value) -> ir::Value {
+        let held = self.builder.func.dfg.value_type(value);
+        match held.bits().cmp(&self.pointer.bits()) {
+            std::cmp::Ordering::Less => self.builder.ins().uextend(self.pointer, value),
+            std::cmp::Ordering::Equal => value,
+            std::cmp::Ordering::Greater => self.builder.ins().ireduce(self.pointer, value),
         }
     }
 
@@ -1226,6 +1347,21 @@ impl Translator<'_, '_> {
                 let address = self.element_address(receiver, index);
                 let written = self.value(value);
                 self.builder.ins().store(OWNED, written, address, 0);
+            }
+            Ty::Builtin {
+                kind: Builtin::Map,
+                args,
+            } => {
+                let Some(text) = args.first().and_then(|key| self.key_is_text(key)) else {
+                    return;
+                };
+                let map = self.value(receiver);
+                if let Some(bucket) = self.map_insert(map, index, text) {
+                    let written = self.value(value);
+                    self.builder
+                        .ins()
+                        .store(OWNED, written, bucket, layout::BUCKET_VALUE);
+                }
             }
             _ => self.gap(format!("indexing a value of type `{held}`")),
         }
