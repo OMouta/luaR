@@ -10,16 +10,19 @@ mod ty;
 use std::collections::HashMap;
 
 use cranelift_codegen::Context;
-use cranelift_codegen::ir::{AbiParam, GlobalValue, InstBuilder, Signature, types};
+use cranelift_codegen::ir::condcodes::IntCC;
+use cranelift_codegen::ir::{
+    AbiParam, GlobalValue, InstBuilder, MemFlags, Signature, TrapCode, types,
+};
 use cranelift_codegen::isa::CallConv;
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_module::{DataDescription, DataId, FuncId as ModuleFuncId, Linkage, Module};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 use luar_diagnostics::Span;
-use luar_lir::inst::Const;
-use luar_lir::program::{FuncId, Function, Program};
-use luar_lir::ty::Ty;
+use luar_lir::inst::{Const, InstKind};
+use luar_lir::program::{FuncId, Function, Program, Shape};
+use luar_lir::ty::{Ty, TypeId};
 
 pub use crate::link::{LinkError, link};
 
@@ -101,10 +104,13 @@ pub fn compile(program: &Program) -> Result<Object, Error> {
         runtime,
         texts: HashMap::new(),
         names: HashMap::new(),
+        descriptors: HashMap::new(),
+        vtables: HashMap::new(),
         gaps: Vec::new(),
     };
     emitter.declare()?;
     emitter.constants()?;
+    emitter.dynamics()?;
     emitter.define()?;
     emitter.entry()?;
 
@@ -128,6 +134,12 @@ struct Emitter<'a> {
     texts: HashMap<Vec<u8>, DataId>,
     /// Function names stored for runtime backtraces.
     names: HashMap<FuncId, DataId>,
+    /// One object per type a dynamic value can say it holds. Its address is
+    /// the type's identity, which is what a type test compares (LR25.3).
+    descriptors: HashMap<Ty, DataId>,
+    /// The method table of each implementation an interface value can carry,
+    /// by the interface and the implementing type (LR18.1).
+    vtables: HashMap<(TypeId, Ty), DataId>,
     gaps: Vec<Gap>,
 }
 
@@ -230,6 +242,98 @@ impl Emitter<'_> {
         Ok(())
     }
 
+    fn dynamics(&mut self) -> Result<(), Error> {
+        let mut identities: Vec<Ty> = Vec::new();
+        let mut tables: Vec<(TypeId, Ty)> = Vec::new();
+        for (_, function) in self.program.functions() {
+            if function.is_template() {
+                continue;
+            }
+            for (_, block) in function.blocks() {
+                for inst in &block.insts {
+                    match &inst.kind {
+                        InstKind::MakeDyn {
+                            interface: None,
+                            value,
+                        } => {
+                            let ty = function.type_of(*value).clone();
+                            if !identities.contains(&ty) {
+                                identities.push(ty);
+                            }
+                        }
+                        InstKind::IsType { ty, .. } => {
+                            if !identities.contains(ty) {
+                                identities.push(ty.clone());
+                            }
+                        }
+                        InstKind::MakeDyn {
+                            interface: Some(interface),
+                            value,
+                        } => {
+                            let key = (*interface, function.type_of(*value).clone());
+                            if !tables.contains(&key) {
+                                tables.push(key);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        for (index, ty) in identities.into_iter().enumerate() {
+            let mut description = DataDescription::new();
+            let index = u64::try_from(index).unwrap_or(u64::MAX);
+            description.define(index.to_le_bytes().to_vec().into_boxed_slice());
+            let data = self
+                .module
+                .declare_data(&format!("luar_type{index}"), Linkage::Local, false, false)
+                .map_err(|error| Error::Cranelift(error.to_string()))?;
+            self.module
+                .define_data(data, &description)
+                .map_err(|error| Error::Cranelift(error.to_string()))?;
+            self.descriptors.insert(ty, data);
+        }
+
+        let cell = self.pointer.bytes() as usize;
+        for (index, (interface, ty)) in tables.into_iter().enumerate() {
+            let Ty::Named { id, .. } = &ty else {
+                continue;
+            };
+            let Shape::Interface(shape) = &self.program.nominal(interface).shape else {
+                continue;
+            };
+            let Some(implementation) = shape.implementors.iter().find(|held| held.ty == *id) else {
+                continue;
+            };
+            let declared: Option<Vec<ModuleFuncId>> = implementation
+                .methods
+                .iter()
+                .map(|function| self.declared.get(function).copied())
+                .collect();
+            let Some(declared) = declared else {
+                continue;
+            };
+
+            let mut description = DataDescription::new();
+            description.define(vec![0; (declared.len() * cell).max(cell)].into_boxed_slice());
+            for (slot, function) in declared.into_iter().enumerate() {
+                let reference = self.module.declare_func_in_data(function, &mut description);
+                let offset = u32::try_from(slot * cell).expect("method table fits in u32");
+                description.write_function_addr(offset, reference);
+            }
+            let data = self
+                .module
+                .declare_data(&format!("luar_vtable{index}"), Linkage::Local, false, false)
+                .map_err(|error| Error::Cranelift(error.to_string()))?;
+            self.module
+                .define_data(data, &description)
+                .map_err(|error| Error::Cranelift(error.to_string()))?;
+            self.vtables.insert((interface, ty), data);
+        }
+        Ok(())
+    }
+
     fn define(&mut self) -> Result<(), Error> {
         let mut context = Context::new();
         let mut frame = FunctionBuilderContext::new();
@@ -262,6 +366,22 @@ impl Emitter<'_> {
                     texts.insert(bytes, value);
                 }
             }
+            let descriptors: HashMap<Ty, GlobalValue> = self
+                .descriptors
+                .iter()
+                .map(|(ty, data)| {
+                    let value = self.module.declare_data_in_func(*data, &mut context.func);
+                    (ty.clone(), value)
+                })
+                .collect();
+            let vtables: HashMap<(TypeId, Ty), GlobalValue> = self
+                .vtables
+                .iter()
+                .map(|(key, data)| {
+                    let value = self.module.declare_data_in_func(*data, &mut context.func);
+                    (key.clone(), value)
+                })
+                .collect();
             let function_name = self
                 .module
                 .declare_data_in_func(self.names[&id], &mut context.func);
@@ -324,6 +444,8 @@ impl Emitter<'_> {
                 blocks: HashMap::new(),
                 values: HashMap::new(),
                 slots: HashMap::new(),
+                descriptors,
+                vtables,
                 gaps: Vec::new(),
             };
             self.gaps.extend(translator.run());
@@ -381,19 +503,49 @@ impl Emitter<'_> {
             })
             .collect::<Vec<_>>();
 
+        let abort = self.runtime.abort_in(&mut self.module, &mut context.func);
+
         let mut builder = FunctionBuilder::new(&mut context.func, &mut frame);
         let block = builder.create_block();
         builder.switch_to_block(block);
-        builder.seal_block(block);
 
         for initializer in initializers {
             builder.ins().call(initializer, &[]);
         }
         let called = builder.ins().call(reference, &[]);
-        let returned = builder.inst_results(called).first().copied();
+        let mut returned = builder.inst_results(called).first().copied();
+        let mut result = main.result.clone();
+
+        // LR25.3: an exception escaping `main` reports the error and exits
+        // unsuccessfully. One that can throw gives back what it returned or
+        // what it threw, and only the first is an exit code.
+        if let (Some(value), Some(inner)) = (returned, thrown_from(&main.result)) {
+            let ran = builder.create_block();
+            let threw = builder.create_block();
+            let tag = builder
+                .ins()
+                .load(layout::TAG_TYPE, MemFlags::trusted(), value, layout::TAG);
+            let failed = builder.ins().icmp_imm(IntCC::NotEqual, tag, 0);
+            builder.ins().brif(failed, threw, &[], ran, &[]);
+
+            builder.switch_to_block(threw);
+            let kind = builder.ins().iconst(types::I8, UNCAUGHT_EXCEPTION);
+            let none = builder.ins().iconst(self.pointer, 0);
+            builder.ins().call(abort, &[kind, none]);
+            builder.ins().trap(TrapCode::unwrap_user(1));
+
+            builder.switch_to_block(ran);
+            returned = exit_code_type(&inner, self.pointer).map(|width| {
+                builder
+                    .ins()
+                    .load(width, MemFlags::trusted(), value, layout::CELL)
+            });
+            result = inner;
+        }
+
         // LR45: an entrypoint that returns an integer maps it to the exit
         // code, and one that returns nothing exits successfully.
-        let status = match (returned, exit_code_type(&main.result, self.pointer)) {
+        let status = match (returned, exit_code_type(&result, self.pointer)) {
             (Some(value), Some(width)) if width == types::I32 => value,
             (Some(value), Some(width)) if width.bits() > 32 => {
                 builder.ins().ireduce(types::I32, value)
@@ -423,6 +575,21 @@ fn rejected(error: cranelift_module::ModuleError) -> Error {
         return Error::Cranelift(errors.to_string());
     }
     Error::Cranelift(error.to_string())
+}
+
+/// The abort kind `luar_abort` reports as an exception nothing caught.
+const UNCAUGHT_EXCEPTION: i64 = 2;
+
+/// What `main` returns where an exception can escape it: the type inside its
+/// `Result<T, dynamic>` (LR25.3).
+fn thrown_from(result: &Ty) -> Option<Ty> {
+    match result {
+        Ty::Builtin {
+            kind: luar_lir::ty::Builtin::Result,
+            args,
+        } if args.get(1) == Some(&Ty::Dynamic) => args.first().cloned(),
+        _ => None,
+    }
 }
 
 /// The width `main` returns its exit code in, or `None` where it returns

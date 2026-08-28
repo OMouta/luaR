@@ -8,9 +8,9 @@ use cranelift_codegen::ir::{
     StackSlotData, StackSlotKind, TrapCode, Type, types,
 };
 use cranelift_frontend::{FunctionBuilder, Switch};
-use luar_lir::inst::{BinaryOp, Const, Inst, InstKind, Terminator, Trap, UnaryOp, Value};
-use luar_lir::program::{BlockId, FuncId, Function, Program, SlotId};
-use luar_lir::ty::Ty;
+use luar_lir::inst::{BinaryOp, Const, Inst, InstKind, MethodId, Terminator, Trap, UnaryOp, Value};
+use luar_lir::program::{BlockId, FuncId, Function, Program, Shape, SlotId};
+use luar_lir::ty::{Ty, TypeId};
 
 use crate::Gap;
 use crate::gc::ROOT_FRAME_HEADER;
@@ -98,6 +98,11 @@ pub(crate) struct Translator<'a, 'b> {
     pub values: HashMap<Value, ir::Value>,
     /// The stack storage of each LIR slot (LR72).
     pub slots: HashMap<SlotId, StackSlot>,
+    /// The identity of each type a dynamic value can hold (LR25.3).
+    pub descriptors: HashMap<Ty, GlobalValue>,
+    /// The method table of each implementation an interface value can carry
+    /// (LR18.1).
+    pub vtables: HashMap<(TypeId, Ty), GlobalValue>,
     pub gaps: Vec<Gap>,
 }
 
@@ -299,6 +304,32 @@ impl Translator<'_, '_> {
                 }
             }
             InstKind::CallIndirect { callee, args } => self.call_indirect(*callee, args),
+            InstKind::CallVirtual {
+                method,
+                receiver,
+                args,
+            } => self.call_virtual(*method, *receiver, args),
+
+            // A dynamic value is what it is, and then what it holds (LR18.1,
+            // LR25.3).
+            InstKind::MakeDyn { interface, value } => {
+                self.make_dyn(*interface, *value, inst.result)
+            }
+            InstKind::DynValue { value } => self.read(*value, 1, inst.result),
+            InstKind::IsType { value, ty } => {
+                if *self.function.type_of(*value) != Ty::Dynamic {
+                    self.gap("a type test on a value that is not dynamic");
+                    None
+                } else if let Some(descriptor) = self.descriptors.get(ty).copied() {
+                    let object = self.value(*value);
+                    let held = self.builder.ins().load(self.pointer, OWNED, object, 0);
+                    let wanted = self.builder.ins().global_value(self.pointer, descriptor);
+                    Some(self.builder.ins().icmp(IntCC::Equal, held, wanted))
+                } else {
+                    self.gap(format!("a type test against `{ty}`"));
+                    None
+                }
+            }
             InstKind::MakeTuple(members) => {
                 let ty = inst
                     .result
@@ -907,24 +938,97 @@ impl Translator<'_, '_> {
         }
     }
 
-    /// A call through a closure, whose code takes the closure first.
-    fn call_indirect(&mut self, callee: Value, args: &[Value]) -> Option<ir::Value> {
-        let Ty::Function { params, result } = self.function.type_of(callee).clone() else {
-            self.gap("a call through something that is not a function");
+    fn make_dyn(
+        &mut self,
+        interface: Option<TypeId>,
+        value: Value,
+        result: Option<Value>,
+    ) -> Option<ir::Value> {
+        let held = self.function.type_of(value).clone();
+        let first = match interface {
+            None => self.descriptors.get(&held).copied(),
+            Some(interface) => self.vtables.get(&(interface, held.clone())).copied(),
+        };
+        let Some(first) = first else {
+            self.gap(format!("a dynamic value holding `{held}`"));
             return None;
         };
+        // A method reached through the table takes the value as a word, so
+        // the value has to be one.
+        if interface.is_some()
+            && machine(&held, self.pointer).is_none_or(|ty| ty.bytes() != self.pointer.bytes())
+        {
+            self.gap(format!("an interface value holding `{held}`"));
+            return None;
+        }
+        let ty = self.function.type_of(result?).clone();
+        let built = self.allocate_bytes(layout::CELL * 2, &ty, 0)?;
+        let first = self.builder.ins().global_value(self.pointer, first);
+        self.builder.ins().store(OWNED, first, built, 0);
+        self.write_at(built, &ty, 1, value);
+        Some(built)
+    }
+
+    /// A call through an interface value: the method's slot in the table the
+    /// value carries, given what the value holds (LR18.1).
+    fn call_virtual(
+        &mut self,
+        method: MethodId,
+        receiver: Value,
+        args: &[Value],
+    ) -> Option<ir::Value> {
+        let Shape::Interface(interface) = &self.program.nominal(method.interface).shape else {
+            self.gap("a call through something that is not an interface");
+            return None;
+        };
+        let Some(declared) = interface.methods.get(method.slot as usize) else {
+            self.gap("a call to a method slot the interface does not have");
+            return None;
+        };
+        let (params, result) = (declared.params.clone(), declared.result.clone());
+        let signature = self.indirect_signature(&params, &result)?;
+
+        let object = self.value(receiver);
+        let table = self.builder.ins().load(self.pointer, OWNED, object, 0);
+        let offset = i32::try_from(method.slot).unwrap_or(i32::MAX) * self.pointer.bytes() as i32;
+        let code = self.builder.ins().load(self.pointer, OWNED, table, offset);
+        let inner = self
+            .builder
+            .ins()
+            .load(self.pointer, OWNED, object, layout::CELL);
+        let mut passed = vec![inner];
+        passed.extend(args.iter().map(|arg| self.value(*arg)));
+        let call = self.builder.ins().call_indirect(signature, code, &passed);
+        self.builder.inst_results(call).first().copied()
+    }
+
+    /// The signature of code called through a value: a word first, then the
+    /// parameters, and the result.
+    fn indirect_signature(&mut self, params: &[Ty], result: &Ty) -> Option<ir::SigRef> {
         let mut signature = Signature::new(self.builder.func.signature.call_conv);
         signature.params.push(AbiParam::new(self.pointer));
-        for param in params.iter().chain(std::iter::once(result.as_ref())) {
+        for param in params {
             let Some(held) = machine(param, self.pointer) else {
                 self.gap(format!("a call through a value passing `{param}`"));
                 return None;
             };
             signature.params.push(AbiParam::new(held));
         }
-        let returned = signature.params.pop().expect("the result was pushed last");
-        signature.returns.push(returned);
-        let signature = self.builder.import_signature(signature);
+        let Some(returned) = machine(result, self.pointer) else {
+            self.gap(format!("a call through a value returning `{result}`"));
+            return None;
+        };
+        signature.returns.push(AbiParam::new(returned));
+        Some(self.builder.import_signature(signature))
+    }
+
+    /// A call through a closure, whose code takes the closure first.
+    fn call_indirect(&mut self, callee: Value, args: &[Value]) -> Option<ir::Value> {
+        let Ty::Function { params, result } = self.function.type_of(callee).clone() else {
+            self.gap("a call through something that is not a function");
+            return None;
+        };
+        let signature = self.indirect_signature(&params, &result)?;
 
         let closure = self.value(callee);
         let code = self.builder.ins().load(self.pointer, OWNED, closure, 0);
@@ -1122,9 +1226,6 @@ fn comparison(op: BinaryOp, signed: bool) -> Option<IntCC> {
 
 fn describe(kind: &InstKind) -> &'static str {
     match kind {
-        InstKind::IsType { .. } => "a type test",
-        InstKind::CallVirtual { .. } => "a call through an interface",
-        InstKind::MakeDyn { .. } | InstKind::DynValue { .. } => "a dynamic value",
         InstKind::MakeStruct { .. } | InstKind::GetField { .. } | InstKind::SetField { .. } => {
             "a struct"
         }

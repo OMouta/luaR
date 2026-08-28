@@ -1,0 +1,11 @@
+--- expect: run
+--- exit: 101
+--- stderr: "luar: uncaught exception\nbacktrace:\n"
+--- spec: LR25.3
+struct Fault
+    code: int
+end
+
+export function main(): int
+    throw Fault { code = 1 }
+end
