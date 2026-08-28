@@ -1,0 +1,17 @@
+--- expect: run
+--- exit: 106
+--- spec: LR13.1
+--- spec: LR69
+--- spec: LR70
+export function main(): int
+    local values: List<int> = [4, 9]
+    local scores: Map<string, int> = Map { ada = 7 }
+    local frozenValues = values:frozen()
+    local frozenScores = scores:frozen()
+
+    return (values:get(1) ?? 0)
+        + (frozenValues:get(2) ?? 20)
+        + (values:get(-1) ?? 30)
+        + (scores:get("ada") ?? 0)
+        + (frozenScores:get("grace") ?? 40)
+end

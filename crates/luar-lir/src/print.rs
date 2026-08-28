@@ -260,6 +260,9 @@ fn instruction(inst: &Inst, function: &Function) -> String {
         InstKind::GetIndex { receiver, index } => {
             format!("index {}[{}]", name(*receiver), name(*index))
         }
+        InstKind::GetCheckedIndex { receiver, index } => {
+            format!("get {}[{}]", name(*receiver), name(*index))
+        }
         InstKind::SetIndex {
             receiver,
             index,

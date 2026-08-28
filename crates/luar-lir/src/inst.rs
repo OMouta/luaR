@@ -299,6 +299,11 @@ pub enum InstKind {
         receiver: Value,
         index: Value,
     },
+    /// A non-trapping collection lookup returning an optional (LR69, LR70).
+    GetCheckedIndex {
+        receiver: Value,
+        index: Value,
+    },
     SetIndex {
         receiver: Value,
         index: Value,
@@ -383,6 +388,7 @@ impl InstKind {
             | Self::MakeList { .. }
             | Self::MakeMap { .. }
             | Self::MakeSet { .. }
+            | Self::GetCheckedIndex { .. }
             | Self::MakeSome { .. }
             | Self::IsSome { .. }
             | Self::Unwrap { .. }

@@ -393,6 +393,9 @@ impl Translator<'_, '_> {
             InstKind::GetIndex { receiver, index } => {
                 self.get_index(*receiver, *index, inst.result)
             }
+            InstKind::GetCheckedIndex { receiver, index } => {
+                self.get_checked_index(*receiver, *index, inst.result)
+            }
             InstKind::SetIndex {
                 receiver,
                 index,
@@ -1258,6 +1261,73 @@ impl Translator<'_, '_> {
                 None
             }
         }
+    }
+
+    fn get_checked_index(
+        &mut self,
+        receiver: Value,
+        index: Value,
+        result: Option<Value>,
+    ) -> Option<ir::Value> {
+        let held = self.function.type_of(receiver).clone();
+        if matches!(
+            held,
+            Ty::Builtin {
+                kind: Builtin::Map | Builtin::FrozenMap,
+                ..
+            }
+        ) {
+            return self.get_index(receiver, index, result);
+        }
+        if !matches!(
+            held,
+            Ty::Builtin {
+                kind: Builtin::List | Builtin::FrozenList,
+                ..
+            }
+        ) {
+            self.gap(format!("a checked lookup on `{held}`"));
+            return None;
+        }
+
+        let optional = self.function.type_of(result?).clone();
+        let Ty::Optional(inner) = &optional else {
+            self.gap("a checked list lookup that is not optional");
+            return None;
+        };
+        let Some(machine) = machine(inner, self.pointer) else {
+            self.gap(format!("a list holding `{inner}`"));
+            return None;
+        };
+        let list = self.value(receiver);
+        let index = self.value(index);
+        let length = self
+            .builder
+            .ins()
+            .load(self.pointer, OWNED, list, layout::LENGTH);
+        let present = self
+            .builder
+            .ins()
+            .icmp(IntCC::UnsignedLessThan, index, length);
+        let built = self.allocate(&optional, 0)?;
+        let tag = self.builder.ins().uextend(TAG_TYPE, present);
+        self.builder.ins().store(OWNED, tag, built, TAG);
+
+        let found = self.builder.create_block();
+        let carry_on = self.builder.create_block();
+        self.builder.ins().brif(present, found, &[], carry_on, &[]);
+        self.builder.switch_to_block(found);
+        let buffer = self
+            .builder
+            .ins()
+            .load(self.pointer, OWNED, list, layout::BUFFER);
+        let offset = self.builder.ins().imul_imm(index, i64::from(layout::CELL));
+        let address = self.builder.ins().iadd(buffer, offset);
+        let value = self.builder.ins().load(machine, OWNED, address, 0);
+        self.builder.ins().store(OWNED, value, built, layout::CELL);
+        self.builder.ins().jump(carry_on, &[]);
+        self.builder.switch_to_block(carry_on);
+        Some(built)
     }
 
     /// LR13.2: a map starts empty and takes its entries one at a time, so

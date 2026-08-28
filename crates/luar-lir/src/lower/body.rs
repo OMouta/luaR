@@ -2262,6 +2262,9 @@ impl<'a> Body<'a> {
             let ty = self.recorded(span);
             return self.emit(InstKind::Freeze { value }, ty, span);
         }
+        if self.context.facts.checked_index(span) {
+            return self.checked_index(callee, args, span);
+        }
 
         if let Some(intrinsic) = self.context.facts.intrinsic(span) {
             return self.intrinsic(intrinsic, args, span);
@@ -2492,6 +2495,32 @@ impl<'a> Body<'a> {
         let condition = condition.unwrap_or_else(|| self.missing(span, "an assertion condition"));
         self.emit_void(InstKind::Assert { condition, message }, span);
         self.emit(InstKind::Const(Const::Unit), Ty::Unit, span)
+    }
+
+    fn checked_index(&mut self, callee: &Expr, args: &[Argument], span: Span) -> Value {
+        let receiver = self.expr(callee, None);
+        let held = self.function.type_of(receiver).clone();
+        let Ty::Builtin {
+            kind,
+            args: type_args,
+        } = &held
+        else {
+            return self.missing(
+                span,
+                "a checked lookup on something that is not a collection",
+            );
+        };
+        let wanted = match kind {
+            Builtin::Map | Builtin::FrozenMap => type_args.first().cloned(),
+            Builtin::List | Builtin::FrozenList => Some(Ty::INT),
+            _ => None,
+        };
+        let (Some(wanted), [argument]) = (wanted, args) else {
+            return self.missing(span, "a checked lookup without one key");
+        };
+        let index = self.expr(&argument.value, Some(&wanted));
+        let result = self.recorded(span);
+        self.emit(InstKind::GetCheckedIndex { receiver, index }, result, span)
     }
 
     /// LR25.3: a call that may have thrown says which happened, so the caller
