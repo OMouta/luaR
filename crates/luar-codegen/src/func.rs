@@ -75,6 +75,8 @@ pub(crate) struct Translator<'a, 'b> {
     pub concat: FuncRef,
     pub text_equal: FuncRef,
     pub hash_bytes: FuncRef,
+    pub display_signed: FuncRef,
+    pub display_unsigned: FuncRef,
     pub finalizers: HashMap<Ty, FuncRef>,
     /// The global holding the top shadow-stack frame.
     pub roots: GlobalValue,
@@ -225,6 +227,7 @@ impl Translator<'_, '_> {
                 let mixed = self.builder.ins().bxor(state, value);
                 Some(self.builder.ins().imul_imm(mixed, 0x100000001b3))
             }
+            InstKind::DisplayValue { value } => self.display_value(*value),
             InstKind::Convert { value, to } => self.convert(*value, to),
             InstKind::Call {
                 callee,
@@ -519,6 +522,36 @@ impl Translator<'_, '_> {
             }
             _ => {
                 self.gap(format!("hashing a value of type `{ty}`"));
+                None
+            }
+        }
+    }
+
+    fn display_value(&mut self, value: Value) -> Option<ir::Value> {
+        let ty = self.function.type_of(value);
+        let value = self.value(value);
+        match ty {
+            Ty::Str => Some(value),
+            Ty::Int(int) => {
+                let held = self.builder.func.dfg.value_type(value);
+                let widened = match held.bits().cmp(&64) {
+                    std::cmp::Ordering::Less if int.is_signed() => {
+                        self.builder.ins().sextend(types::I64, value)
+                    }
+                    std::cmp::Ordering::Less => self.builder.ins().uextend(types::I64, value),
+                    std::cmp::Ordering::Equal => value,
+                    std::cmp::Ordering::Greater => self.builder.ins().ireduce(types::I64, value),
+                };
+                let formatter = if int.is_signed() {
+                    self.display_signed
+                } else {
+                    self.display_unsigned
+                };
+                let call = self.builder.ins().call(formatter, &[widened]);
+                self.builder.inst_results(call).first().copied()
+            }
+            _ => {
+                self.gap(format!("displaying a value of type `{ty}`"));
                 None
             }
         }

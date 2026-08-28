@@ -240,6 +240,12 @@ impl Emitter<'_> {
             let hash_bytes = self
                 .runtime
                 .hash_bytes_in(&mut self.module, &mut context.func);
+            let display_signed = self
+                .runtime
+                .display_signed_in(&mut self.module, &mut context.func);
+            let display_unsigned = self
+                .runtime
+                .display_unsigned_in(&mut self.module, &mut context.func);
             let roots = self.runtime.roots_in(&mut self.module, &mut context.func);
             let finalizers = self
                 .program
@@ -264,6 +270,8 @@ impl Emitter<'_> {
                 concat,
                 text_equal,
                 hash_bytes,
+                display_signed,
+                display_unsigned,
                 finalizers,
                 roots,
                 root_frame: None,

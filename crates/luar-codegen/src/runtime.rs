@@ -42,6 +42,8 @@ pub(crate) struct Runtime {
     pub concat: ModuleFuncId,
     pub text_equal: ModuleFuncId,
     pub hash_bytes: ModuleFuncId,
+    pub display_signed: ModuleFuncId,
+    pub display_unsigned: ModuleFuncId,
     /// The most recently entered shadow-stack frame.
     roots: DataId,
 }
@@ -73,6 +75,10 @@ impl Runtime {
         let concat = define_concat(module, pointer, call_conv, collector.allocate)?;
         let text_equal = define_text_equal(module, pointer, call_conv)?;
         let hash_bytes = define_hash_bytes(module, pointer, call_conv)?;
+        let display_signed =
+            define_display_integer(module, pointer, call_conv, collector.allocate, true)?;
+        let display_unsigned =
+            define_display_integer(module, pointer, call_conv, collector.allocate, false)?;
 
         let mut handlers = Vec::with_capacity(TRAPS.len());
         for trap in TRAPS {
@@ -86,6 +92,8 @@ impl Runtime {
             concat,
             text_equal,
             hash_bytes,
+            display_signed,
+            display_unsigned,
             roots: collector.roots,
         })
     }
@@ -130,6 +138,22 @@ impl Runtime {
         function: &mut cranelift_codegen::ir::Function,
     ) -> FuncRef {
         module.declare_func_in_func(self.hash_bytes, function)
+    }
+
+    pub fn display_signed_in(
+        &self,
+        module: &mut ObjectModule,
+        function: &mut cranelift_codegen::ir::Function,
+    ) -> FuncRef {
+        module.declare_func_in_func(self.display_signed, function)
+    }
+
+    pub fn display_unsigned_in(
+        &self,
+        module: &mut ObjectModule,
+        function: &mut cranelift_codegen::ir::Function,
+    ) -> FuncRef {
+        module.declare_func_in_func(self.display_unsigned, function)
     }
 
     pub fn roots_in(
@@ -403,6 +427,195 @@ fn define_hash_bytes(
     builder.switch_to_block(done);
     let value = builder.block_params(done)[0];
     builder.ins().return_(&[value]);
+    builder.seal_all_blocks();
+    builder.finalize();
+    module
+        .define_function(declared, &mut context)
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
+    Ok(declared)
+}
+
+fn define_display_integer(
+    module: &mut ObjectModule,
+    pointer: types::Type,
+    call_conv: CallConv,
+    allocate: ModuleFuncId,
+    signed: bool,
+) -> Result<ModuleFuncId, Error> {
+    let mut signature = Signature::new(call_conv);
+    signature.params.push(AbiParam::new(types::I64));
+    signature.returns.push(AbiParam::new(pointer));
+    let suffix = if signed { "i64" } else { "u64" };
+    let declared = module
+        .declare_function(
+            &format!("luar_display_{suffix}"),
+            Linkage::Local,
+            &signature,
+        )
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
+
+    let mut context = Context::new();
+    let mut frame = FunctionBuilderContext::new();
+    context.func.signature = signature;
+    let allocate = module.declare_func_in_func(allocate, &mut context.func);
+    let mut builder = FunctionBuilder::new(&mut context.func, &mut frame);
+    let entry = builder.create_block();
+    let count = builder.create_block();
+    let count_more = builder.create_block();
+    let build = builder.create_block();
+    let write = builder.create_block();
+    let write_more = builder.create_block();
+    let done = builder.create_block();
+    builder.append_block_params_for_function_params(entry);
+    builder.append_block_param(count, types::I64);
+    builder.append_block_param(count, types::I64);
+    builder.append_block_param(count_more, types::I64);
+    builder.append_block_param(count_more, types::I64);
+    builder.append_block_param(build, types::I64);
+    builder.append_block_param(write, types::I64);
+    builder.append_block_param(write, types::I64);
+    builder.append_block_param(write, pointer);
+    builder.append_block_param(write_more, types::I64);
+    builder.append_block_param(write_more, types::I64);
+    builder.append_block_param(write_more, pointer);
+    builder.append_block_param(done, pointer);
+
+    builder.switch_to_block(entry);
+    let value = builder.block_params(entry)[0];
+    let negative = if signed {
+        let zero = builder.ins().iconst(types::I64, 0);
+        builder.ins().icmp(IntCC::SignedLessThan, value, zero)
+    } else {
+        builder.ins().iconst(types::I8, 0)
+    };
+    let magnitude = if signed {
+        let negated = builder.ins().ineg(value);
+        builder.ins().select(negative, negated, value)
+    } else {
+        value
+    };
+    let one = builder.ins().iconst(types::I64, 1);
+    builder.ins().jump(
+        count,
+        &[
+            cranelift_codegen::ir::BlockArg::Value(magnitude),
+            cranelift_codegen::ir::BlockArg::Value(one),
+        ],
+    );
+
+    builder.switch_to_block(count);
+    let remaining = builder.block_params(count)[0];
+    let digits = builder.block_params(count)[1];
+    let ten = builder.ins().iconst(types::I64, 10);
+    let more = builder
+        .ins()
+        .icmp(IntCC::UnsignedGreaterThanOrEqual, remaining, ten);
+    builder.ins().brif(
+        more,
+        count_more,
+        &[
+            cranelift_codegen::ir::BlockArg::Value(remaining),
+            cranelift_codegen::ir::BlockArg::Value(digits),
+        ],
+        build,
+        &[cranelift_codegen::ir::BlockArg::Value(digits)],
+    );
+
+    builder.switch_to_block(count_more);
+    let remaining = builder.block_params(count_more)[0];
+    let digits = builder.block_params(count_more)[1];
+    let ten = builder.ins().iconst(types::I64, 10);
+    let remaining = builder.ins().udiv(remaining, ten);
+    let digits = builder.ins().iadd_imm(digits, 1);
+    builder.ins().jump(
+        count,
+        &[
+            cranelift_codegen::ir::BlockArg::Value(remaining),
+            cranelift_codegen::ir::BlockArg::Value(digits),
+        ],
+    );
+
+    builder.switch_to_block(build);
+    let digits = builder.block_params(build)[0];
+    let sign = builder.ins().uextend(types::I64, negative);
+    let length = builder.ins().iadd(digits, sign);
+    let cell = i64::from(pointer.bytes());
+    let bytes = builder.ins().iadd_imm(length, 8 + cell - 1);
+    let bytes = builder.ins().band_imm(bytes, -cell);
+    let bytes = integer_width(&mut builder, bytes, pointer);
+    let no_finalizer = builder.ins().iconst(pointer, 0);
+    let call = builder.ins().call(allocate, &[bytes, no_finalizer]);
+    let string = builder.inst_results(call)[0];
+    builder.ins().store(MemFlags::trusted(), length, string, 0);
+    if signed {
+        let sign_block = builder.create_block();
+        let number_block = builder.create_block();
+        builder
+            .ins()
+            .brif(negative, sign_block, &[], number_block, &[]);
+        builder.switch_to_block(sign_block);
+        let minus = builder.ins().iconst(types::I8, i64::from(b'-'));
+        builder.ins().store(MemFlags::trusted(), minus, string, 8);
+        builder.ins().jump(number_block, &[]);
+        builder.switch_to_block(number_block);
+    }
+    builder.ins().jump(
+        write,
+        &[
+            cranelift_codegen::ir::BlockArg::Value(magnitude),
+            cranelift_codegen::ir::BlockArg::Value(digits),
+            cranelift_codegen::ir::BlockArg::Value(string),
+        ],
+    );
+
+    builder.switch_to_block(write);
+    let remaining = builder.block_params(write)[0];
+    let position = builder.block_params(write)[1];
+    let string = builder.block_params(write)[2];
+    let ten = builder.ins().iconst(types::I64, 10);
+    let digit = builder.ins().urem(remaining, ten);
+    let digit = builder.ins().ireduce(types::I8, digit);
+    let digit = builder.ins().iadd_imm(digit, i64::from(b'0'));
+    let sign = builder.ins().uextend(types::I64, negative);
+    let offset = builder.ins().iadd(position, sign);
+    let offset = builder.ins().iadd_imm(offset, 7);
+    let start = builder.ins().iadd_imm(string, 0);
+    let address = builder.ins().iadd(start, offset);
+    builder.ins().store(MemFlags::trusted(), digit, address, 0);
+    let more = builder
+        .ins()
+        .icmp_imm(IntCC::UnsignedGreaterThan, position, 1);
+    builder.ins().brif(
+        more,
+        write_more,
+        &[
+            cranelift_codegen::ir::BlockArg::Value(remaining),
+            cranelift_codegen::ir::BlockArg::Value(position),
+            cranelift_codegen::ir::BlockArg::Value(string),
+        ],
+        done,
+        &[cranelift_codegen::ir::BlockArg::Value(string)],
+    );
+
+    builder.switch_to_block(write_more);
+    let remaining = builder.block_params(write_more)[0];
+    let position = builder.block_params(write_more)[1];
+    let string = builder.block_params(write_more)[2];
+    let ten = builder.ins().iconst(types::I64, 10);
+    let remaining = builder.ins().udiv(remaining, ten);
+    let position = builder.ins().iadd_imm(position, -1);
+    builder.ins().jump(
+        write,
+        &[
+            cranelift_codegen::ir::BlockArg::Value(remaining),
+            cranelift_codegen::ir::BlockArg::Value(position),
+            cranelift_codegen::ir::BlockArg::Value(string),
+        ],
+    );
+
+    builder.switch_to_block(done);
+    let string = builder.block_params(done)[0];
+    builder.ins().return_(&[string]);
     builder.seal_all_blocks();
     builder.finalize();
     module

@@ -163,6 +163,10 @@ pub enum InstKind {
         state: Value,
         value: Value,
     },
+    /// The `Display` result for a primitive value (LR35, LR75).
+    DisplayValue {
+        value: Value,
+    },
 
     /// `x as T`, between numeric types (LR33, LR39).
     Convert {
@@ -337,6 +341,7 @@ impl InstKind {
             | Self::Unary { .. }
             | Self::HashValue { .. }
             | Self::HashCombine { .. }
+            | Self::DisplayValue { .. }
             | Self::Convert { .. }
             | Self::IsType { .. }
             | Self::MakeClosure { .. }
