@@ -622,6 +622,7 @@ impl<'a> Body<'a> {
     ) {
         enum Source {
             Range { last: Value, inclusive: bool },
+            Reversed { first: Value, inclusive: bool },
             List { receiver: Value, indexed: bool },
             Table(Value),
         }
@@ -653,6 +654,39 @@ impl<'a> Body<'a> {
             (ExprKind::Range { .. }, _) => {
                 self.gap(span, "a range loop that does not bind one name");
                 return;
+            }
+            (
+                ExprKind::Call {
+                    callee,
+                    method: Some(method),
+                    args,
+                    ..
+                },
+                _,
+            ) if method == "reversed" && args.is_empty() => {
+                let ExprKind::Range {
+                    start: Some(start),
+                    end: Some(end),
+                    inclusive,
+                } = &callee.kind
+                else {
+                    self.gap(
+                        span,
+                        "`reversed()` on something other than a range written in place",
+                    );
+                    return;
+                };
+                let element = self
+                    .declared_type(span)
+                    .or_else(|| self.known_type(start))
+                    .unwrap_or(Ty::Int(IntTy::I64));
+                let first = self.expr(start, Some(&element));
+                let last = self.expr(end, Some(&element));
+                let source = Source::Reversed {
+                    first,
+                    inclusive: *inclusive,
+                };
+                (source, self.declare(""), last, element)
             }
             _ => {
                 let (iterable, indexed) = match &iterable.kind {
@@ -698,6 +732,7 @@ impl<'a> Body<'a> {
         let entering = self.defs.clone();
 
         let current = self.defs[&counter];
+        let descending = matches!(source, Source::Reversed { .. });
         let (op, bound) = match source {
             Source::Range { last, inclusive } => {
                 let op = if inclusive {
@@ -706,6 +741,14 @@ impl<'a> Body<'a> {
                     BinaryOp::Less
                 };
                 (op, last)
+            }
+            Source::Reversed { first, inclusive } => {
+                let op = if inclusive {
+                    BinaryOp::GreaterEqual
+                } else {
+                    BinaryOp::Greater
+                };
+                (op, first)
             }
             Source::List { receiver, .. } => (
                 BinaryOp::Less,
@@ -741,6 +784,25 @@ impl<'a> Body<'a> {
         self.defs = entering.clone();
         match source {
             Source::Range { .. } => {}
+            Source::Reversed { inclusive, .. } => {
+                let value = if inclusive {
+                    current
+                } else {
+                    let one = self.emit(InstKind::Const(Const::Int(1)), element.clone(), span);
+                    self.emit(
+                        InstKind::Binary {
+                            op: BinaryOp::Subtract,
+                            left: current,
+                            right: one,
+                        },
+                        element.clone(),
+                        span,
+                    )
+                };
+                if let Some(binding) = bindings.first() {
+                    self.bind_value(binding, value, span);
+                }
+            }
             Source::List { receiver, indexed } => {
                 let held = self.collection_args(receiver);
                 let element = self.emit(
@@ -813,7 +875,11 @@ impl<'a> Body<'a> {
         let one = self.emit(InstKind::Const(Const::Int(1)), element.clone(), span);
         let next = self.emit(
             InstKind::Binary {
-                op: BinaryOp::Add,
+                op: if descending {
+                    BinaryOp::Subtract
+                } else {
+                    BinaryOp::Add
+                },
                 left: current,
                 right: one,
             },

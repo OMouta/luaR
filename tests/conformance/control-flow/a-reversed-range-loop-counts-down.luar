@@ -1,0 +1,16 @@
+--- expect: run
+--- exit: 213
+--- spec: LR10.4
+export function main(): int
+    local digits = 0
+    for i in (0..<3):reversed() do
+        digits = digits * 10 + i
+    end
+    for i in (1..=2):reversed() do
+        digits += i
+    end
+    for i in (5..<2):reversed() do
+        digits += 100
+    end
+    return digits
+end
