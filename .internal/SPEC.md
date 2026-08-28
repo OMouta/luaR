@@ -761,7 +761,7 @@ for index, item in items:enumerated() do
 end
 ```
 
-Maps may expose key/value iteration:
+Maps expose key/value iteration:
 
 ```lua
 for key, value in map do
@@ -769,7 +769,11 @@ for key, value in map do
 end
 ```
 
-Iteration is defined by the iterable protocol rather than by special-casing tables.
+A `for` over a `List<T>` or a `FrozenList<T>` binds each element in index order, and the binding is a `T`. One over a `Set<T>` or a `FrozenSet<T>` binds each element once, in no stated order. One over a `Map<K, V>` or a `FrozenMap<K, V>` binds each key and its value once, in no stated order: the first binding is a `K` and the second a `V`.
+
+The loop names one binding for each value an iteration yields: one over a range, a list, or a set, and two over a map. Another count is rejected.
+
+Iteration over any other type is defined by the iterable protocol rather than by special-casing tables.
 
 ### 10.6 Break and Continue
 
