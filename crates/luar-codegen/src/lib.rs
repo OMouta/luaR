@@ -234,6 +234,17 @@ impl Emitter<'_> {
                 .runtime
                 .allocate_in(&mut self.module, &mut context.func);
             let roots = self.runtime.roots_in(&mut self.module, &mut context.func);
+            let finalizers = self
+                .program
+                .finalizers()
+                .filter_map(|(ty, function)| {
+                    let declared = self.declared.get(&function).copied()?;
+                    let reference = self
+                        .module
+                        .declare_func_in_func(declared, &mut context.func);
+                    Some((ty.clone(), reference))
+                })
+                .collect();
             let translator = Translator {
                 program: self.program,
                 function,
@@ -243,6 +254,7 @@ impl Emitter<'_> {
                 texts,
                 handlers,
                 allocate,
+                finalizers,
                 roots,
                 root_frame: None,
                 root_offsets: HashMap::new(),

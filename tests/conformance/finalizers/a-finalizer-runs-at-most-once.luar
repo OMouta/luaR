@@ -1,0 +1,41 @@
+--- expect: run
+--- exit: 0
+--- spec: LR31
+--- spec: LR51
+ref struct Counter
+    value: int
+end
+
+ref struct Handle<T>
+    counter: Counter
+    payload: T
+
+    @finalizer
+    function release(self)
+        self.counter.value += 1
+    end
+end
+
+ref struct Box
+    value: int
+end
+
+function discard(counter: Counter)
+    local handle = Handle { counter = counter, payload = 1 }
+end
+
+export function main(): int
+    local counter = Counter { value = 0 }
+    discard(counter)
+
+    local i = 0
+    while i < 70000 do
+        local discarded = Box { value = i }
+        i += 1
+    end
+
+    if counter.value > 1 then
+        return 1
+    end
+    return 0
+end

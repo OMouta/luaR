@@ -24,6 +24,7 @@ pub(crate) fn emit(
     let roots = zero(module, "luar_gc_roots", pointer)?;
     let head = zero(module, "luar_gc_head", pointer)?;
     let allocated = zero(module, "luar_gc_allocated", pointer)?;
+    let collecting = zero(module, "luar_gc_collecting", pointer)?;
 
     let mut malloc_signature = Signature::new(call_conv);
     malloc_signature.params.push(AbiParam::new(pointer));
@@ -45,33 +46,60 @@ pub(crate) fn emit(
         .map_err(|error| Error::Cranelift(error.to_string()))?;
 
     let collect_signature = Signature::new(call_conv);
+    let mark_roots = module
+        .declare_function("luar_gc_mark_roots", Linkage::Local, &collect_signature)
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
+    let finalize = module
+        .declare_function("luar_gc_finalize", Linkage::Local, &collect_signature)
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
     let collect = module
         .declare_function("luar_gc_collect", Linkage::Local, &collect_signature)
         .map_err(|error| Error::Cranelift(error.to_string()))?;
 
+    let mut allocate_signature = malloc_signature.clone();
+    allocate_signature.params.push(AbiParam::new(pointer));
     let allocate = module
-        .declare_function("luar_gc_allocate", Linkage::Local, &malloc_signature)
+        .declare_function("luar_gc_allocate", Linkage::Local, &allocate_signature)
         .map_err(|error| Error::Cranelift(error.to_string()))?;
 
     define_mark(module, pointer, mark, mark_signature, head)?;
+    define_mark_roots(
+        module,
+        pointer,
+        mark_roots,
+        collect_signature.clone(),
+        roots,
+        mark,
+    )?;
+    define_finalize(
+        module,
+        pointer,
+        call_conv,
+        finalize,
+        collect_signature.clone(),
+        head,
+        mark,
+    )?;
     define_collect(
         module,
         pointer,
         collect,
         collect_signature,
-        roots,
         head,
         allocated,
-        mark,
+        collecting,
+        mark_roots,
+        finalize,
         free,
     )?;
     define_allocate(
         module,
         pointer,
         allocate,
-        malloc_signature,
+        allocate_signature,
         head,
         allocated,
+        collecting,
         collect,
         malloc,
     )?;
@@ -101,7 +129,7 @@ fn define_mark(
     let cell = i64::from(pointer.bytes());
     let size_offset = i32::try_from(cell).expect("pointer width fits in i32");
     let mark_offset = size_offset * 2;
-    let payload_offset = cell * 3;
+    let payload_offset = cell * 4;
 
     let mut context = Context::new();
     let mut frame = FunctionBuilderContext::new();
@@ -216,30 +244,22 @@ fn define_mark(
         .map_err(|error| Error::Cranelift(error.to_string()))
 }
 
-#[allow(clippy::too_many_arguments)]
-fn define_collect(
+fn define_mark_roots(
     module: &mut ObjectModule,
     pointer: Type,
     declared: FuncId,
     signature: Signature,
     roots: DataId,
-    head: DataId,
-    allocated: DataId,
     mark: FuncId,
-    free: FuncId,
 ) -> Result<(), Error> {
     let cell = i64::from(pointer.bytes());
     let size_offset = i32::try_from(cell).expect("pointer width fits in i32");
-    let mark_offset = size_offset * 2;
 
     let mut context = Context::new();
     let mut frame_context = FunctionBuilderContext::new();
     context.func.signature = signature;
     let roots = module.declare_data_in_func(roots, &mut context.func);
-    let head = module.declare_data_in_func(head, &mut context.func);
-    let allocated = module.declare_data_in_func(allocated, &mut context.func);
     let mark = module.declare_func_in_func(mark, &mut context.func);
-    let free = module.declare_func_in_func(free, &mut context.func);
 
     let mut builder = FunctionBuilder::new(&mut context.func, &mut frame_context);
     let entry = builder.create_block();
@@ -248,11 +268,6 @@ fn define_collect(
     let slots = builder.create_block();
     let mark_slot = builder.create_block();
     let next_frame = builder.create_block();
-    let start_sweep = builder.create_block();
-    let sweep = builder.create_block();
-    let inspect_sweep = builder.create_block();
-    let live = builder.create_block();
-    let dead = builder.create_block();
     let done = builder.create_block();
     builder.append_block_param(frames, pointer);
     builder.append_block_param(frame_slots, pointer);
@@ -260,10 +275,6 @@ fn define_collect(
     builder.append_block_param(slots, pointer);
     builder.append_block_param(slots, pointer);
     builder.append_block_param(next_frame, pointer);
-    builder.append_block_param(sweep, pointer);
-    builder.append_block_param(sweep, pointer);
-    builder.append_block_param(inspect_sweep, pointer);
-    builder.append_block_param(inspect_sweep, pointer);
 
     builder.switch_to_block(entry);
     let roots_address = builder.ins().global_value(pointer, roots);
@@ -279,7 +290,7 @@ fn define_collect(
     let exhausted = builder.ins().icmp(IntCC::Equal, frame, zero);
     builder.ins().brif(
         exhausted,
-        start_sweep,
+        done,
         &[],
         frame_slots,
         &[cranelift_codegen::ir::BlockArg::Value(frame)],
@@ -333,7 +344,177 @@ fn define_collect(
         .ins()
         .jump(frames, &[cranelift_codegen::ir::BlockArg::Value(previous)]);
 
-    builder.switch_to_block(start_sweep);
+    builder.switch_to_block(done);
+    builder.ins().return_(&[]);
+    builder.seal_all_blocks();
+    builder.finalize();
+    module
+        .define_function(declared, &mut context)
+        .map_err(|error| Error::Cranelift(error.to_string()))
+}
+
+fn define_finalize(
+    module: &mut ObjectModule,
+    pointer: Type,
+    call_conv: CallConv,
+    declared: FuncId,
+    signature: Signature,
+    head: DataId,
+    mark: FuncId,
+) -> Result<(), Error> {
+    let cell = i64::from(pointer.bytes());
+    let cell_offset = i32::try_from(cell).expect("pointer width fits in i32");
+    let mark_offset = cell_offset * 2;
+    let finalized_offset = mark_offset + 1;
+    let finalizer_offset = cell_offset * 3;
+    let payload_offset = cell * 4;
+
+    let mut callback = Signature::new(call_conv);
+    callback.params.push(AbiParam::new(pointer));
+    callback.returns.push(AbiParam::new(types::I8));
+
+    let mut context = Context::new();
+    let mut frame = FunctionBuilderContext::new();
+    context.func.signature = signature;
+    let head = module.declare_data_in_func(head, &mut context.func);
+    let mark = module.declare_func_in_func(mark, &mut context.func);
+    let callback = context.func.import_signature(callback);
+
+    let mut builder = FunctionBuilder::new(&mut context.func, &mut frame);
+    let entry = builder.create_block();
+    let visit = builder.create_block();
+    let inspect = builder.create_block();
+    let run = builder.create_block();
+    let next = builder.create_block();
+    let done = builder.create_block();
+    builder.append_block_param(visit, pointer);
+    builder.append_block_param(inspect, pointer);
+    builder.append_block_param(run, pointer);
+    builder.append_block_param(run, pointer);
+    builder.append_block_param(next, pointer);
+
+    builder.switch_to_block(entry);
+    let head_address = builder.ins().global_value(pointer, head);
+    let first = builder.ins().load(pointer, OWNED, head_address, 0);
+    builder
+        .ins()
+        .jump(visit, &[cranelift_codegen::ir::BlockArg::Value(first)]);
+
+    builder.switch_to_block(visit);
+    let header = builder.block_params(visit)[0];
+    let zero = builder.ins().iconst(pointer, 0);
+    let exhausted = builder.ins().icmp(IntCC::Equal, header, zero);
+    builder.ins().brif(
+        exhausted,
+        done,
+        &[],
+        inspect,
+        &[cranelift_codegen::ir::BlockArg::Value(header)],
+    );
+
+    builder.switch_to_block(inspect);
+    let header = builder.block_params(inspect)[0];
+    let marked = builder.ins().load(types::I8, OWNED, header, mark_offset);
+    let finalized = builder
+        .ins()
+        .load(types::I8, OWNED, header, finalized_offset);
+    let function = builder.ins().load(pointer, OWNED, header, finalizer_offset);
+    let zero_byte = builder.ins().iconst(types::I8, 0);
+    let zero_pointer = builder.ins().iconst(pointer, 0);
+    let unmarked = builder.ins().icmp(IntCC::Equal, marked, zero_byte);
+    let pending = builder.ins().icmp(IntCC::Equal, finalized, zero_byte);
+    let present = builder.ins().icmp(IntCC::NotEqual, function, zero_pointer);
+    let eligible = builder.ins().band(unmarked, pending);
+    let eligible = builder.ins().band(eligible, present);
+    builder.ins().brif(
+        eligible,
+        run,
+        &[
+            cranelift_codegen::ir::BlockArg::Value(header),
+            cranelift_codegen::ir::BlockArg::Value(function),
+        ],
+        next,
+        &[cranelift_codegen::ir::BlockArg::Value(header)],
+    );
+
+    builder.switch_to_block(run);
+    let header = builder.block_params(run)[0];
+    let function = builder.block_params(run)[1];
+    let one = builder.ins().iconst(types::I8, 1);
+    builder.ins().store(OWNED, one, header, finalized_offset);
+    let payload = builder.ins().iadd_imm(header, payload_offset);
+    builder.ins().call(mark, &[payload]);
+    builder.ins().call_indirect(callback, function, &[payload]);
+    builder.ins().call(mark, &[payload]);
+    builder
+        .ins()
+        .jump(next, &[cranelift_codegen::ir::BlockArg::Value(header)]);
+
+    builder.switch_to_block(next);
+    let header = builder.block_params(next)[0];
+    let next_header = builder.ins().load(pointer, OWNED, header, 0);
+    builder.ins().jump(
+        visit,
+        &[cranelift_codegen::ir::BlockArg::Value(next_header)],
+    );
+
+    builder.switch_to_block(done);
+    builder.ins().return_(&[]);
+    builder.seal_all_blocks();
+    builder.finalize();
+    module
+        .define_function(declared, &mut context)
+        .map_err(|error| Error::Cranelift(error.to_string()))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn define_collect(
+    module: &mut ObjectModule,
+    pointer: Type,
+    declared: FuncId,
+    signature: Signature,
+    head: DataId,
+    allocated: DataId,
+    collecting: DataId,
+    mark_roots: FuncId,
+    finalize: FuncId,
+    free: FuncId,
+) -> Result<(), Error> {
+    let cell = i32::try_from(pointer.bytes()).expect("pointer width fits in i32");
+    let mark_offset = cell * 2;
+
+    let mut context = Context::new();
+    let mut frame = FunctionBuilderContext::new();
+    context.func.signature = signature;
+    let head = module.declare_data_in_func(head, &mut context.func);
+    let allocated = module.declare_data_in_func(allocated, &mut context.func);
+    let collecting = module.declare_data_in_func(collecting, &mut context.func);
+    let mark_roots = module.declare_func_in_func(mark_roots, &mut context.func);
+    let finalize = module.declare_func_in_func(finalize, &mut context.func);
+    let free = module.declare_func_in_func(free, &mut context.func);
+
+    let mut builder = FunctionBuilder::new(&mut context.func, &mut frame);
+    let entry = builder.create_block();
+    let sweep = builder.create_block();
+    let inspect = builder.create_block();
+    let live = builder.create_block();
+    let dead = builder.create_block();
+    let done = builder.create_block();
+    builder.append_block_param(sweep, pointer);
+    builder.append_block_param(sweep, pointer);
+    builder.append_block_param(inspect, pointer);
+    builder.append_block_param(inspect, pointer);
+
+    builder.switch_to_block(entry);
+    let allocated_address = builder.ins().global_value(pointer, allocated);
+    let collecting_address = builder.ins().global_value(pointer, collecting);
+    let zero = builder.ins().iconst(pointer, 0);
+    let one = builder.ins().iconst(pointer, 1);
+    builder.ins().store(OWNED, zero, allocated_address, 0);
+    builder.ins().store(OWNED, one, collecting_address, 0);
+    builder.ins().call(mark_roots, &[]);
+    builder.ins().call(finalize, &[]);
+    builder.ins().call(mark_roots, &[]);
     let head_address = builder.ins().global_value(pointer, head);
     let first = builder.ins().load(pointer, OWNED, head_address, 0);
     builder.ins().jump(
@@ -353,19 +534,19 @@ fn define_collect(
         exhausted,
         done,
         &[],
-        inspect_sweep,
+        inspect,
         &[
             cranelift_codegen::ir::BlockArg::Value(link),
             cranelift_codegen::ir::BlockArg::Value(header),
         ],
     );
 
-    builder.switch_to_block(inspect_sweep);
-    let link = builder.block_params(inspect_sweep)[0];
-    let header = builder.block_params(inspect_sweep)[1];
+    builder.switch_to_block(inspect);
+    let link = builder.block_params(inspect)[0];
+    let header = builder.block_params(inspect)[1];
     let marked = builder.ins().load(types::I8, OWNED, header, mark_offset);
-    let zero_mark = builder.ins().iconst(types::I8, 0);
-    let keep = builder.ins().icmp(IntCC::NotEqual, marked, zero_mark);
+    let zero = builder.ins().iconst(types::I8, 0);
+    let keep = builder.ins().icmp(IntCC::NotEqual, marked, zero);
     builder.ins().brif(keep, live, &[], dead, &[]);
 
     builder.switch_to_block(live);
@@ -393,9 +574,8 @@ fn define_collect(
     );
 
     builder.switch_to_block(done);
-    let allocated_address = builder.ins().global_value(pointer, allocated);
     let zero = builder.ins().iconst(pointer, 0);
-    builder.ins().store(OWNED, zero, allocated_address, 0);
+    builder.ins().store(OWNED, zero, collecting_address, 0);
     builder.ins().return_(&[]);
     builder.seal_all_blocks();
     builder.finalize();
@@ -412,19 +592,23 @@ fn define_allocate(
     signature: Signature,
     head: DataId,
     allocated: DataId,
+    collecting: DataId,
     collect: FuncId,
     malloc: FuncId,
 ) -> Result<(), Error> {
     let cell = i64::from(pointer.bytes());
     let size_offset = i32::try_from(cell).expect("pointer width fits in i32");
     let mark_offset = size_offset * 2;
-    let payload_offset = cell * 3;
+    let finalized_offset = mark_offset + 1;
+    let finalizer_offset = size_offset * 3;
+    let payload_offset = cell * 4;
 
     let mut context = Context::new();
     let mut frame = FunctionBuilderContext::new();
     context.func.signature = signature;
     let head = module.declare_data_in_func(head, &mut context.func);
     let allocated = module.declare_data_in_func(allocated, &mut context.func);
+    let collecting = module.declare_data_in_func(collecting, &mut context.func);
     let collect = module.declare_func_in_func(collect, &mut context.func);
     let malloc = module.declare_func_in_func(malloc, &mut context.func);
 
@@ -436,13 +620,21 @@ fn define_allocate(
 
     builder.switch_to_block(entry);
     let size = builder.block_params(entry)[0];
+    let finalizer = builder.block_params(entry)[1];
     let allocated_address = builder.ins().global_value(pointer, allocated);
     let used = builder.ins().load(pointer, OWNED, allocated_address, 0);
     let threshold = builder.ins().iconst(pointer, COLLECT_AFTER);
     let full = builder
         .ins()
         .icmp(IntCC::UnsignedGreaterThanOrEqual, used, threshold);
-    builder.ins().brif(full, collect_now, &[], allocate, &[]);
+    let collecting_address = builder.ins().global_value(pointer, collecting);
+    let active = builder.ins().load(pointer, OWNED, collecting_address, 0);
+    let zero = builder.ins().iconst(pointer, 0);
+    let idle = builder.ins().icmp(IntCC::Equal, active, zero);
+    let should_collect = builder.ins().band(full, idle);
+    builder
+        .ins()
+        .brif(should_collect, collect_now, &[], allocate, &[]);
 
     builder.switch_to_block(collect_now);
     builder.ins().call(collect, &[]);
@@ -456,8 +648,14 @@ fn define_allocate(
     let previous = builder.ins().load(pointer, OWNED, head_address, 0);
     builder.ins().store(OWNED, previous, header, 0);
     builder.ins().store(OWNED, size, header, size_offset);
+    let active = builder.ins().load(pointer, OWNED, collecting_address, 0);
+    let active = builder.ins().ireduce(types::I8, active);
+    builder.ins().store(OWNED, active, header, mark_offset);
     let zero = builder.ins().iconst(types::I8, 0);
-    builder.ins().store(OWNED, zero, header, mark_offset);
+    builder.ins().store(OWNED, zero, header, finalized_offset);
+    builder
+        .ins()
+        .store(OWNED, finalizer, header, finalizer_offset);
     builder.ins().store(OWNED, header, head_address, 0);
 
     let used = builder.ins().load(pointer, OWNED, allocated_address, 0);

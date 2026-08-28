@@ -72,6 +72,7 @@ pub(crate) struct Translator<'a, 'b> {
     pub handlers: [FuncRef; TRAPS.len()],
     /// Where managed aggregate storage comes from (LR29).
     pub allocate: FuncRef,
+    pub finalizers: HashMap<Ty, FuncRef>,
     /// The global holding the top shadow-stack frame.
     pub roots: GlobalValue,
     pub root_frame: Option<StackSlot>,
@@ -693,7 +694,11 @@ impl Translator<'_, '_> {
             return None;
         };
         let size = self.builder.ins().iconst(self.pointer, i64::from(size));
-        let call = self.builder.ins().call(self.allocate, &[size]);
+        let finalizer = match self.finalizers.get(ty).copied() {
+            Some(function) => self.builder.ins().func_addr(self.pointer, function),
+            None => self.builder.ins().iconst(self.pointer, 0),
+        };
+        let call = self.builder.ins().call(self.allocate, &[size, finalizer]);
         let allocated = self.builder.inst_results(call).first().copied()?;
         self.root_temporary(temporary, allocated);
         Some(allocated)
