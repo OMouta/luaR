@@ -223,6 +223,7 @@ pub fn is_aggregate(ty: &Ty) -> bool {
         ty,
         Ty::Str
             | Ty::Bytes
+            | Ty::Function { .. }
             | Ty::Named { .. }
             | Ty::Tuple(_)
             | Ty::Record(_)

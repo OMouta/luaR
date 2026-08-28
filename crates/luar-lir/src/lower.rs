@@ -805,8 +805,11 @@ impl Lowering<'_> {
                 program: &self.program,
             };
             let shell = self.program.function(pending.id).clone();
-            let (function, closures, gaps) = body::Body::new(context, shell, pending.throws)
-                .lower(&pending.bindings, &pending.body);
+            let (function, closures, gaps) = body::Body::new(context, shell, pending.throws).lower(
+                None,
+                &pending.bindings,
+                &pending.body,
+            );
             built.push((pending.id, function, gaps));
             made.extend(closures);
         }

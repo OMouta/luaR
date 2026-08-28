@@ -457,10 +457,13 @@ fn calls(function: &luar_lir::program::Function) -> Vec<FuncId> {
     let mut found = Vec::new();
     for (_, block) in function.blocks() {
         for inst in &block.insts {
-            if let luar_lir::inst::InstKind::Call { callee, .. } = &inst.kind
-                && !found.contains(callee)
-            {
-                found.push(*callee);
+            let callee = match &inst.kind {
+                luar_lir::inst::InstKind::Call { callee, .. } => *callee,
+                luar_lir::inst::InstKind::MakeClosure { func, .. } => *func,
+                _ => continue,
+            };
+            if !found.contains(&callee) {
+                found.push(callee);
             }
         }
     }

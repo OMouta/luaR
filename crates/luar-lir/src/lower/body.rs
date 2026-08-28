@@ -175,13 +175,31 @@ impl<'a> Body<'a> {
 
     /// Binds the entry block's parameters in order and lowers `block` into the
     /// function.
+    /// A closure takes itself first and reads what it captured out of that
+    /// object, so `captured` names those in the order they sit there (LR9.8).
     pub(super) fn lower(
         mut self,
+        captured: Option<&[(String, Ty)]>,
         bindings: &[Binding],
         block: &Block,
     ) -> (Function, Vec<(FuncId, Function)>, Vec<Gap>) {
         assigned(block, &mut self.mutated);
-        let params: Vec<Value> = self.function.block(self.function.entry).params.clone();
+        let mut params: Vec<Value> = self.function.block(self.function.entry).params.clone();
+        if let Some(captured) = captured {
+            let closure = params.remove(0);
+            for (index, (name, ty)) in captured.iter().enumerate() {
+                let field = u32::try_from(index + 1).expect("capture count fits in u32");
+                let value = self.emit(
+                    InstKind::GetField {
+                        object: closure,
+                        field,
+                    },
+                    ty.clone(),
+                    block.span,
+                );
+                self.bind_value(&Binding::Name(name.clone()), value, block.span);
+            }
+        }
         for (binding, value) in bindings.iter().zip(params) {
             self.bind_value(binding, value, block.span);
         }
@@ -2615,14 +2633,12 @@ impl<'a> Body<'a> {
             return self.missing(span, "a closure capturing a binding whose address is taken");
         }
 
-        let mut bindings: Vec<Binding> = captures
+        let captured: Vec<(String, Ty)> = captures
             .iter()
-            .map(|(name, _)| Binding::Name(name.clone()))
+            .map(|(name, var)| (name.clone(), self.function.type_of(self.defs[var]).clone()))
             .collect();
-        let mut taken: Vec<Ty> = captures
-            .iter()
-            .map(|(_, var)| self.function.type_of(self.defs[var]).clone())
-            .collect();
+        let mut bindings: Vec<Binding> = Vec::with_capacity(params.len());
+        let mut taken: Vec<Ty> = vec![ty.clone()];
         for (param, ty) in params.iter().zip(takes) {
             bindings.push(param.binding.clone());
             taken.push(ty);
@@ -2637,7 +2653,8 @@ impl<'a> Body<'a> {
             *result,
             span,
         );
-        let (built, made, gaps) = Body::new(self.context, shell, false).lower(&bindings, &written);
+        let (built, made, gaps) =
+            Body::new(self.context, shell, false).lower(Some(&captured), &bindings, &written);
         self.made.push((id, built));
         self.made.extend(made);
         self.gaps.extend(gaps);

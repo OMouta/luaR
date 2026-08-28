@@ -269,6 +269,36 @@ impl Translator<'_, '_> {
                 self.duplicate(source, &ty, layout::DEPTH)
             }
             InstKind::MakeStruct { ty, fields } => self.make(ty, 0, fields),
+
+            // LR9.8: a closure is its code's address and then what it
+            // captured, and it is passed to that code first.
+            InstKind::MakeClosure { func, captures } => {
+                let ty = inst
+                    .result
+                    .map(|value| self.function.type_of(value).clone());
+                let reference = self.callees.get(func).copied();
+                match (ty, reference) {
+                    (Some(ty), Some(reference)) => {
+                        let cells = i32::try_from(captures.len() + 1).unwrap_or(i32::MAX);
+                        let built = self.allocate_bytes(layout::CELL * cells, &ty, 0);
+                        built.inspect(|&built| {
+                            let code = self.builder.ins().func_addr(self.pointer, reference);
+                            self.builder.ins().store(OWNED, code, built, 0);
+                            for (index, capture) in captures.iter().enumerate() {
+                                let cell =
+                                    u32::try_from(index + 1).expect("capture count fits in u32");
+                                self.write_at(built, &ty, cell, *capture);
+                            }
+                        })
+                    }
+                    (_, None) => {
+                        self.gap("a closure over code the backend did not emit");
+                        None
+                    }
+                    (None, _) => None,
+                }
+            }
+            InstKind::CallIndirect { callee, args } => self.call_indirect(*callee, args),
             InstKind::MakeTuple(members) => {
                 let ty = inst
                     .result
@@ -877,6 +907,33 @@ impl Translator<'_, '_> {
         }
     }
 
+    /// A call through a closure, whose code takes the closure first.
+    fn call_indirect(&mut self, callee: Value, args: &[Value]) -> Option<ir::Value> {
+        let Ty::Function { params, result } = self.function.type_of(callee).clone() else {
+            self.gap("a call through something that is not a function");
+            return None;
+        };
+        let mut signature = Signature::new(self.builder.func.signature.call_conv);
+        signature.params.push(AbiParam::new(self.pointer));
+        for param in params.iter().chain(std::iter::once(result.as_ref())) {
+            let Some(held) = machine(param, self.pointer) else {
+                self.gap(format!("a call through a value passing `{param}`"));
+                return None;
+            };
+            signature.params.push(AbiParam::new(held));
+        }
+        let returned = signature.params.pop().expect("the result was pushed last");
+        signature.returns.push(returned);
+        let signature = self.builder.import_signature(signature);
+
+        let closure = self.value(callee);
+        let code = self.builder.ins().load(self.pointer, OWNED, closure, 0);
+        let mut passed = vec![closure];
+        passed.extend(args.iter().map(|arg| self.value(*arg)));
+        let call = self.builder.ins().call_indirect(signature, code, &passed);
+        self.builder.inst_results(call).first().copied()
+    }
+
     /// The address of a literal's text, which lives in the object rather than
     /// being built at runtime (LR4.5).
     fn text(&mut self, bytes: &[u8]) -> Option<ir::Value> {
@@ -955,6 +1012,10 @@ impl Translator<'_, '_> {
             self.gap(format!("storage for a value of type `{ty}`"));
             return None;
         };
+        self.allocate_bytes(size, ty, temporary)
+    }
+
+    fn allocate_bytes(&mut self, size: i32, ty: &Ty, temporary: u32) -> Option<ir::Value> {
         let size = self.builder.ins().iconst(self.pointer, i64::from(size));
         let finalizer = match self.finalizers.get(ty).copied() {
             Some(function) => self.builder.ins().func_addr(self.pointer, function),
@@ -1062,10 +1123,8 @@ fn comparison(op: BinaryOp, signed: bool) -> Option<IntCC> {
 fn describe(kind: &InstKind) -> &'static str {
     match kind {
         InstKind::IsType { .. } => "a type test",
-        InstKind::CallIndirect { .. } => "a call through a value",
         InstKind::CallVirtual { .. } => "a call through an interface",
         InstKind::MakeDyn { .. } | InstKind::DynValue { .. } => "a dynamic value",
-        InstKind::MakeClosure { .. } => "a closure",
         InstKind::MakeStruct { .. } | InstKind::GetField { .. } | InstKind::SetField { .. } => {
             "a struct"
         }
