@@ -1091,6 +1091,8 @@ The inferred type is `List<string>`. `[...]` always produces a sequence and neve
 
 `List<T>` is mutable. Mutability is the common case, and naming the common case `MutableList<T>` taxes every ordinary program to label the unusual one. Immutable collections are separate types with an explicit name (LR59).
 
+`List.new<T>()` constructs an empty `List<T>`.
+
 Lists are zero-indexed.
 
 ```lua
@@ -1143,6 +1145,8 @@ This costs six characters at the one place a dynamic map is created, and buys a 
 
 `Map<K, V>` is mutable, on the same reasoning as `List<T>`.
 
+`Map.new<K, V>()` constructs an empty `Map<K, V>`.
+
 ### 13.3 Sets
 
 Sets are provided by the standard library.
@@ -1150,6 +1154,8 @@ Sets are provided by the standard library.
 ```lua
 local ids = Set { 1, 2, 3 }
 ```
+
+`Set.new<T>()` constructs an empty `Set<T>`.
 
 ---
 
@@ -3659,7 +3665,7 @@ interface Iterable<T>
 end
 
 function collect<T>(source: Iterable<T>): List<T>
-    local result = List<T>.new()
+    local result = List.new<T>()
 
     for value in source do
         result:push(value)
