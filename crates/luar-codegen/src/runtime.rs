@@ -13,6 +13,7 @@ use luar_lir::inst::Trap;
 
 use crate::Error;
 use crate::func::TRAPS;
+use crate::gc;
 
 /// The exit status a trapped program leaves with.
 const TRAPPED: i64 = 101;
@@ -34,8 +35,7 @@ const WRITE: &str = "write";
 pub(crate) struct Runtime {
     /// One handler per trap kind, in [`TRAPS`] order.
     pub handlers: [ModuleFuncId; TRAPS.len()],
-    /// Where aggregate storage comes from. Nothing gives it back, because
-    /// there is no collector yet (LR29).
+    /// Where managed aggregate storage comes from (LR29).
     pub allocate: ModuleFuncId,
     /// The most recently entered shadow-stack frame.
     roots: DataId,
@@ -64,21 +64,7 @@ impl Runtime {
             .declare_function(WRITE, Linkage::Import, &write)
             .map_err(|error| Error::Cranelift(error.to_string()))?;
 
-        let mut allocate = Signature::new(call_conv);
-        allocate.params.push(AbiParam::new(pointer));
-        allocate.returns.push(AbiParam::new(pointer));
-        let allocate = module
-            .declare_function("malloc", Linkage::Import, &allocate)
-            .map_err(|error| Error::Cranelift(error.to_string()))?;
-
-        let mut roots = DataDescription::new();
-        roots.define_zeroinit(pointer.bytes() as usize);
-        let root_data = module
-            .declare_data("luar_gc_roots", Linkage::Local, true, false)
-            .map_err(|error| Error::Cranelift(error.to_string()))?;
-        module
-            .define_data(root_data, &roots)
-            .map_err(|error| Error::Cranelift(error.to_string()))?;
+        let collector = gc::emit(module, pointer, call_conv)?;
 
         let mut handlers = Vec::with_capacity(TRAPS.len());
         for trap in TRAPS {
@@ -88,8 +74,8 @@ impl Runtime {
             handlers: handlers
                 .try_into()
                 .expect("one handler was emitted per trap kind"),
-            allocate,
-            roots: root_data,
+            allocate: collector.allocate,
+            roots: collector.roots,
         })
     }
 

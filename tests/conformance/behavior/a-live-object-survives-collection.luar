@@ -1,0 +1,16 @@
+--- expect: run
+--- exit: 7
+--- spec: LR29
+ref struct Box
+    value: int
+end
+
+export function main(): int
+    local keep = Box { value = 7 }
+    local i = 0
+    while i < 40000 do
+        local discarded = Box { value = i }
+        i += 1
+    end
+    return keep.value
+end

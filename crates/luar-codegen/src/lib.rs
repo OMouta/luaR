@@ -1,6 +1,7 @@
 //! Backend: LIR to machine code.
 
 mod func;
+mod gc;
 mod layout;
 mod link;
 mod runtime;
@@ -245,6 +246,7 @@ impl Emitter<'_> {
                 roots,
                 root_frame: None,
                 root_offsets: HashMap::new(),
+                temporary_roots: Vec::new(),
                 blocks: HashMap::new(),
                 values: HashMap::new(),
                 gaps: Vec::new(),

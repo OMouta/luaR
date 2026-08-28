@@ -70,13 +70,13 @@ pub(crate) struct Translator<'a, 'b> {
     pub texts: HashMap<Vec<u8>, GlobalValue>,
     /// The runtime handler for each trap kind, in [`TRAPS`] order.
     pub handlers: [FuncRef; TRAPS.len()],
-    /// Where an aggregate's storage comes from. Nothing gives it back yet,
-    /// because there is no collector (LR29).
+    /// Where managed aggregate storage comes from (LR29).
     pub allocate: FuncRef,
     /// The global holding the top shadow-stack frame.
     pub roots: GlobalValue,
     pub root_frame: Option<StackSlot>,
     pub root_offsets: HashMap<Value, i32>,
+    pub temporary_roots: Vec<i32>,
     pub blocks: HashMap<BlockId, Block>,
     pub values: HashMap<Value, ir::Value>,
     pub gaps: Vec<Gap>,
@@ -265,7 +265,7 @@ impl Translator<'_, '_> {
             // LR8: an optional holds whether it holds anything, and then what.
             InstKind::MakeSome { value } => {
                 let ty = inst.result.map(|held| self.function.type_of(held).clone());
-                let built = ty.and_then(|ty| self.allocate(&ty));
+                let built = ty.and_then(|ty| self.allocate(&ty, 0));
                 built.inspect(|&built| {
                     let present = self.builder.ins().iconst(TAG_TYPE, 1);
                     self.builder.ins().store(OWNED, present, built, TAG);
@@ -309,7 +309,9 @@ impl Translator<'_, '_> {
             .filter_map(|(value, ty)| layout::is_aggregate(ty).then_some(value))
             .collect();
         let cell = i32::try_from(self.pointer.bytes()).expect("pointer width fits in i32");
-        let count = i32::try_from(values.len()).unwrap_or(i32::MAX / cell);
+        let temporary_count = usize::try_from(layout::DEPTH).expect("root depth fits in usize");
+        let count =
+            i32::try_from(values.len().saturating_add(temporary_count)).unwrap_or(i32::MAX / cell);
         let size = cell.saturating_mul(count.saturating_add(2));
         let slot = self.builder.create_sized_stack_slot(StackSlotData::new(
             StackSlotKind::ExplicitSlot,
@@ -320,6 +322,12 @@ impl Translator<'_, '_> {
         for (index, value) in values.into_iter().enumerate() {
             let offset = cell.saturating_mul(i32::try_from(index).unwrap_or(i32::MAX) + 2);
             self.root_offsets.insert(value, offset);
+        }
+        let first = self.root_offsets.len();
+        for index in 0..temporary_count {
+            let offset = cell
+                .saturating_mul(i32::try_from(first.saturating_add(index)).unwrap_or(i32::MAX) + 2);
+            self.temporary_roots.push(offset);
         }
     }
 
@@ -334,13 +342,18 @@ impl Translator<'_, '_> {
         self.builder.ins().store(OWNED, previous, frame, 0);
 
         let cell = i32::try_from(self.pointer.bytes()).expect("pointer width fits in i32");
-        let count = self
-            .builder
-            .ins()
-            .iconst(self.pointer, self.root_offsets.len() as i64);
+        let count = self.builder.ins().iconst(
+            self.pointer,
+            self.root_offsets
+                .len()
+                .saturating_add(self.temporary_roots.len()) as i64,
+        );
         self.builder.ins().store(OWNED, count, frame, cell);
         let zero = self.builder.ins().iconst(self.pointer, 0);
         for offset in self.root_offsets.values() {
+            self.builder.ins().store(OWNED, zero, frame, *offset);
+        }
+        for offset in &self.temporary_roots {
             self.builder.ins().store(OWNED, zero, frame, *offset);
         }
         self.builder.ins().store(OWNED, frame, top, 0);
@@ -369,13 +382,25 @@ impl Translator<'_, '_> {
         self.builder.ins().store(OWNED, machine, frame, offset);
     }
 
+    fn root_temporary(&mut self, index: u32, machine: ir::Value) {
+        let Some(offset) = self.temporary_roots.get(index as usize).copied() else {
+            return;
+        };
+        let frame = self.builder.ins().stack_addr(
+            self.pointer,
+            self.root_frame.expect("root frame exists"),
+            0,
+        );
+        self.builder.ins().store(OWNED, machine, frame, offset);
+    }
+
     fn constant(&mut self, literal: &Const, result: Option<Value>) -> Option<ir::Value> {
         // LR8: `nil` in an optional's place is storage that holds nothing.
         if let Const::Nil = literal
             && let Some(result) = result
             && let ty @ Ty::Optional(_) = self.function.type_of(result).clone()
         {
-            let built = self.allocate(&ty)?;
+            let built = self.allocate(&ty, 0)?;
             let absent = self.builder.ins().iconst(TAG_TYPE, 0);
             self.builder.ins().store(OWNED, absent, built, TAG);
             return Some(built);
@@ -632,7 +657,7 @@ impl Translator<'_, '_> {
         }
         let parts = parts.unwrap_or_default();
 
-        let copy = self.allocate(ty)?;
+        let copy = self.allocate(ty, layout::DEPTH - depth)?;
         for (index, cell) in (0..size).step_by(layout::CELL as usize).enumerate() {
             let held = self.builder.ins().load(TAG_TYPE, OWNED, source, cell);
             let part = parts
@@ -653,7 +678,7 @@ impl Translator<'_, '_> {
     /// Storage for an aggregate, with `parts` written into the cells after
     /// `from`.
     fn make(&mut self, ty: &Ty, from: u32, parts: &[Value]) -> Option<ir::Value> {
-        let built = self.allocate(ty)?;
+        let built = self.allocate(ty, 0)?;
         for (index, part) in parts.iter().enumerate() {
             let cell = from + u32::try_from(index).unwrap_or(u32::MAX);
             self.write_at(built, cell, *part);
@@ -662,14 +687,16 @@ impl Translator<'_, '_> {
     }
 
     /// Storage large enough for a value of `ty`.
-    fn allocate(&mut self, ty: &Ty) -> Option<ir::Value> {
+    fn allocate(&mut self, ty: &Ty, temporary: u32) -> Option<ir::Value> {
         let Some(size) = layout::size(self.program, ty) else {
             self.gap(format!("storage for a value of type `{ty}`"));
             return None;
         };
         let size = self.builder.ins().iconst(self.pointer, i64::from(size));
         let call = self.builder.ins().call(self.allocate, &[size]);
-        self.builder.inst_results(call).first().copied()
+        let allocated = self.builder.inst_results(call).first().copied()?;
+        self.root_temporary(temporary, allocated);
+        Some(allocated)
     }
 
     /// Reads cell `index` of the aggregate `object` points at.
