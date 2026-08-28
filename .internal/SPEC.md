@@ -1163,6 +1163,8 @@ Assigning `map[key] = value` inserts the key or replaces its value.
 
 `scores:contains(key)` is whether `key` is present, a `bool`.
 
+`scores:remove(key)` removes the entry at `key` and returns its value, or returns `nil` where there is none, a `V?`.
+
 `scores.length` is the number of entries the map holds, an `int`. It is not a field, so it cannot be assigned (LR89.2).
 
 ### 13.3 Sets
@@ -1178,6 +1180,8 @@ local ids = Set { 1, 2, 3 }
 `ids:insert(value)` adds `value` if it is absent and returns `()`.
 
 `ids:contains(value)` is whether `value` is present, a `bool`.
+
+`ids:remove(value)` removes `value` and returns whether it was present, a `bool`.
 
 `ids.length` is the number of elements the set holds, an `int`. It is not a field, so it cannot be assigned (LR89.2).
 
