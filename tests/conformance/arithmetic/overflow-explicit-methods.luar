@@ -1,0 +1,39 @@
+--- expect: run
+--- exit: 123
+--- spec: LR4.3
+export function main(): int
+    local top: int = 9223372036854775807
+    local a = top:wrappingAdd(1)
+    local b = top:saturatingAdd(1)
+    local c = top:checkedAdd(1)
+    local d = top:checkedSub(1)
+
+    local total = 0
+    if a < 0 then
+        total += 1
+    end
+    if b == top then
+        total += 2
+    end
+    if c ~= nil then
+        total += 4
+    end
+    if d ~= nil then
+        total += d - top + 9
+    end
+
+    local small: u8 = 3
+    local e = small:saturatingSub(5)
+    if e == 0 then
+        total += 16
+    end
+    local f = small:wrappingMul(100)
+    if f == 44 then
+        total += 32
+    end
+    local g = small:saturatingMul(100)
+    if g == 255 then
+        total += 64
+    end
+    return total
+end

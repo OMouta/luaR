@@ -8,7 +8,9 @@ use cranelift_codegen::ir::{
     StackSlotData, StackSlotKind, TrapCode, Type, types,
 };
 use cranelift_frontend::{FunctionBuilder, Switch};
-use luar_lir::inst::{BinaryOp, Const, Inst, InstKind, MethodId, Terminator, Trap, UnaryOp, Value};
+use luar_lir::inst::{
+    BinaryOp, Const, Inst, InstKind, MethodId, Overflow, Terminator, Trap, UnaryOp, Value,
+};
 use luar_lir::program::{BlockId, FuncId, Function, Program, Shape, SlotId};
 use luar_lir::ty::{Builtin, Ty, TypeId};
 
@@ -398,6 +400,12 @@ impl Translator<'_, '_> {
                 self.set_insert(*receiver, *value);
                 None
             }
+            InstKind::Overflowing {
+                mode,
+                op,
+                left,
+                right,
+            } => self.overflowing(*mode, *op, *left, *right, inst.result),
             InstKind::Length { receiver } => {
                 let list = self.value(*receiver);
                 Some(
@@ -930,6 +938,89 @@ impl Translator<'_, '_> {
         };
         self.trap_if(overflow, Trap::IntegerOverflow);
         Some(value)
+    }
+
+    /// LR4.3: the operator applied with the overflow behavior named, where
+    /// the ordinary operator would trap.
+    fn overflowing(
+        &mut self,
+        mode: Overflow,
+        op: BinaryOp,
+        left: Value,
+        right: Value,
+        result: Option<Value>,
+    ) -> Option<ir::Value> {
+        let signed = is_signed(self.function.type_of(left));
+        let a = self.value(left);
+        let b = self.value(right);
+        let (value, overflow) = match (op, signed) {
+            (BinaryOp::Add, true) => self.builder.ins().sadd_overflow(a, b),
+            (BinaryOp::Add, false) => self.builder.ins().uadd_overflow(a, b),
+            (BinaryOp::Subtract, true) => self.builder.ins().ssub_overflow(a, b),
+            (BinaryOp::Subtract, false) => self.builder.ins().usub_overflow(a, b),
+            (BinaryOp::Multiply, true) => self.builder.ins().smul_overflow(a, b),
+            (BinaryOp::Multiply, false) => self.builder.ins().umul_overflow(a, b),
+            _ => {
+                self.gap("an overflow-explicit operator");
+                return None;
+            }
+        };
+
+        match mode {
+            Overflow::Wrap => Some(value),
+            Overflow::Saturate => {
+                let width = self.builder.func.dfg.value_type(a);
+                let bound = if signed {
+                    let bits = width.bits();
+                    let (max, min) = if bits == 64 {
+                        (i64::MAX, i64::MIN)
+                    } else {
+                        ((1i64 << (bits - 1)) - 1, -(1i64 << (bits - 1)))
+                    };
+                    let zero = self.builder.ins().iconst(width, 0);
+                    // Which end was left: past the top where the operation
+                    // went up, past the bottom where it went down.
+                    let upward = match op {
+                        BinaryOp::Add => {
+                            self.builder
+                                .ins()
+                                .icmp(IntCC::SignedGreaterThanOrEqual, b, zero)
+                        }
+                        BinaryOp::Subtract => {
+                            self.builder.ins().icmp(IntCC::SignedLessThan, b, zero)
+                        }
+                        _ => {
+                            let product_sign = self.builder.ins().bxor(a, b);
+                            self.builder.ins().icmp(
+                                IntCC::SignedGreaterThanOrEqual,
+                                product_sign,
+                                zero,
+                            )
+                        }
+                    };
+                    let max = self.builder.ins().iconst(width, max);
+                    let min = self.builder.ins().iconst(width, min);
+                    self.builder.ins().select(upward, max, min)
+                } else {
+                    let all_ones = self.builder.ins().iconst(width, -1);
+                    let zero = self.builder.ins().iconst(width, 0);
+                    match op {
+                        BinaryOp::Subtract => zero,
+                        _ => all_ones,
+                    }
+                };
+                Some(self.builder.ins().select(overflow, bound, value))
+            }
+            Overflow::Check => {
+                let optional = self.function.type_of(result?).clone();
+                let built = self.allocate(&optional, 0)?;
+                let present = self.builder.ins().bxor_imm(overflow, 1);
+                let tag = self.builder.ins().uextend(TAG_TYPE, present);
+                self.builder.ins().store(OWNED, tag, built, TAG);
+                self.builder.ins().store(OWNED, value, built, layout::CELL);
+                Some(built)
+            }
+        }
     }
 
     fn divided(

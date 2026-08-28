@@ -13,7 +13,7 @@ use luar_diagnostics::{Diagnostic, Span, codes};
 
 use crate::aliases::substitute;
 use crate::annotations::Resolver;
-use crate::facts::{CollectionMutation, Facts, Intrinsic};
+use crate::facts::{CollectionMutation, Facts, Intrinsic, Overflow, OverflowMethod};
 use crate::modules::{Graph, ModuleId};
 use crate::names::{Names, Origin, bound};
 use crate::table::{Decl, Field, Overloads, SELF, Signature, Table, Variant};
@@ -2680,6 +2680,8 @@ impl Checker<'_> {
         let collection_mutation = method.and_then(|name| {
             collection_mutation_method(receiver, name, span).map(|(mutation, _)| mutation)
         });
+        let overflow =
+            method.and_then(|name| overflow_method(receiver, name, span).map(|(method, _)| method));
         let resolved = self.signature_of(callee, method, receiver, span);
 
         // The arguments are expressions whoever is being called, and whatever
@@ -2766,6 +2768,9 @@ impl Checker<'_> {
         }
         if let Some(mutation) = collection_mutation {
             self.facts.record_collection_mutation(span, mutation);
+        }
+        if let Some(overflow) = overflow {
+            self.facts.record_overflow_method(span, overflow);
         }
 
         // LR19: a generic call takes its type arguments from what it writes
@@ -3059,6 +3064,9 @@ impl Checker<'_> {
             return Some(vec![signature]);
         }
         if let Some((_, signature)) = collection_mutation_method(receiver, name, span) {
+            return Some(vec![signature]);
+        }
+        if let Some((_, signature)) = overflow_method(receiver, name, span) {
             return Some(vec![signature]);
         }
 
@@ -4648,6 +4656,50 @@ fn collection_mutation_method(
                 variadic: false,
             }],
             result: Type::Tuple(Vec::new()),
+            takes_self: true,
+            visibility: None,
+            span,
+            inferred: false,
+            unsafe_: false,
+        },
+    ))
+}
+
+/// LR4.3: `x:wrappingAdd(y)` and its kin, on any integer type.
+fn overflow_method(receiver: &Type, name: &str, span: Span) -> Option<(OverflowMethod, Signature)> {
+    let held = settle(receiver.clone());
+    if !is_integer(&held) {
+        return None;
+    }
+    let (mode, op) = match name {
+        "wrappingAdd" => (Overflow::Wrap, BinaryOp::Add),
+        "wrappingSub" => (Overflow::Wrap, BinaryOp::Subtract),
+        "wrappingMul" => (Overflow::Wrap, BinaryOp::Multiply),
+        "saturatingAdd" => (Overflow::Saturate, BinaryOp::Add),
+        "saturatingSub" => (Overflow::Saturate, BinaryOp::Subtract),
+        "saturatingMul" => (Overflow::Saturate, BinaryOp::Multiply),
+        "checkedAdd" => (Overflow::Check, BinaryOp::Add),
+        "checkedSub" => (Overflow::Check, BinaryOp::Subtract),
+        "checkedMul" => (Overflow::Check, BinaryOp::Multiply),
+        _ => return None,
+    };
+    let result = match mode {
+        Overflow::Check => held.clone().optional(),
+        Overflow::Wrap | Overflow::Saturate => held.clone(),
+    };
+    Some((
+        OverflowMethod { mode, op },
+        Signature {
+            asynchronous: false,
+            type_params: Vec::new(),
+            constraints: Vec::new(),
+            params: vec![crate::table::Param {
+                name: "other".to_owned(),
+                ty: held,
+                optional: false,
+                variadic: false,
+            }],
+            result,
             takes_self: true,
             visibility: None,
             span,

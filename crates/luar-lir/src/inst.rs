@@ -73,6 +73,15 @@ pub enum BinaryOp {
     ShiftRight,
 }
 
+/// What an overflow-explicit operation does where the ordinary operator
+/// would trap (LR4.3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Overflow {
+    Wrap,
+    Saturate,
+    Check,
+}
+
 impl BinaryOp {
     /// Whether the operator can fail on values the type system allows:
     /// overflow on an integer (LR4.3), and a zero divisor (LR11.1).
@@ -301,6 +310,15 @@ pub enum InstKind {
         value: Value,
     },
 
+    /// `x:wrappingAdd(y)` and its kin (LR4.3). `Check` produces an optional
+    /// of the operand type, and the other modes produce the operand type.
+    Overflowing {
+        mode: Overflow,
+        op: BinaryOp,
+        left: Value,
+        right: Value,
+    },
+
     /// How many elements a list holds (LR13.1).
     Length {
         receiver: Value,
@@ -428,7 +446,8 @@ impl InstKind {
             | Self::DynValue { .. }
             | Self::AddressOf { .. }
             | Self::FieldAddress { .. }
-            | Self::Offset { .. } => Effect::None,
+            | Self::Offset { .. }
+            | Self::Overflowing { .. } => Effect::None,
 
             Self::Binary { op, .. } => {
                 if op.can_trap() {

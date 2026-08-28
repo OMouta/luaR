@@ -10,13 +10,15 @@ use luar_ast::{
 };
 use luar_diagnostics::Span;
 use luar_sema::check::protocol_of;
-use luar_sema::facts::{CollectionMutation, Facts, Intrinsic};
+use luar_sema::facts::{CollectionMutation, Facts, Intrinsic, OverflowMethod};
 use luar_sema::modules::ModuleId;
 
 use luar_sema::types::Type;
 
 use crate::inst::MethodId;
-use crate::inst::{BinaryOp, Const, Inst, InstKind, Target, Terminator, Trap, UnaryOp, Value};
+use crate::inst::{
+    BinaryOp, Const, Inst, InstKind, Overflow, Target, Terminator, Trap, UnaryOp, Value,
+};
 use crate::lower::names;
 use crate::lower::throws;
 use crate::lower::types::{self, Ids};
@@ -2391,6 +2393,9 @@ impl<'a> Body<'a> {
         if let Some(mutation) = self.context.facts.collection_mutation(span) {
             return self.collection_mutation(mutation, callee, args, span);
         }
+        if let Some(method) = self.context.facts.overflow_method(span) {
+            return self.overflow_method(method, callee, args, span);
+        }
 
         if let Some(intrinsic) = self.context.facts.intrinsic(span) {
             return self.intrinsic(intrinsic, args, span);
@@ -2743,6 +2748,45 @@ impl<'a> Body<'a> {
         };
         self.emit_void(kind, span);
         self.emit(InstKind::Const(Const::Unit), Ty::Unit, span)
+    }
+
+    /// LR4.3: `x:wrappingAdd(y)` and its kin apply the operator they name
+    /// with the overflow behavior they name.
+    fn overflow_method(
+        &mut self,
+        method: OverflowMethod,
+        callee: &Expr,
+        args: &[Argument],
+        span: Span,
+    ) -> Value {
+        let Some(op) = binary_op(method.op) else {
+            return self.missing(span, "an overflow-explicit operator");
+        };
+        let result = self.recorded(span);
+        let operand = match &result {
+            Ty::Optional(inner) => inner.as_ref().clone(),
+            other => other.clone(),
+        };
+        let left = self.expr(callee, Some(&operand));
+        let Some(argument) = args.first() else {
+            return self.missing(span, "an overflow-explicit operation without an operand");
+        };
+        let right = self.expr(&argument.value, Some(&operand));
+        let mode = match method.mode {
+            luar_sema::facts::Overflow::Wrap => Overflow::Wrap,
+            luar_sema::facts::Overflow::Saturate => Overflow::Saturate,
+            luar_sema::facts::Overflow::Check => Overflow::Check,
+        };
+        self.emit(
+            InstKind::Overflowing {
+                mode,
+                op,
+                left,
+                right,
+            },
+            result,
+            span,
+        )
     }
 
     /// LR25.3: a call that may have thrown says which happened, so the caller

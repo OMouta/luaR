@@ -23,6 +23,21 @@ pub enum CollectionMutation {
     SetInsert,
 }
 
+/// What `x:wrappingAdd(y)` and its kin do where the ordinary operator would
+/// trap (LR4.3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Overflow {
+    Wrap,
+    Saturate,
+    Check,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OverflowMethod {
+    pub mode: Overflow,
+    pub op: luar_ast::BinaryOp,
+}
+
 impl Intrinsic {
     #[must_use]
     pub fn name(self) -> &'static str {
@@ -48,6 +63,7 @@ pub struct Facts {
     freezes: HashSet<Span>,
     checked_indexes: HashSet<Span>,
     collection_mutations: HashMap<Span, CollectionMutation>,
+    overflow_methods: HashMap<Span, OverflowMethod>,
     /// The names something takes the address of (LR72).
     addressed: HashSet<String>,
 }
@@ -136,6 +152,15 @@ impl Facts {
         self.collection_mutations.get(&span).copied()
     }
 
+    pub fn record_overflow_method(&mut self, span: Span, method: OverflowMethod) {
+        self.overflow_methods.insert(span, method);
+    }
+
+    #[must_use]
+    pub fn overflow_method(&self, span: Span) -> Option<OverflowMethod> {
+        self.overflow_methods.get(&span).copied()
+    }
+
     pub fn record_addressed(&mut self, name: String) {
         self.addressed.insert(name);
     }
@@ -157,6 +182,7 @@ impl Facts {
         self.freezes.extend(other.freezes);
         self.checked_indexes.extend(other.checked_indexes);
         self.collection_mutations.extend(other.collection_mutations);
+        self.overflow_methods.extend(other.overflow_methods);
         self.addressed.extend(other.addressed);
     }
 }

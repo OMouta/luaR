@@ -263,6 +263,12 @@ fn instruction(inst: &Inst, function: &Function) -> String {
         InstKind::SetInsert { receiver, value } => {
             format!("insert {} <- {}", name(*receiver), name(*value))
         }
+        InstKind::Overflowing {
+            mode,
+            op,
+            left,
+            right,
+        } => format!("{mode:?} {} {} {}", binary(*op), name(*left), name(*right)),
         InstKind::Length { receiver } => format!("length {}", name(*receiver)),
         InstKind::Buckets { receiver } => format!("buckets {}", name(*receiver)),
         InstKind::Occupied { receiver, index } => {
