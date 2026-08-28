@@ -401,7 +401,7 @@ impl Translator<'_, '_> {
                 self.set_insert(*receiver, *value);
                 None
             }
-            InstKind::SetContains { receiver, value } => self.set_contains(*receiver, *value),
+            InstKind::Contains { receiver, value } => self.contains(*receiver, *value),
             InstKind::Overflowing {
                 mode,
                 op,
@@ -1693,10 +1693,10 @@ impl Translator<'_, '_> {
         let _ = self.map_insert(set, value, text);
     }
 
-    fn set_contains(&mut self, receiver: Value, value: Value) -> Option<ir::Value> {
+    fn contains(&mut self, receiver: Value, value: Value) -> Option<ir::Value> {
         let held = self.function.type_of(receiver).clone();
         let Ty::Builtin {
-            kind: Builtin::Set | Builtin::FrozenSet,
+            kind: Builtin::Map | Builtin::FrozenMap | Builtin::Set | Builtin::FrozenSet,
             args,
         } = &held
         else {
@@ -1704,14 +1704,14 @@ impl Translator<'_, '_> {
             return None;
         };
         let text = args.first().and_then(|element| self.key_is_text(element))?;
-        let set = self.value(receiver);
+        let table = self.value(receiver);
         let hash = self.key_hash(value)?;
         let word = self.key_word(value);
         let text = self.builder.ins().iconst(types::I8, i64::from(text));
         let call = self
             .builder
             .ins()
-            .call(self.map_find, &[set, word, hash, text]);
+            .call(self.map_find, &[table, word, hash, text]);
         let bucket = self.builder.inst_results(call).first().copied()?;
         Some(self.builder.ins().icmp_imm(IntCC::NotEqual, bucket, 0))
     }

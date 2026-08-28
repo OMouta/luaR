@@ -313,8 +313,8 @@ pub enum InstKind {
         receiver: Value,
         value: Value,
     },
-    /// Whether a set holds `value` (LR13.3).
-    SetContains {
+    /// Whether a map holds the key `value` (LR13.2), or a set holds it (LR13.3).
+    Contains {
         receiver: Value,
         value: Value,
     },
@@ -448,7 +448,7 @@ impl InstKind {
             | Self::MakeMap { .. }
             | Self::MakeSet { .. }
             | Self::GetCheckedIndex { .. }
-            | Self::SetContains { .. }
+            | Self::Contains { .. }
             | Self::MakeSome { .. }
             | Self::IsSome { .. }
             | Self::Unwrap { .. }
