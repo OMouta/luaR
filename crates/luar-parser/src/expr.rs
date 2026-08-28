@@ -774,10 +774,10 @@ fn path_or_literal(cursor: &mut Cursor) -> Expr {
     }
 
     if cursor.kind() == TokenKind::LeftBrace {
-        return if first == "Map" {
-            map(cursor, start)
-        } else {
-            record(cursor, vec![first], start)
+        return match first.as_str() {
+            "Map" => map(cursor, start),
+            "Set" => set(cursor, start),
+            _ => record(cursor, vec![first], start),
         };
     }
 
@@ -889,6 +889,24 @@ fn map(cursor: &mut Cursor, start: Span) -> Expr {
     let end = cursor.span();
     cursor.close(TokenKind::RightBrace, opened, "}");
     Expr::new(ExprKind::Map(entries), start.to(end))
+}
+
+/// `Set { a, b }` (LR13.3).
+fn set(cursor: &mut Cursor, start: Span) -> Expr {
+    let opened = cursor.span();
+    cursor.advance();
+
+    let mut items = Vec::new();
+    while !matches!(cursor.kind(), TokenKind::RightBrace | TokenKind::Eof) {
+        items.push(expression(cursor));
+        if !cursor.eat(TokenKind::Comma) {
+            break;
+        }
+    }
+
+    let end = cursor.span();
+    cursor.close(TokenKind::RightBrace, opened, "}");
+    Expr::new(ExprKind::Set(items), start.to(end))
 }
 
 /// `[a, b]` (LR13.1).

@@ -1627,6 +1627,17 @@ impl Checker<'_> {
                 }
                 Type::Unresolved
             }
+            ExprKind::Set(items) => {
+                let mut element = Type::Unresolved;
+                for (i, item) in items.iter().enumerate() {
+                    let held = settle(self.expr(item));
+                    element = if i == 0 { held } else { unify(element, held) };
+                }
+                Type::Builtin {
+                    kind: Builtin::Set,
+                    args: vec![element],
+                }
+            }
             ExprKind::Function {
                 asynchronous,
                 params,
@@ -4107,7 +4118,7 @@ impl Checker<'_> {
                 }
                 return;
             }
-            ExprKind::Tuple(items) | ExprKind::List(items) => {
+            ExprKind::Tuple(items) | ExprKind::List(items) | ExprKind::Set(items) => {
                 for item in items {
                     self.evaluable(item);
                 }

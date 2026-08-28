@@ -103,6 +103,8 @@ pub enum ExprKind {
     },
     /// `Map { key = value, [computed] = value }` (LR13.2).
     Map(Vec<MapEntry>),
+    /// `Set { a, b }` (LR13.3).
+    Set(Vec<Expr>),
 
     /// `function(x) ... end`, and `(x) => value` (LR9.2, LR9.8).
     Function {

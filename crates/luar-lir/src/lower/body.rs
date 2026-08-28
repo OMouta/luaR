@@ -1865,6 +1865,7 @@ impl<'a> Body<'a> {
             }
             ExprKind::List(values) => self.list(values, wanted, span),
             ExprKind::Map(entries) => self.map(entries, wanted, span),
+            ExprKind::Set(values) => self.set(values, wanted, span),
             ExprKind::Index {
                 receiver,
                 index,
@@ -2921,6 +2922,22 @@ impl<'a> Body<'a> {
             ty,
             span,
         )
+    }
+
+    /// LR13.3: `Set { ... }` builds a set.
+    fn set(&mut self, values: &[Expr], wanted: Option<&Ty>, span: Span) -> Value {
+        let ty = self.settled_type(wanted, span);
+        let Ty::Builtin { args, .. } = &ty else {
+            return self.missing(span, "a set literal whose elements have no type");
+        };
+        let Some(element) = args.first().cloned() else {
+            return self.missing(span, "a set literal whose elements have no type");
+        };
+        let values = values
+            .iter()
+            .map(|value| self.expr(value, Some(&element)))
+            .collect();
+        self.emit(InstKind::MakeSet { element, values }, ty, span)
     }
 
     /// LR37: `x[i]` reads what the container holds at `i`. LR69: a map hands

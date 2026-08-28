@@ -1,0 +1,6 @@
+--- expect: compile-ok
+--- spec: LR13.3
+export function main()
+    local ids = Set { 1, 2, 3 }
+    print(ids)
+end

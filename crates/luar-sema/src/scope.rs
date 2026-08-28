@@ -377,7 +377,7 @@ impl Resolver<'_> {
             ExprKind::Try(inner) | ExprKind::Await(inner) => self.expr(inner),
             ExprKind::Cast { value, .. } | ExprKind::TypeTest { value, .. } => self.expr(value),
             ExprKind::AddressOf { operand, .. } => self.expr(operand),
-            ExprKind::Tuple(items) | ExprKind::List(items) => {
+            ExprKind::Tuple(items) | ExprKind::List(items) | ExprKind::Set(items) => {
                 for item in items {
                     self.expr(item);
                 }

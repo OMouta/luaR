@@ -138,6 +138,7 @@ fn render(expr: &Expr) -> String {
                 .join(" ")
         ),
         ExprKind::Map(entries) => format!("(map {})", entries.len()),
+        ExprKind::Set(items) => format!("(set {})", items.len()),
         ExprKind::Function { params, body, .. } => format!(
             "(fn {} {})",
             params.len(),

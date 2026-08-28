@@ -146,7 +146,7 @@ impl Scan<'_> {
             | ExprKind::Await(inner)
             | ExprKind::AddressOf { operand: inner, .. } => self.expr(inner),
             ExprKind::Cast { value, .. } | ExprKind::TypeTest { value, .. } => self.expr(value),
-            ExprKind::Tuple(members) | ExprKind::List(members) => {
+            ExprKind::Tuple(members) | ExprKind::List(members) | ExprKind::Set(members) => {
                 members.iter().any(|member| self.expr(member))
             }
             ExprKind::Record { fields, .. } => fields.iter().any(|field| self.expr(&field.value)),
