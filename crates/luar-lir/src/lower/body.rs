@@ -2257,6 +2257,12 @@ impl<'a> Body<'a> {
         args: &[Argument],
         span: Span,
     ) -> Value {
+        if self.context.facts.freezes(span) {
+            let value = self.expr(callee, None);
+            let ty = self.recorded(span);
+            return self.emit(InstKind::Freeze { value }, ty, span);
+        }
+
         if let Some(intrinsic) = self.context.facts.intrinsic(span) {
             return self.intrinsic(intrinsic, args, span);
         }

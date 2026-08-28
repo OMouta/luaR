@@ -219,6 +219,7 @@ fn instruction(inst: &Inst, function: &Function) -> String {
             format!("closure func{}[{}]", func.0, list(captures))
         }
         InstKind::CopyValue { value } => format!("copy {}", name(*value)),
+        InstKind::Freeze { value } => format!("freeze {}", name(*value)),
         InstKind::MakeStruct { ty, fields } => format!("struct {ty} {{ {} }}", list(fields)),
         InstKind::GetField { object, field } => format!("field {}.{field}", name(*object)),
         InstKind::SetField {

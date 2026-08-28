@@ -276,6 +276,7 @@ impl Translator<'_, '_> {
                 let source = self.value(*value);
                 self.duplicate(source, &ty, layout::DEPTH)
             }
+            InstKind::Freeze { value } => Some(self.value(*value)),
             InstKind::MakeStruct { ty, fields } => self.make(ty, 0, fields),
 
             // LR9.8: a closure is its code's address and then what it
@@ -1202,7 +1203,7 @@ impl Translator<'_, '_> {
         let held = self.function.type_of(receiver).clone();
         match &held {
             Ty::Builtin {
-                kind: Builtin::List,
+                kind: Builtin::List | Builtin::FrozenList,
                 ..
             } => {
                 let address = self.element_address(receiver, index);
@@ -1210,7 +1211,7 @@ impl Translator<'_, '_> {
                 Some(self.builder.ins().load(ty, OWNED, address, 0))
             }
             Ty::Builtin {
-                kind: Builtin::Map,
+                kind: Builtin::Map | Builtin::FrozenMap,
                 args,
             } => {
                 let text = self.key_is_text(args.first()?)?;

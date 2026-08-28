@@ -232,6 +232,10 @@ pub enum InstKind {
     CopyValue {
         value: Value,
     },
+    /// A mutable collection viewed through its frozen type (LR59).
+    Freeze {
+        value: Value,
+    },
 
     /// A struct or record value, its fields in declaration order (LR12).
     MakeStruct {
@@ -368,6 +372,7 @@ impl InstKind {
             | Self::IsType { .. }
             | Self::MakeClosure { .. }
             | Self::CopyValue { .. }
+            | Self::Freeze { .. }
             | Self::MakeStruct { .. }
             | Self::GetField { .. }
             | Self::MakeEnum { .. }

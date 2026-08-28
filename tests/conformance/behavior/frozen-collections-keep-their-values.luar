@@ -1,0 +1,17 @@
+--- expect: run
+--- exit: 27
+--- spec: LR59
+function keep(ids: FrozenSet<int>): int
+    return 0
+end
+
+export function main(): int
+    local values: List<int> = [10, 20]
+    local scores: Map<string, int> = Map { ada = 7 }
+    local ids = Set { 1, 2, 3 }
+
+    local frozenValues = values:frozen()
+    local frozenScores = scores:frozen()
+    local frozenIds = ids:frozen()
+    return frozenValues[1] + (frozenScores["ada"] ?? 0) + keep(frozenIds)
+end
