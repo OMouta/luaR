@@ -1101,6 +1101,8 @@ The inferred type is `List<string>`. `[...]` always produces a sequence and neve
 
 `values:push(value)` appends `value` and returns `()`.
 
+`values:pop()` removes the last element and returns it, or returns `nil` where the list is empty, a `T?`.
+
 `values.length` is the number of elements the list holds, an `int`. It is not a field, so it cannot be assigned (LR89.2).
 
 Lists are zero-indexed.
