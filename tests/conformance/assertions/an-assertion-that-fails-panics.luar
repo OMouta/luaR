@@ -1,0 +1,8 @@
+--- expect: run
+--- exit: 101
+--- trap: assertion-failed
+--- spec: LR49
+export function main(): int
+    assert(false, "broken invariant")
+    return 0
+end

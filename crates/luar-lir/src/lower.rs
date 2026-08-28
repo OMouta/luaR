@@ -42,13 +42,31 @@ pub struct Lowered {
     pub gaps: Vec<Gap>,
 }
 
+/// Whether debug-only source operations are included (LR49).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompilationMode {
+    Debug,
+    Release,
+}
+
 /// Lowers every module in `graph`, which the checker has already accepted.
 #[must_use]
 pub fn lower(graph: &Graph, table: &Table, facts: &Facts) -> Lowered {
+    lower_in_mode(graph, table, facts, CompilationMode::Debug)
+}
+
+#[must_use]
+pub fn lower_in_mode(
+    graph: &Graph,
+    table: &Table,
+    facts: &Facts,
+    mode: CompilationMode,
+) -> Lowered {
     let mut lowering = Lowering {
         graph,
         table,
         facts,
+        mode,
         program: Program::default(),
         ids: Ids::new(),
         functions: HashMap::new(),
@@ -82,6 +100,7 @@ struct Lowering<'a> {
     graph: &'a Graph,
     table: &'a Table,
     facts: &'a Facts,
+    mode: CompilationMode,
     program: Program,
     ids: Ids,
     /// The function each declaration was given, by the span of the
@@ -733,6 +752,7 @@ impl Lowering<'_> {
             let context = body::Context {
                 next_function: &next,
                 facts: self.facts,
+                mode: self.mode,
                 ids: &self.ids,
                 callees: &self.functions,
                 virtuals: &self.virtuals,

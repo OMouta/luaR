@@ -110,6 +110,8 @@ pub enum Trap {
     Bounds,
     /// `unreachable()` was reached (LR50).
     Unreachable,
+    /// An assertion's condition was false (LR49).
+    AssertionFailed,
 }
 
 impl Trap {
@@ -120,6 +122,7 @@ impl Trap {
             Self::DivisionByZero => "division-by-zero",
             Self::Bounds => "bounds",
             Self::Unreachable => "unreachable",
+            Self::AssertionFailed => "assertion-failed",
         }
     }
 }
@@ -166,6 +169,11 @@ pub enum InstKind {
     /// The `Display` result for a primitive value (LR35, LR75).
     DisplayValue {
         value: Value,
+    },
+    /// `assert` or an included `debugAssert` (LR49).
+    Assert {
+        condition: Value,
+        message: Option<Value>,
     },
 
     /// `x as T`, between numeric types (LR33, LR39).
@@ -371,6 +379,7 @@ impl InstKind {
                 }
             }
             Self::GetIndex { .. } => Effect::Trap,
+            Self::Assert { .. } => Effect::Trap,
 
             Self::Call { .. }
             | Self::CallIndirect { .. }

@@ -21,11 +21,12 @@ use crate::ty::{is_signed, machine};
 const OWNED: MemFlags = MemFlags::trusted();
 
 /// The trap kinds, in the order the handler table holds them.
-pub(crate) const TRAPS: [Trap; 4] = [
+pub(crate) const TRAPS: [Trap; 5] = [
     Trap::IntegerOverflow,
     Trap::DivisionByZero,
     Trap::Bounds,
     Trap::Unreachable,
+    Trap::AssertionFailed,
 ];
 
 /// Where `trap`'s handler sits in that table.
@@ -228,6 +229,12 @@ impl Translator<'_, '_> {
                 Some(self.builder.ins().imul_imm(mixed, 0x100000001b3))
             }
             InstKind::DisplayValue { value } => self.display_value(*value),
+            InstKind::Assert { condition, .. } => {
+                let condition = self.value(*condition);
+                let failed = self.builder.ins().icmp_imm(IntCC::Equal, condition, 0);
+                self.trap_if(failed, Trap::AssertionFailed);
+                None
+            }
             InstKind::Convert { value, to } => self.convert(*value, to),
             InstKind::Call {
                 callee,

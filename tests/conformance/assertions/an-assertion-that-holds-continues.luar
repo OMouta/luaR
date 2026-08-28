@@ -1,0 +1,8 @@
+--- expect: run
+--- exit: 7
+--- spec: LR49
+export function main(): int
+    assert(true)
+    assert(1 + 1 == 2, "arithmetic")
+    return 7
+end

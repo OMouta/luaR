@@ -10,7 +10,7 @@ use luar_ast::{
 };
 use luar_diagnostics::Span;
 use luar_sema::check::protocol_of;
-use luar_sema::facts::Facts;
+use luar_sema::facts::{Facts, Intrinsic};
 
 use luar_sema::types::Type;
 
@@ -19,7 +19,7 @@ use crate::inst::{BinaryOp, Const, Inst, InstKind, Target, Terminator, Trap, Una
 use crate::lower::names;
 use crate::lower::throws;
 use crate::lower::types::{self, Ids};
-use crate::lower::{Callee, Gap, Property, thrown_or};
+use crate::lower::{Callee, CompilationMode, Gap, Property, thrown_or};
 use crate::program::{BlockId, FuncId, Function, Program, Shape};
 use crate::ty::{Builtin, IntTy, Ty, TypeId};
 
@@ -85,6 +85,7 @@ pub(super) struct Context<'a> {
     /// lowered, because it is a function nothing declared (LR9.8).
     pub next_function: &'a Cell<u32>,
     pub facts: &'a Facts,
+    pub mode: CompilationMode,
     pub ids: &'a Ids,
     /// What each function declaration became, by the span the checker
     /// recorded a call as reaching (LR40, LR76).
@@ -1990,6 +1991,10 @@ impl<'a> Body<'a> {
         args: &[Argument],
         span: Span,
     ) -> Value {
+        if let Some(intrinsic) = self.context.facts.intrinsic(span) {
+            return self.intrinsic(intrinsic, args, span);
+        }
+
         if let ExprKind::Field {
             receiver,
             name: variant,
@@ -2167,6 +2172,38 @@ impl<'a> Body<'a> {
             result,
             span,
         )
+    }
+
+    fn intrinsic(&mut self, intrinsic: Intrinsic, args: &[Argument], span: Span) -> Value {
+        if intrinsic == Intrinsic::DebugAssert && self.context.mode == CompilationMode::Release {
+            return self.emit(InstKind::Const(Const::Unit), Ty::Unit, span);
+        }
+
+        let mut condition = None;
+        let mut message = None;
+        let mut position = 0;
+        for argument in args {
+            let slot = match argument.name.as_deref() {
+                Some("condition") => 0,
+                Some("message") => 1,
+                _ => {
+                    let slot = position;
+                    position += 1;
+                    slot
+                }
+            };
+            let wanted = if slot == 0 { Ty::Bool } else { Ty::Str };
+            let value = self.expr(&argument.value, Some(&wanted));
+            if slot == 0 {
+                condition = Some(value);
+            } else {
+                message = Some(value);
+            }
+        }
+
+        let condition = condition.unwrap_or_else(|| self.missing(span, "an assertion condition"));
+        self.emit_void(InstKind::Assert { condition, message }, span);
+        self.emit(InstKind::Const(Const::Unit), Ty::Unit, span)
     }
 
     /// LR25.3: a call that may have thrown says which happened, so the caller

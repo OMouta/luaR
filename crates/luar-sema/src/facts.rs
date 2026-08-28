@@ -6,6 +6,13 @@ use luar_diagnostics::Span;
 
 use crate::types::Type;
 
+/// A predeclared operation implemented by the compiler (LR54.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Intrinsic {
+    Assert,
+    DebugAssert,
+}
+
 /// What the checker knows about one program.
 #[derive(Debug, Default)]
 pub struct Facts {
@@ -13,6 +20,7 @@ pub struct Facts {
     calls: HashMap<Span, Span>,
     bindings: HashMap<Span, Type>,
     type_args: HashMap<Span, Vec<Type>>,
+    intrinsics: HashMap<Span, Intrinsic>,
 }
 
 impl Facts {
@@ -63,11 +71,21 @@ impl Facts {
         self.type_args.get(&span).map(Vec::as_slice)
     }
 
+    pub fn record_intrinsic(&mut self, span: Span, intrinsic: Intrinsic) {
+        self.intrinsics.insert(span, intrinsic);
+    }
+
+    #[must_use]
+    pub fn intrinsic(&self, span: Span) -> Option<Intrinsic> {
+        self.intrinsics.get(&span).copied()
+    }
+
     /// Takes everything `other` recorded.
     pub fn absorb(&mut self, other: Self) {
         self.types.extend(other.types);
         self.calls.extend(other.calls);
         self.bindings.extend(other.bindings);
         self.type_args.extend(other.type_args);
+        self.intrinsics.extend(other.intrinsics);
     }
 }

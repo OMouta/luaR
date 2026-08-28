@@ -13,7 +13,7 @@ use luar_diagnostics::{Diagnostic, Span, codes};
 
 use crate::aliases::substitute;
 use crate::annotations::Resolver;
-use crate::facts::Facts;
+use crate::facts::{Facts, Intrinsic};
 use crate::modules::{Graph, ModuleId};
 use crate::names::{Names, Origin, bound};
 use crate::table::{Decl, Field, Overloads, SELF, Signature, Table, Variant};
@@ -2547,6 +2547,10 @@ impl Checker<'_> {
             return Type::Unresolved;
         }
 
+        let intrinsic = method
+            .is_none()
+            .then(|| self.predeclared_intrinsic(callee))
+            .flatten();
         let resolved = self.signature_of(callee, method, receiver, span);
 
         // The arguments are expressions whoever is being called, and whatever
@@ -2622,6 +2626,9 @@ impl Checker<'_> {
         }
 
         self.facts.record_call(span, signature.span);
+        if let Some(intrinsic) = intrinsic {
+            self.facts.record_intrinsic(span, intrinsic);
+        }
 
         // LR19: a generic call takes its type arguments from what it writes
         // down, and works out the rest from what it passes.
@@ -2826,11 +2833,17 @@ impl Checker<'_> {
         }
 
         match &callee.kind {
-            ExprKind::Name(name) => Some(Callee {
-                name: name.clone(),
-                overloads: self.declared(name)?,
-                receiver: None,
-            }),
+            ExprKind::Name(name) => {
+                let overloads = self.declared(name).or_else(|| {
+                    self.predeclared_intrinsic(callee)
+                        .map(|intrinsic| vec![intrinsic_signature(intrinsic, span)])
+                })?;
+                Some(Callee {
+                    name: name.clone(),
+                    overloads,
+                    receiver: None,
+                })
+            }
             // LR12.2, LR42, LR76: `Owner.name(...)` is a method call written
             // out, a static, or a call naming the extension block it means.
             ExprKind::Field {
@@ -3059,6 +3072,20 @@ impl Checker<'_> {
         };
 
         self.table.overloads(module, &name).cloned()
+    }
+
+    fn predeclared_intrinsic(&self, callee: &Expr) -> Option<Intrinsic> {
+        let ExprKind::Name(name) = &callee.kind else {
+            return None;
+        };
+        if self.shadowed(name) || self.declared(name).is_some() {
+            return None;
+        }
+        match name.as_str() {
+            "assert" => Some(Intrinsic::Assert),
+            "debugAssert" => Some(Intrinsic::DebugAssert),
+            _ => None,
+        }
     }
 
     fn is_identical(&self, callee: &Expr) -> bool {
@@ -4349,6 +4376,35 @@ fn memory_param(name: &str, ty: Type) -> crate::table::Param {
         ty,
         optional: false,
         variadic: false,
+    }
+}
+
+fn intrinsic_signature(intrinsic: Intrinsic, span: Span) -> Signature {
+    let mut params = vec![crate::table::Param {
+        name: "condition".to_owned(),
+        ty: Type::BOOL,
+        optional: false,
+        variadic: false,
+    }];
+    if intrinsic == Intrinsic::Assert {
+        params.push(crate::table::Param {
+            name: "message".to_owned(),
+            ty: Type::STRING,
+            optional: true,
+            variadic: false,
+        });
+    }
+    Signature {
+        asynchronous: false,
+        type_params: Vec::new(),
+        constraints: Vec::new(),
+        params,
+        result: Type::Tuple(Vec::new()),
+        takes_self: false,
+        visibility: None,
+        span,
+        inferred: false,
+        unsafe_: false,
     }
 }
 
