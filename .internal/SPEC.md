@@ -739,7 +739,7 @@ const window = 10..<20
 local page = values[window]
 ```
 
-A range whose lower bound exceeds its upper bound is empty rather than an error, and iterates zero times. Descending iteration uses an explicit method:
+A range whose lower bound exceeds its upper bound is empty rather than an error, and iterates zero times. Descending iteration uses an explicit method: a `for` over `(a..<b):reversed()` or `(a..=b):reversed()` binds the same values as one over the range, in the opposite order.
 
 ```lua
 for i in (0..<count):reversed() do
