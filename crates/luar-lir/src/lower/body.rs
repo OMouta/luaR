@@ -412,7 +412,15 @@ impl<'a> Body<'a> {
             && let Some(var) = self.lookup(name)
             && let Some(value) = self.defs.get(&var)
         {
-            return Some(self.function.type_of(*value).clone());
+            let held = self.function.type_of(*value).clone();
+            // LR57: a name the checker proved holds something reads as
+            // what it holds.
+            if let Ty::Optional(inner) = &held
+                && self.maybe_recorded(expr.span).as_ref() == Some(inner.as_ref())
+            {
+                return Some(inner.as_ref().clone());
+            }
+            return Some(held);
         }
 
         let held = self.context.facts.type_of(expr.span)?;
@@ -1911,7 +1919,17 @@ impl<'a> Body<'a> {
             }
 
             ExprKind::Name(name) => match self.lookup(name) {
-                Some(var) => self.read_var(var, span),
+                Some(var) => {
+                    let value = self.read_var(var, span);
+                    // LR57: a name the checker proved holds something reads
+                    // as what it holds.
+                    if let Ty::Optional(inner) = self.function.type_of(value).clone()
+                        && self.maybe_recorded(span).as_ref() == Some(inner.as_ref())
+                    {
+                        return self.emit(InstKind::Unwrap { value }, *inner, span);
+                    }
+                    value
+                }
                 None => self.constant(name, wanted, span),
             },
 

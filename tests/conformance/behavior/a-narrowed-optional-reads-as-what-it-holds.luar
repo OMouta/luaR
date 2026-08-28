@@ -1,0 +1,17 @@
+--- expect: run
+--- exit: 12
+--- spec: LR57
+--- spec: LR8
+export function main(): int
+    local values: List<int> = [4, 9]
+    local found = values:get(1)
+    local missing = values:get(5)
+    local total = 0
+    if found ~= nil then
+        total += found + 2
+    end
+    if missing ~= nil then
+        total += missing
+    end
+    return total + 1
+end
