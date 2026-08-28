@@ -2889,12 +2889,17 @@ impl Checker<'_> {
             });
         }
 
+        if let Some(intrinsic) = self.predeclared_intrinsic(callee) {
+            return Some(Callee {
+                name: intrinsic.name().to_owned(),
+                overloads: vec![intrinsic_signature(intrinsic, span)],
+                receiver: None,
+            });
+        }
+
         match &callee.kind {
             ExprKind::Name(name) => {
-                let overloads = self.declared(name).or_else(|| {
-                    self.predeclared_intrinsic(callee)
-                        .map(|intrinsic| vec![intrinsic_signature(intrinsic, span)])
-                })?;
+                let overloads = self.declared(name)?;
                 Some(Callee {
                     name: name.clone(),
                     overloads,
@@ -3146,16 +3151,33 @@ impl Checker<'_> {
     }
 
     fn predeclared_intrinsic(&self, callee: &Expr) -> Option<Intrinsic> {
-        let ExprKind::Name(name) = &callee.kind else {
-            return None;
-        };
-        if self.shadowed(name) || self.declared(name).is_some() {
-            return None;
-        }
-        match name.as_str() {
-            "assert" => Some(Intrinsic::Assert),
-            "debugAssert" => Some(Intrinsic::DebugAssert),
-            "panic" => Some(Intrinsic::Panic),
+        match &callee.kind {
+            ExprKind::Name(name) if !self.shadowed(name) && self.declared(name).is_none() => {
+                match name.as_str() {
+                    "assert" => Some(Intrinsic::Assert),
+                    "debugAssert" => Some(Intrinsic::DebugAssert),
+                    "panic" => Some(Intrinsic::Panic),
+                    _ => None,
+                }
+            }
+            ExprKind::Field {
+                receiver,
+                name,
+                optional: false,
+            } if name == "new" => {
+                let ExprKind::Name(owner) = &receiver.kind else {
+                    return None;
+                };
+                if self.shadowed(owner) || self.names.scope(self.scope).get(owner).is_some() {
+                    return None;
+                }
+                match owner.as_str() {
+                    "List" => Some(Intrinsic::ListNew),
+                    "Map" => Some(Intrinsic::MapNew),
+                    "Set" => Some(Intrinsic::SetNew),
+                    _ => None,
+                }
+            }
             _ => None,
         }
     }
@@ -4535,8 +4557,9 @@ fn memory_param(name: &str, ty: Type) -> crate::table::Param {
 }
 
 fn intrinsic_signature(intrinsic: Intrinsic, span: Span) -> Signature {
-    let (params, result) = match intrinsic {
+    let (type_params, params, result) = match intrinsic {
         Intrinsic::Assert => (
+            Vec::new(),
             vec![
                 intrinsic_param("condition", Type::BOOL, false),
                 intrinsic_param("message", Type::STRING, true),
@@ -4544,17 +4567,22 @@ fn intrinsic_signature(intrinsic: Intrinsic, span: Span) -> Signature {
             Type::Tuple(Vec::new()),
         ),
         Intrinsic::DebugAssert => (
+            Vec::new(),
             vec![intrinsic_param("condition", Type::BOOL, false)],
             Type::Tuple(Vec::new()),
         ),
         Intrinsic::Panic => (
+            Vec::new(),
             vec![intrinsic_param("message", Type::STRING, false)],
             Type::Primitive(Primitive::Never),
         ),
+        Intrinsic::ListNew => collection_constructor(Builtin::List, &["T"]),
+        Intrinsic::MapNew => collection_constructor(Builtin::Map, &["K", "V"]),
+        Intrinsic::SetNew => collection_constructor(Builtin::Set, &["T"]),
     };
     Signature {
         asynchronous: false,
-        type_params: Vec::new(),
+        type_params,
         constraints: Vec::new(),
         params,
         result,
@@ -4564,6 +4592,15 @@ fn intrinsic_signature(intrinsic: Intrinsic, span: Span) -> Signature {
         inferred: false,
         unsafe_: false,
     }
+}
+
+fn collection_constructor(
+    kind: Builtin,
+    names: &[&str],
+) -> (Vec<String>, Vec<crate::table::Param>, Type) {
+    let type_params: Vec<String> = names.iter().map(|name| (*name).to_owned()).collect();
+    let args = type_params.iter().cloned().map(Type::Parameter).collect();
+    (type_params, Vec::new(), Type::Builtin { kind, args })
 }
 
 fn intrinsic_param(name: &str, ty: Type, optional: bool) -> crate::table::Param {

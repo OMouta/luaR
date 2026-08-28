@@ -12,6 +12,23 @@ pub enum Intrinsic {
     Assert,
     DebugAssert,
     Panic,
+    ListNew,
+    MapNew,
+    SetNew,
+}
+
+impl Intrinsic {
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Assert => "assert",
+            Self::DebugAssert => "debugAssert",
+            Self::Panic => "panic",
+            Self::ListNew => "List.new",
+            Self::MapNew => "Map.new",
+            Self::SetNew => "Set.new",
+        }
+    }
 }
 
 /// What the checker knows about one program.

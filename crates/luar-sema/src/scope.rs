@@ -20,6 +20,9 @@ pub static PREDECLARED: &[&str] = &[
     "panic",
     "unreachable",
     "Result",
+    "List",
+    "Map",
+    "Set",
 ];
 
 /// Resolves every name in every module of `graph`.

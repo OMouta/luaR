@@ -1,0 +1,10 @@
+--- expect: compile-ok
+--- spec: LR13.1
+--- spec: LR13.2
+--- spec: LR13.3
+export function main()
+    local values: List<int> = List.new<int>()
+    local scores: Map<string, int> = Map.new<string, int>()
+    local ids: Set<int> = Set.new<int>()
+    print(values, scores, ids)
+end
