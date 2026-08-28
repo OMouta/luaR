@@ -219,6 +219,12 @@ fn execute(
             wrong.push(format!("expected stdout {wanted:?}, got {got:?}"));
         }
     }
+    if let Some(wanted) = &directives.stderr {
+        let got = String::from_utf8_lossy(&produced.stderr);
+        if got != wanted.as_str() {
+            wrong.push(format!("expected stderr {wanted:?}, got {got:?}"));
+        }
+    }
     // The trap is matched by its kind, never by the message around it.
     if let Some(wanted) = &directives.trap {
         let reported = String::from_utf8_lossy(&produced.stderr);

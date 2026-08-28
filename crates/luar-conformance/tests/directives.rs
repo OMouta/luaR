@@ -40,6 +40,19 @@ fn a_run_header_decodes_escapes_in_stdout() {
 }
 
 #[test]
+fn a_run_header_decodes_escapes_in_stderr() {
+    let d = parse(
+        "--- expect: run\n\
+         --- exit: 101\n\
+         --- stderr: \"panic\\n\"\n\
+         --- spec: LR25.4\n",
+    )
+    .unwrap();
+
+    assert_eq!(d.stderr.as_deref(), Some("panic\n"));
+}
+
+#[test]
 fn a_run_header_selects_release_mode() {
     let d = parse(
         "--- expect: run\n\

@@ -40,6 +40,7 @@ pub struct Directives {
     pub span: Option<Position>,
     pub exit: Option<i32>,
     pub stdout: Option<String>,
+    pub stderr: Option<String>,
     pub trap: Option<String>,
     pub mode: Option<Mode>,
 }
@@ -64,8 +65,8 @@ impl fmt::Display for DirectiveError {
 
 impl std::error::Error for DirectiveError {}
 
-const KEYS: [&str; 8] = [
-    "expect", "code", "span", "spec", "exit", "stdout", "trap", "mode",
+const KEYS: [&str; 9] = [
+    "expect", "code", "span", "spec", "exit", "stdout", "trap", "mode", "stderr",
 ];
 
 /// Splits `--- key: value` into its parts, for known keys only.
@@ -83,6 +84,7 @@ pub fn parse(source: &str) -> Result<Directives, DirectiveError> {
     let mut span = None;
     let mut exit = None;
     let mut stdout = None;
+    let mut stderr = None;
     let mut trap = None;
     let mut mode = None;
 
@@ -156,6 +158,12 @@ pub fn parse(source: &str) -> Result<Directives, DirectiveError> {
                 }
                 stdout = Some(parse_string(value).map_err(at)?);
             }
+            "stderr" => {
+                if stderr.is_some() {
+                    return Err(twice());
+                }
+                stderr = Some(parse_string(value).map_err(at)?);
+            }
             "trap" => {
                 if trap.is_some() {
                     return Err(twice());
@@ -208,6 +216,7 @@ pub fn parse(source: &str) -> Result<Directives, DirectiveError> {
         span,
         exit,
         stdout,
+        stderr,
         trap,
         mode,
     };
@@ -230,7 +239,7 @@ impl Directives {
         let (required, allowed): (&[&str], &[&str]) = match self.expect {
             Expect::CompileOk => (&[], &[]),
             Expect::CompileError => (&["code", "span"], &["code", "span"]),
-            Expect::Run => (&["exit"], &["exit", "stdout", "trap", "mode"]),
+            Expect::Run => (&["exit"], &["exit", "stdout", "stderr", "trap", "mode"]),
         };
 
         let given = [
@@ -238,6 +247,7 @@ impl Directives {
             ("span", self.span.is_some()),
             ("exit", self.exit.is_some()),
             ("stdout", self.stdout.is_some()),
+            ("stderr", self.stderr.is_some()),
             ("trap", self.trap.is_some()),
             ("mode", self.mode.is_some()),
         ];
