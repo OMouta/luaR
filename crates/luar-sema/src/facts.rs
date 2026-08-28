@@ -23,6 +23,7 @@ pub struct Facts {
     type_args: HashMap<Span, Vec<Type>>,
     intrinsics: HashMap<Span, Intrinsic>,
     freezes: HashSet<Span>,
+    checked_indexes: HashSet<Span>,
     /// The names something takes the address of (LR72).
     addressed: HashSet<String>,
 }
@@ -93,6 +94,15 @@ impl Facts {
         self.freezes.contains(&span)
     }
 
+    pub fn record_checked_index(&mut self, span: Span) {
+        self.checked_indexes.insert(span);
+    }
+
+    #[must_use]
+    pub fn checked_index(&self, span: Span) -> bool {
+        self.checked_indexes.contains(&span)
+    }
+
     pub fn record_addressed(&mut self, name: String) {
         self.addressed.insert(name);
     }
@@ -112,6 +122,7 @@ impl Facts {
         self.type_args.extend(other.type_args);
         self.intrinsics.extend(other.intrinsics);
         self.freezes.extend(other.freezes);
+        self.checked_indexes.extend(other.checked_indexes);
         self.addressed.extend(other.addressed);
     }
 }

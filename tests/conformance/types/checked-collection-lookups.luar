@@ -1,0 +1,18 @@
+--- expect: compile-ok
+--- spec: LR13.1
+--- spec: LR69
+--- spec: LR70
+function read(
+    values: List<int>,
+    frozenValues: FrozenList<int>,
+    scores: Map<string, int>,
+    frozenScores: FrozenMap<string, int>,
+    index: int,
+    key: string,
+)
+    local fromValues: int? = values:get(index)
+    local fromFrozenValues: int? = frozenValues:get(index = index)
+    local fromScores: int? = scores:get(key)
+    local fromFrozenScores: int? = frozenScores:get(key = key)
+    print(fromValues, fromFrozenValues, fromScores, fromFrozenScores)
+end

@@ -2600,6 +2600,8 @@ impl Checker<'_> {
             .then(|| self.predeclared_intrinsic(callee))
             .flatten();
         let freezes = method.is_some_and(|name| frozen_method(receiver, name, span).is_some());
+        let checked_index =
+            method.is_some_and(|name| checked_index_method(receiver, name, span).is_some());
         let resolved = self.signature_of(callee, method, receiver, span);
 
         // The arguments are expressions whoever is being called, and whatever
@@ -2680,6 +2682,9 @@ impl Checker<'_> {
         }
         if freezes {
             self.facts.record_freeze(span);
+        }
+        if checked_index {
+            self.facts.record_checked_index(span);
         }
 
         // LR19: a generic call takes its type arguments from what it writes
@@ -2962,6 +2967,9 @@ impl Checker<'_> {
             return Some(vec![signature]);
         }
         if let Some(signature) = frozen_method(receiver, name, span) {
+            return Some(vec![signature]);
+        }
+        if let Some(signature) = checked_index_method(receiver, name, span) {
             return Some(vec![signature]);
         }
 
@@ -4460,6 +4468,45 @@ fn frozen_method(receiver: &Type, name: &str, span: Span) -> Option<Signature> {
             kind,
             args: args.clone(),
         },
+        takes_self: true,
+        visibility: None,
+        span,
+        inferred: false,
+        unsafe_: false,
+    })
+}
+
+fn checked_index_method(receiver: &Type, name: &str, span: Span) -> Option<Signature> {
+    if name != "get" {
+        return None;
+    }
+    let Type::Builtin { kind, args } = receiver else {
+        return None;
+    };
+    let (name, param, result) = match kind {
+        Builtin::List | Builtin::FrozenList => (
+            "index",
+            Type::Primitive(Primitive::I64),
+            args.first().cloned().unwrap_or(Type::Unresolved),
+        ),
+        Builtin::Map | Builtin::FrozenMap => (
+            "key",
+            args.first().cloned().unwrap_or(Type::Unresolved),
+            args.get(1).cloned().unwrap_or(Type::Unresolved),
+        ),
+        _ => return None,
+    };
+    Some(Signature {
+        asynchronous: false,
+        type_params: Vec::new(),
+        constraints: Vec::new(),
+        params: vec![crate::table::Param {
+            name: name.to_owned(),
+            ty: param,
+            optional: false,
+            variadic: false,
+        }],
+        result: result.optional(),
         takes_self: true,
         visibility: None,
         span,
