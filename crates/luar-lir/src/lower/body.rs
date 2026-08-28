@@ -20,7 +20,7 @@ use crate::lower::names;
 use crate::lower::throws;
 use crate::lower::types::{self, Ids};
 use crate::lower::{Callee, CompilationMode, Gap, Property, thrown_or};
-use crate::program::{BlockId, FuncId, Function, Program, Shape};
+use crate::program::{BlockId, FuncId, Function, Program, Shape, SlotId};
 use crate::ty::{Builtin, IntTy, Ty, TypeId};
 
 /// A binding, told apart from every other one with its name (LR53).
@@ -126,6 +126,8 @@ pub(super) struct Body<'a> {
     throws: bool,
     /// The value each binding currently holds.
     defs: HashMap<Var, Value>,
+    /// The stack slot a binding whose address is taken lives in (LR72).
+    slots: HashMap<Var, SlotId>,
     next_var: u32,
     /// The loops open around what is being lowered, innermost last.
     loops: Vec<Loop>,
@@ -162,6 +164,7 @@ impl<'a> Body<'a> {
             declared,
             throws,
             defs: HashMap::new(),
+            slots: HashMap::new(),
             next_var: 0,
             loops: Vec::new(),
             mutated: Vec::new(),
@@ -300,6 +303,18 @@ impl<'a> Body<'a> {
     fn unwind_from(&mut self, depth: usize) {
         for frame in (depth..self.scopes.len()).rev() {
             self.unwind(frame);
+        }
+    }
+
+    /// What `var` holds now: its slot's contents where it has one, and its
+    /// value otherwise (LR72).
+    fn read_var(&mut self, var: Var, span: Span) -> Value {
+        match self.slots.get(&var).copied() {
+            Some(slot) => {
+                let ty = self.function.slot_type(slot).clone();
+                self.emit(InstKind::SlotGet { slot }, ty, span)
+            }
+            None => self.defs[&var],
         }
     }
 
@@ -1206,6 +1221,11 @@ impl<'a> Body<'a> {
             Binding::Name(name) => {
                 let var = self.declare(name);
                 self.defs.insert(var, value);
+                if self.context.facts.addressed(name) {
+                    let slot = self.function.add_slot(self.function.type_of(value).clone());
+                    self.slots.insert(var, slot);
+                    self.emit_void(InstKind::SlotSet { slot, value }, span);
+                }
             }
             Binding::Record(fields) => {
                 let held = self.function.type_of(value).clone();
@@ -1318,7 +1338,7 @@ impl<'a> Body<'a> {
                     self.gap(span, "an assignment to a name from another scope");
                     return;
                 };
-                let held = self.defs[&var];
+                let held = self.read_var(var, target.span);
 
                 // LR5.4, LR36: `a += b` is `a = a:add(b)` where the operator
                 // went through a protocol.
@@ -1329,6 +1349,15 @@ impl<'a> Body<'a> {
                     None => self.written(held, op, value, span),
                 };
                 self.defs.insert(var, written);
+                if let Some(slot) = self.slots.get(&var).copied() {
+                    self.emit_void(
+                        InstKind::SlotSet {
+                            slot,
+                            value: written,
+                        },
+                        span,
+                    );
+                }
             }
 
             // LR12.2, LR59: writing a field of a mutable struct.
@@ -1615,7 +1644,7 @@ impl<'a> Body<'a> {
             }
 
             ExprKind::Name(name) => match self.lookup(name) {
-                Some(var) => self.defs[&var],
+                Some(var) => self.read_var(var, span),
                 None => self.missing(span, "a name that is not a local binding"),
             },
 
@@ -1717,6 +1746,29 @@ impl<'a> Body<'a> {
                         to: to.clone(),
                     },
                     to,
+                    span,
+                )
+            }
+
+            // LR72: a binding whose address is taken lives in a slot, and
+            // `&x` is that slot's address.
+            ExprKind::AddressOf { mutable, operand } => {
+                let ExprKind::Name(name) = &operand.kind else {
+                    return self.missing(span, "an address of a field or an element");
+                };
+                let slot = self
+                    .lookup(name)
+                    .and_then(|var| self.slots.get(&var).copied());
+                let Some(slot) = slot else {
+                    return self.missing(span, "an address of a binding a pattern bound");
+                };
+                let ty = self.recorded(span);
+                self.emit(
+                    InstKind::AddressOf {
+                        mutable: *mutable,
+                        slot,
+                    },
+                    ty,
                     span,
                 )
             }
@@ -2503,6 +2555,9 @@ impl<'a> Body<'a> {
         let Some(captures) = self.captures(&written, span) else {
             return self.missing(span, "a closure capturing a binding something assigns to");
         };
+        if captures.iter().any(|(_, var)| self.slots.contains_key(var)) {
+            return self.missing(span, "a closure capturing a binding whose address is taken");
+        }
 
         let mut bindings: Vec<Binding> = captures
             .iter()

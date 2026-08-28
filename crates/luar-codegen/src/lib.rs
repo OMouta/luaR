@@ -323,6 +323,7 @@ impl Emitter<'_> {
                 temporary_roots: Vec::new(),
                 blocks: HashMap::new(),
                 values: HashMap::new(),
+                slots: HashMap::new(),
                 gaps: Vec::new(),
             };
             self.gaps.extend(translator.run());

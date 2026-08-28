@@ -1,6 +1,6 @@
 //! What the checker worked out, kept for the stages after it.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use luar_diagnostics::Span;
 
@@ -22,6 +22,8 @@ pub struct Facts {
     bindings: HashMap<Span, Type>,
     type_args: HashMap<Span, Vec<Type>>,
     intrinsics: HashMap<Span, Intrinsic>,
+    /// The names something takes the address of (LR72).
+    addressed: HashSet<String>,
 }
 
 impl Facts {
@@ -81,6 +83,17 @@ impl Facts {
         self.intrinsics.get(&span).copied()
     }
 
+    pub fn record_addressed(&mut self, name: String) {
+        self.addressed.insert(name);
+    }
+
+    /// Whether `&name` or `&mut name` is written anywhere, which is what
+    /// makes a binding of that name live in memory (LR72).
+    #[must_use]
+    pub fn addressed(&self, name: &str) -> bool {
+        self.addressed.contains(name)
+    }
+
     /// Takes everything `other` recorded.
     pub fn absorb(&mut self, other: Self) {
         self.types.extend(other.types);
@@ -88,5 +101,6 @@ impl Facts {
         self.bindings.extend(other.bindings);
         self.type_args.extend(other.type_args);
         self.intrinsics.extend(other.intrinsics);
+        self.addressed.extend(other.addressed);
     }
 }

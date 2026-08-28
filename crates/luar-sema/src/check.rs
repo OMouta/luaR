@@ -4028,6 +4028,10 @@ impl Checker<'_> {
             return;
         }
 
+        if let ExprKind::Name(name) = &operand.kind {
+            self.facts.record_addressed(name.clone());
+        }
+
         if let (true, ExprKind::Name(name)) = (mutable, &operand.kind)
             && self.is_constant(name)
         {

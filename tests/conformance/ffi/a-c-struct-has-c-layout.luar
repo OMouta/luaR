@@ -1,0 +1,25 @@
+--- expect: run
+--- exit: 1
+--- spec: LR46
+--- spec: LR72
+--- spec: LR73
+@extern("c")
+unsafe function memcmp(left: *const Pair, right: *const Pair, count: usize): i32
+
+@repr("C")
+struct Pair
+    first: u16
+    second: u16
+    third: u32
+end
+
+export function main(): int
+    local left = Pair { first = 1, second = 1, third = 1 }
+    local right = Pair { first = 1, second = 2, third = 1 }
+    unsafe
+        if memcmp(&left, &right, 2) == 0 and memcmp(&left, &right, 4) < 0 then
+            return 1
+        end
+    end
+    return 0
+end

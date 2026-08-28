@@ -1,0 +1,15 @@
+--- expect: run
+--- exit: 5
+--- spec: LR46
+--- spec: LR72
+@extern("c")
+unsafe function memcpy(target: *mut int, source: *const int, count: usize): *mut int
+
+export function main(): int
+    local source = 5
+    local target = 0
+    unsafe
+        memcpy(&mut target, &source, 8)
+    end
+    return target
+end

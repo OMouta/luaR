@@ -9,7 +9,7 @@ use cranelift_codegen::ir::{
 };
 use cranelift_frontend::{FunctionBuilder, Switch};
 use luar_lir::inst::{BinaryOp, Const, Inst, InstKind, Terminator, Trap, UnaryOp, Value};
-use luar_lir::program::{BlockId, FuncId, Function, Program};
+use luar_lir::program::{BlockId, FuncId, Function, Program, SlotId};
 use luar_lir::ty::Ty;
 
 use crate::Gap;
@@ -93,6 +93,8 @@ pub(crate) struct Translator<'a, 'b> {
     pub temporary_roots: Vec<i32>,
     pub blocks: HashMap<BlockId, Block>,
     pub values: HashMap<Value, ir::Value>,
+    /// The stack storage of each LIR slot (LR72).
+    pub slots: HashMap<SlotId, StackSlot>,
     pub gaps: Vec<Gap>,
 }
 
@@ -101,6 +103,7 @@ impl Translator<'_, '_> {
     /// back what it could not emit.
     pub fn run(mut self) -> Vec<Gap> {
         self.create_blocks();
+        self.create_slots();
         self.prepare_roots();
 
         let entry = self.blocks[&self.function.entry];
@@ -316,6 +319,32 @@ impl Translator<'_, '_> {
             }
             InstKind::Unwrap { value } => self.read(*value, 1, inst.result),
 
+            InstKind::SlotGet { slot } => match self.slots.get(slot).copied() {
+                Some(stack) => {
+                    let ty = inst
+                        .result
+                        .map_or(types::I8, |value| self.machine_or_gap(value));
+                    Some(self.builder.ins().stack_load(ty, stack, 0))
+                }
+                None => None,
+            },
+            InstKind::SlotSet { slot, value } => {
+                if let Some(stack) = self.slots.get(slot).copied() {
+                    let written = self.value(*value);
+                    self.builder.ins().stack_store(written, stack, 0);
+                }
+                None
+            }
+            // An aggregate already sits in storage of its own, and its slot
+            // holds the pointer to it, so that pointer is its address.
+            InstKind::AddressOf { slot, .. } => match self.slots.get(slot).copied() {
+                Some(stack) if layout::is_aggregate(self.function.slot_type(*slot)) => {
+                    Some(self.builder.ins().stack_load(self.pointer, stack, 0))
+                }
+                Some(stack) => Some(self.builder.ins().stack_addr(self.pointer, stack, 0)),
+                None => None,
+            },
+
             other => {
                 self.gap(describe(other));
                 None
@@ -336,6 +365,22 @@ impl Translator<'_, '_> {
         };
         self.values.insert(result, value);
         self.root(result, value);
+    }
+
+    fn create_slots(&mut self) {
+        for (index, ty) in self.function.slots().iter().enumerate() {
+            let Some(held) = machine(ty, self.pointer) else {
+                self.gap(format!("a slot holding a value of type `{ty}`"));
+                continue;
+            };
+            let slot = self.builder.create_sized_stack_slot(StackSlotData::new(
+                StackSlotKind::ExplicitSlot,
+                held.bytes(),
+                held.bytes().ilog2() as u8,
+            ));
+            let id = SlotId(u32::try_from(index).expect("slot count fits in u32"));
+            self.slots.insert(id, slot);
+        }
     }
 
     fn prepare_roots(&mut self) {
@@ -971,8 +1016,7 @@ fn describe(kind: &InstKind) -> &'static str {
         InstKind::MakeSome { .. } | InstKind::IsSome { .. } | InstKind::Unwrap { .. } => {
             "an optional"
         }
-        InstKind::AddressOf { .. } | InstKind::Load { .. } | InstKind::Store { .. } => "a pointer",
-        InstKind::SlotGet { .. } | InstKind::SlotSet { .. } => "a stack slot",
+        InstKind::Load { .. } | InstKind::Store { .. } => "a pointer",
         _ => "this instruction",
     }
 }
