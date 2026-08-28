@@ -17,6 +17,12 @@ pub enum Intrinsic {
     SetNew,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CollectionMutation {
+    ListPush,
+    SetInsert,
+}
+
 impl Intrinsic {
     #[must_use]
     pub fn name(self) -> &'static str {
@@ -41,6 +47,7 @@ pub struct Facts {
     intrinsics: HashMap<Span, Intrinsic>,
     freezes: HashSet<Span>,
     checked_indexes: HashSet<Span>,
+    collection_mutations: HashMap<Span, CollectionMutation>,
     /// The names something takes the address of (LR72).
     addressed: HashSet<String>,
 }
@@ -120,6 +127,15 @@ impl Facts {
         self.checked_indexes.contains(&span)
     }
 
+    pub fn record_collection_mutation(&mut self, span: Span, mutation: CollectionMutation) {
+        self.collection_mutations.insert(span, mutation);
+    }
+
+    #[must_use]
+    pub fn collection_mutation(&self, span: Span) -> Option<CollectionMutation> {
+        self.collection_mutations.get(&span).copied()
+    }
+
     pub fn record_addressed(&mut self, name: String) {
         self.addressed.insert(name);
     }
@@ -140,6 +156,7 @@ impl Facts {
         self.intrinsics.extend(other.intrinsics);
         self.freezes.extend(other.freezes);
         self.checked_indexes.extend(other.checked_indexes);
+        self.collection_mutations.extend(other.collection_mutations);
         self.addressed.extend(other.addressed);
     }
 }

@@ -1,0 +1,8 @@
+--- expect: compile-ok
+--- spec: LR13.1
+--- spec: LR13.3
+function mutate(values: List<int>, ids: Set<string>)
+    local pushed: () = values:push(value = 3)
+    local inserted: () = ids:insert("luaR")
+    print(pushed, inserted)
+end

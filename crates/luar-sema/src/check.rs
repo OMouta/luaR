@@ -13,7 +13,7 @@ use luar_diagnostics::{Diagnostic, Span, codes};
 
 use crate::aliases::substitute;
 use crate::annotations::Resolver;
-use crate::facts::{Facts, Intrinsic};
+use crate::facts::{CollectionMutation, Facts, Intrinsic};
 use crate::modules::{Graph, ModuleId};
 use crate::names::{Names, Origin, bound};
 use crate::table::{Decl, Field, Overloads, SELF, Signature, Table, Variant};
@@ -2602,6 +2602,9 @@ impl Checker<'_> {
         let freezes = method.is_some_and(|name| frozen_method(receiver, name, span).is_some());
         let checked_index =
             method.is_some_and(|name| checked_index_method(receiver, name, span).is_some());
+        let collection_mutation = method.and_then(|name| {
+            collection_mutation_method(receiver, name, span).map(|(mutation, _)| mutation)
+        });
         let resolved = self.signature_of(callee, method, receiver, span);
 
         // The arguments are expressions whoever is being called, and whatever
@@ -2685,6 +2688,9 @@ impl Checker<'_> {
         }
         if checked_index {
             self.facts.record_checked_index(span);
+        }
+        if let Some(mutation) = collection_mutation {
+            self.facts.record_collection_mutation(span, mutation);
         }
 
         // LR19: a generic call takes its type arguments from what it writes
@@ -2975,6 +2981,9 @@ impl Checker<'_> {
             return Some(vec![signature]);
         }
         if let Some(signature) = checked_index_method(receiver, name, span) {
+            return Some(vec![signature]);
+        }
+        if let Some((_, signature)) = collection_mutation_method(receiver, name, span) {
             return Some(vec![signature]);
         }
 
@@ -4535,6 +4544,42 @@ fn checked_index_method(receiver: &Type, name: &str, span: Span) -> Option<Signa
         inferred: false,
         unsafe_: false,
     })
+}
+
+fn collection_mutation_method(
+    receiver: &Type,
+    name: &str,
+    span: Span,
+) -> Option<(CollectionMutation, Signature)> {
+    let Type::Builtin { kind, args } = receiver else {
+        return None;
+    };
+    let element = args.first().cloned().unwrap_or(Type::Unresolved);
+    let mutation = match (kind, name) {
+        (Builtin::List, "push") => CollectionMutation::ListPush,
+        (Builtin::Set, "insert") => CollectionMutation::SetInsert,
+        _ => return None,
+    };
+    Some((
+        mutation,
+        Signature {
+            asynchronous: false,
+            type_params: Vec::new(),
+            constraints: Vec::new(),
+            params: vec![crate::table::Param {
+                name: "value".to_owned(),
+                ty: element,
+                optional: false,
+                variadic: false,
+            }],
+            result: Type::Tuple(Vec::new()),
+            takes_self: true,
+            visibility: None,
+            span,
+            inferred: false,
+            unsafe_: false,
+        },
+    ))
 }
 
 fn is_frozen_collection(ty: &Type) -> bool {
