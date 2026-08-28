@@ -1,0 +1,19 @@
+--- expect: run
+--- exit: 72
+--- spec: LR13.1
+--- spec: LR57
+export function main(): int
+    local values = [3, 5, 7]
+    local total = 0
+    local last = values:pop()
+    if last ~= nil then
+        total += last * 10
+    end
+    total += values.length
+    values:pop()
+    values:pop()
+    if values:pop() ~= nil then
+        total += 100
+    end
+    return total + values.length
+end

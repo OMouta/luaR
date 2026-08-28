@@ -2811,23 +2811,24 @@ impl<'a> Body<'a> {
         span: Span,
     ) -> Value {
         let receiver = self.expr(callee, None);
-        let held = self.function.type_of(receiver).clone();
-        let Ty::Builtin {
-            args: type_args, ..
-        } = &held
-        else {
-            return self.missing(span, "a collection mutation on something else");
-        };
-        let Some(element) = type_args.first().cloned() else {
+        let Some(element) = self.collection_args(receiver).first().cloned() else {
             return self.missing(span, "a collection mutation without an element type");
         };
-        let Some(argument) = args.first() else {
-            return self.missing(span, "a collection mutation without a value");
-        };
-        let value = self.expr(&argument.value, Some(&element));
         let kind = match mutation {
-            CollectionMutation::ListPush => InstKind::ListPush { receiver, value },
-            CollectionMutation::SetInsert => InstKind::SetInsert { receiver, value },
+            CollectionMutation::ListPop => {
+                let result = self.recorded(span);
+                return self.emit(InstKind::ListPop { receiver }, result, span);
+            }
+            CollectionMutation::ListPush | CollectionMutation::SetInsert => {
+                let Some(argument) = args.first() else {
+                    return self.missing(span, "a collection mutation without a value");
+                };
+                let value = self.expr(&argument.value, Some(&element));
+                match mutation {
+                    CollectionMutation::ListPush => InstKind::ListPush { receiver, value },
+                    _ => InstKind::SetInsert { receiver, value },
+                }
+            }
         };
         self.emit_void(kind, span);
         self.emit(InstKind::Const(Const::Unit), Ty::Unit, span)

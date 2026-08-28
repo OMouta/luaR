@@ -305,6 +305,10 @@ pub enum InstKind {
         receiver: Value,
         value: Value,
     },
+    /// The last element, taken off the list, or nothing (LR13.1).
+    ListPop {
+        receiver: Value,
+    },
     SetInsert {
         receiver: Value,
         value: Value,
@@ -471,6 +475,7 @@ impl InstKind {
             | Self::SetField { .. }
             | Self::SetIndex { .. }
             | Self::ListPush { .. }
+            | Self::ListPop { .. }
             | Self::SetInsert { .. }
             | Self::Length { .. }
             | Self::Buckets { .. }

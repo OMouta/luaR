@@ -396,6 +396,7 @@ impl Translator<'_, '_> {
                 self.list_push(*receiver, *value);
                 None
             }
+            InstKind::ListPop { receiver } => self.list_pop(*receiver, inst.result),
             InstKind::SetInsert { receiver, value } => {
                 self.set_insert(*receiver, *value);
                 None
@@ -1634,6 +1635,45 @@ impl Translator<'_, '_> {
         self.builder
             .ins()
             .store(OWNED, length, list, layout::LENGTH);
+    }
+
+    fn list_pop(&mut self, receiver: Value, result: Option<Value>) -> Option<ir::Value> {
+        let optional = self.function.type_of(result?).clone();
+        let Ty::Optional(inner) = &optional else {
+            self.gap("a pop that is not optional");
+            return None;
+        };
+        let Some(machine) = machine(inner, self.pointer) else {
+            self.gap(format!("a list holding `{inner}`"));
+            return None;
+        };
+        let list = self.value(receiver);
+        let length = self
+            .builder
+            .ins()
+            .load(self.pointer, OWNED, list, layout::LENGTH);
+        let present = self.builder.ins().icmp_imm(IntCC::NotEqual, length, 0);
+        let built = self.allocate(&optional, 0)?;
+        let tag = self.builder.ins().uextend(TAG_TYPE, present);
+        self.builder.ins().store(OWNED, tag, built, TAG);
+
+        let found = self.builder.create_block();
+        let carry_on = self.builder.create_block();
+        self.builder.ins().brif(present, found, &[], carry_on, &[]);
+        self.builder.switch_to_block(found);
+        let last = self.builder.ins().iadd_imm(length, -1);
+        self.builder.ins().store(OWNED, last, list, layout::LENGTH);
+        let buffer = self
+            .builder
+            .ins()
+            .load(self.pointer, OWNED, list, layout::BUFFER);
+        let offset = self.builder.ins().imul_imm(last, i64::from(layout::CELL));
+        let address = self.builder.ins().iadd(buffer, offset);
+        let value = self.builder.ins().load(machine, OWNED, address, 0);
+        self.builder.ins().store(OWNED, value, built, layout::CELL);
+        self.builder.ins().jump(carry_on, &[]);
+        self.builder.switch_to_block(carry_on);
+        Some(built)
     }
 
     fn set_insert(&mut self, receiver: Value, value: Value) {
