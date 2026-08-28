@@ -4738,10 +4738,13 @@ fn settle(ty: Type) -> Type {
 /// types need the union rules of LR17.2, so they are left unresolved rather
 /// than guessed at.
 fn unify(left: Type, right: Type) -> Type {
-    if left == right {
-        left
-    } else {
-        Type::Unresolved
+    match (left, right) {
+        // LR39: the widest literal is the one that has to fit.
+        (Type::IntegerLiteral(left), Type::IntegerLiteral(right)) => {
+            Type::IntegerLiteral(left.max(right))
+        }
+        (left, right) if left == right => left,
+        _ => Type::Unresolved,
     }
 }
 
