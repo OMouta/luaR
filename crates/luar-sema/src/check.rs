@@ -980,10 +980,10 @@ impl Checker<'_> {
                         "a frozen collection cannot be assigned through",
                     ));
                 }
-                // LR13.1: `length` is not a field.
+                // LR13: `length` is not a field.
                 if let ExprKind::Field { receiver, name, .. } = &target.kind
                     && name == "length"
-                    && self.facts.type_of(receiver.span).is_some_and(is_list)
+                    && self.facts.type_of(receiver.span).is_some_and(is_collection)
                 {
                     self.diagnostics.push(
                         Diagnostic::error(
@@ -1869,8 +1869,8 @@ impl Checker<'_> {
             return found.ty;
         }
 
-        // LR13.1: `length` is how many elements a list holds.
-        if is_list(held) && name == "length" {
+        // LR13: `length` is how many elements a collection holds.
+        if is_collection(held) && name == "length" {
             return Type::Primitive(Primitive::I64);
         }
 
@@ -4768,11 +4768,16 @@ fn overflow_method(receiver: &Type, name: &str, span: Span) -> Option<(OverflowM
     ))
 }
 
-fn is_list(ty: &Type) -> bool {
+fn is_collection(ty: &Type) -> bool {
     matches!(
         ty,
         Type::Builtin {
-            kind: Builtin::List | Builtin::FrozenList,
+            kind: Builtin::List
+                | Builtin::FrozenList
+                | Builtin::Map
+                | Builtin::FrozenMap
+                | Builtin::Set
+                | Builtin::FrozenSet,
             ..
         }
     )
