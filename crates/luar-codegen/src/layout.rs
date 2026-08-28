@@ -16,6 +16,12 @@ pub const TAG: i32 = 0;
 /// The type the tag is read and written at.
 pub const TAG_TYPE: Type = types::I64;
 
+/// The cells of a list or a map header, in order (LR13).
+pub const LENGTH: i32 = 0;
+pub const CAPACITY: i32 = CELL;
+pub const BUFFER: i32 = CELL * 2;
+pub const COLLECTION_CELLS: u32 = 3;
+
 /// The byte an ordinary aggregate part sits at.
 #[must_use]
 fn cell_offset(index: u32) -> i32 {
@@ -64,6 +70,11 @@ pub fn size(program: &Program, ty: &Ty, pointer: Type) -> Option<i32> {
             kind: Builtin::Result,
             ..
         } => 2,
+        // LR13: a count, a capacity, and the storage the elements live in.
+        Ty::Builtin {
+            kind: Builtin::List | Builtin::Map,
+            ..
+        } => COLLECTION_CELLS,
         Ty::Tuple(members) => u32::try_from(members.len()).ok()?,
         Ty::Record(fields) => u32::try_from(fields.len()).ok()?,
         // Whether it holds anything, and what it holds.
@@ -232,7 +243,7 @@ pub fn is_aggregate(ty: &Ty) -> bool {
             | Ty::Record(_)
             | Ty::Optional(_)
             | Ty::Builtin {
-                kind: Builtin::Result,
+                kind: Builtin::Result | Builtin::List | Builtin::Map,
                 ..
             }
     )

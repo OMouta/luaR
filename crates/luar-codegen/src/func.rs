@@ -10,7 +10,7 @@ use cranelift_codegen::ir::{
 use cranelift_frontend::{FunctionBuilder, Switch};
 use luar_lir::inst::{BinaryOp, Const, Inst, InstKind, MethodId, Terminator, Trap, UnaryOp, Value};
 use luar_lir::program::{BlockId, FuncId, Function, Program, Shape, SlotId};
-use luar_lir::ty::{Ty, TypeId};
+use luar_lir::ty::{Builtin, Ty, TypeId};
 
 use crate::Gap;
 use crate::gc::ROOT_FRAME_HEADER;
@@ -382,6 +382,19 @@ impl Translator<'_, '_> {
                 Some(self.builder.ins().icmp(IntCC::NotEqual, tag, absent))
             }
             InstKind::Unwrap { value } => self.read(*value, 1, inst.result),
+
+            InstKind::MakeList { values, .. } => self.make_list(inst.result, values),
+            InstKind::GetIndex { receiver, index } => {
+                self.get_index(*receiver, *index, inst.result)
+            }
+            InstKind::SetIndex {
+                receiver,
+                index,
+                value,
+            } => {
+                self.set_index(*receiver, *index, *value);
+                None
+            }
 
             InstKind::SlotGet { slot } => match self.slots.get(slot).copied() {
                 Some(stack) => {
@@ -1153,6 +1166,91 @@ impl Translator<'_, '_> {
         };
         let written = self.value(value);
         self.builder.ins().store(OWNED, written, address, offset);
+    }
+
+    /// LR13.1: a list is its header, and then storage holding one cell per
+    /// element.
+    fn make_list(&mut self, result: Option<Value>, values: &[Value]) -> Option<ir::Value> {
+        let ty = self.function.type_of(result?).clone();
+        let header = self.allocate(&ty, 0)?;
+        let cells = i32::try_from(values.len()).unwrap_or(i32::MAX / layout::CELL);
+        let buffer = self.allocate_bytes((layout::CELL * cells).max(layout::CELL), &ty, 1)?;
+        for (index, value) in values.iter().enumerate() {
+            let written = self.value(*value);
+            let offset = layout::CELL * i32::try_from(index).unwrap_or(i32::MAX / layout::CELL);
+            self.builder.ins().store(OWNED, written, buffer, offset);
+        }
+        let length = self.builder.ins().iconst(self.pointer, i64::from(cells));
+        self.builder
+            .ins()
+            .store(OWNED, length, header, layout::LENGTH);
+        self.builder
+            .ins()
+            .store(OWNED, length, header, layout::CAPACITY);
+        self.builder
+            .ins()
+            .store(OWNED, buffer, header, layout::BUFFER);
+        Some(header)
+    }
+
+    fn get_index(
+        &mut self,
+        receiver: Value,
+        index: Value,
+        result: Option<Value>,
+    ) -> Option<ir::Value> {
+        let held = self.function.type_of(receiver).clone();
+        match &held {
+            Ty::Builtin {
+                kind: Builtin::List,
+                ..
+            } => {
+                let address = self.element_address(receiver, index);
+                let ty = result.map_or(types::I8, |value| self.machine_or_gap(value));
+                Some(self.builder.ins().load(ty, OWNED, address, 0))
+            }
+            _ => {
+                self.gap(format!("indexing a value of type `{held}`"));
+                None
+            }
+        }
+    }
+
+    fn set_index(&mut self, receiver: Value, index: Value, value: Value) {
+        let held = self.function.type_of(receiver).clone();
+        match &held {
+            Ty::Builtin {
+                kind: Builtin::List,
+                ..
+            } => {
+                let address = self.element_address(receiver, index);
+                let written = self.value(value);
+                self.builder.ins().store(OWNED, written, address, 0);
+            }
+            _ => self.gap(format!("indexing a value of type `{held}`")),
+        }
+    }
+
+    /// LR70: the cell of element `index`, after trapping where the list has
+    /// no such element.
+    fn element_address(&mut self, receiver: Value, index: Value) -> ir::Value {
+        let list = self.value(receiver);
+        let index = self.value(index);
+        let length = self
+            .builder
+            .ins()
+            .load(self.pointer, OWNED, list, layout::LENGTH);
+        let outside = self
+            .builder
+            .ins()
+            .icmp(IntCC::UnsignedGreaterThanOrEqual, index, length);
+        self.trap_if(outside, Trap::Bounds);
+        let buffer = self
+            .builder
+            .ins()
+            .load(self.pointer, OWNED, list, layout::BUFFER);
+        let offset = self.builder.ins().imul_imm(index, i64::from(layout::CELL));
+        self.builder.ins().iadd(buffer, offset)
     }
 
     /// Ends the program where it stands, saying which trap it was (LR50).

@@ -1,0 +1,12 @@
+--- expect: run
+--- exit: 101
+--- trap: bounds
+--- spec: LR69
+--- spec: LR70
+function at(values: List<int>, index: int): int
+    return values[index]
+end
+
+export function main(): int
+    return at([3, 5, 7], 3)
+end
