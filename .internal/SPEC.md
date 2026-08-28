@@ -1099,6 +1099,8 @@ The inferred type is `List<string>`. `[...]` always produces a sequence and neve
 
 `values:push(value)` appends `value` and returns `()`.
 
+`values.length` is the number of elements the list holds, an `int`. It is not a field, so it cannot be assigned (LR89.2).
+
 Lists are zero-indexed.
 
 ```lua
