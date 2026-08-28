@@ -2736,8 +2736,7 @@ impl Checker<'_> {
         let freezes = method.is_some_and(|name| frozen_method(receiver, name, span).is_some());
         let checked_index =
             method.is_some_and(|name| checked_index_method(receiver, name, span).is_some());
-        let set_contains =
-            method.is_some_and(|name| set_contains_method(receiver, name, span).is_some());
+        let contains = method.is_some_and(|name| contains_method(receiver, name, span).is_some());
         let collection_mutation = method.and_then(|name| {
             collection_mutation_method(receiver, name, span).map(|(mutation, _)| mutation)
         });
@@ -2827,8 +2826,8 @@ impl Checker<'_> {
         if checked_index {
             self.facts.record_checked_index(span);
         }
-        if set_contains {
-            self.facts.record_set_contains(span);
+        if contains {
+            self.facts.record_contains(span);
         }
         if let Some(mutation) = collection_mutation {
             self.facts.record_collection_mutation(span, mutation);
@@ -3127,7 +3126,7 @@ impl Checker<'_> {
         if let Some(signature) = checked_index_method(receiver, name, span) {
             return Some(vec![signature]);
         }
-        if let Some(signature) = set_contains_method(receiver, name, span) {
+        if let Some(signature) = contains_method(receiver, name, span) {
             return Some(vec![signature]);
         }
         if let Some((_, signature)) = collection_mutation_method(receiver, name, span) {
@@ -4696,24 +4695,26 @@ fn checked_index_method(receiver: &Type, name: &str, span: Span) -> Option<Signa
     })
 }
 
-/// LR13.3: `ids:contains(value)` on a set or a frozen set.
-fn set_contains_method(receiver: &Type, name: &str, span: Span) -> Option<Signature> {
+/// `scores:contains(key)` on a map (LR13.2) and `ids:contains(value)` on a
+/// set (LR13.3), frozen or not.
+fn contains_method(receiver: &Type, name: &str, span: Span) -> Option<Signature> {
     if name != "contains" {
         return None;
     }
-    let Type::Builtin {
-        kind: Builtin::Set | Builtin::FrozenSet,
-        args,
-    } = receiver
-    else {
+    let Type::Builtin { kind, args } = receiver else {
         return None;
+    };
+    let param = match kind {
+        Builtin::Map | Builtin::FrozenMap => "key",
+        Builtin::Set | Builtin::FrozenSet => "value",
+        _ => return None,
     };
     Some(Signature {
         asynchronous: false,
         type_params: Vec::new(),
         constraints: Vec::new(),
         params: vec![crate::table::Param {
-            name: "value".to_owned(),
+            name: param.to_owned(),
             ty: args.first().cloned().unwrap_or(Type::Unresolved),
             optional: false,
             variadic: false,

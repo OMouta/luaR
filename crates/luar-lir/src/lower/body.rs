@@ -2470,7 +2470,7 @@ impl<'a> Body<'a> {
         if self.context.facts.checked_index(span) {
             return self.checked_index(callee, args, span);
         }
-        if self.context.facts.set_contains(span) {
+        if self.context.facts.contains(span) {
             return self.set_contains(callee, args, span);
         }
         if let Some(mutation) = self.context.facts.collection_mutation(span) {
