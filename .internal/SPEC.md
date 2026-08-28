@@ -1093,6 +1093,8 @@ The inferred type is `List<string>`. `[...]` always produces a sequence and neve
 
 `List.new<T>()` constructs an empty `List<T>`.
 
+`values:push(value)` appends `value` and returns `()`.
+
 Lists are zero-indexed.
 
 ```lua
@@ -1147,6 +1149,8 @@ This costs six characters at the one place a dynamic map is created, and buys a 
 
 `Map.new<K, V>()` constructs an empty `Map<K, V>`.
 
+Assigning `map[key] = value` inserts the key or replaces its value.
+
 ### 13.3 Sets
 
 Sets are provided by the standard library.
@@ -1156,6 +1160,8 @@ local ids = Set { 1, 2, 3 }
 ```
 
 `Set.new<T>()` constructs an empty `Set<T>`.
+
+`ids:insert(value)` adds `value` if it is absent and returns `()`.
 
 ---
 
