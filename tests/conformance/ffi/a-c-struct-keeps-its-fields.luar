@@ -1,0 +1,17 @@
+--- expect: run
+--- exit: 1
+--- spec: LR73
+@repr("C")
+struct Header
+    tag: u8
+    length: u64
+    kind: u16
+end
+
+export function main(): int
+    local header = Header { tag = 3, length = 99, kind = 7 }
+    if header.tag == 3 and header.length == 99 and header.kind == 7 then
+        return 1
+    end
+    return 0
+end

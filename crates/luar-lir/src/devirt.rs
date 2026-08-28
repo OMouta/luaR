@@ -159,6 +159,7 @@ mod tests {
                 shape: Shape::Struct(Struct {
                     fields: Vec::new(),
                     reference: false,
+                    repr_c: false,
                 }),
                 span: SPAN,
             });

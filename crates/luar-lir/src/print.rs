@@ -45,7 +45,8 @@ fn nominal_to(out: &mut String, nominal: &Nominal) {
             } else {
                 "struct"
             };
-            let _ = writeln!(out, "{kind} {}{params}", nominal.name);
+            let repr = if structure.repr_c { "repr(C) " } else { "" };
+            let _ = writeln!(out, "{repr}{kind} {}{params}", nominal.name);
             for field in &structure.fields {
                 let _ = writeln!(out, "    {}: {}", field.name, field.ty);
             }

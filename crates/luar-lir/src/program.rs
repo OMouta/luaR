@@ -35,6 +35,8 @@ pub struct Struct {
     pub fields: Vec<Field>,
     /// Whether the type has reference semantics (LR29, LR31).
     pub reference: bool,
+    /// Whether fields use C size and alignment in declaration order (LR73).
+    pub repr_c: bool,
 }
 
 /// One variant of an enum (LR15.2).

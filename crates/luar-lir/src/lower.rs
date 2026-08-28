@@ -272,6 +272,7 @@ impl Lowering<'_> {
             shape: Shape::Struct(Struct {
                 fields,
                 reference: structure.semantics == Semantics::Ref,
+                repr_c: self.repr_c(module, name),
             }),
             span,
         }
@@ -896,6 +897,27 @@ impl Lowering<'_> {
                 _ => None,
             })
             .unwrap_or_default()
+    }
+
+    fn repr_c(&self, module: ModuleId, name: &str) -> bool {
+        self.graph
+            .module(module)
+            .ast
+            .items
+            .iter()
+            .find_map(|item| match item {
+                Item::Struct(structure) if structure.name == name => {
+                    Some(structure.decorators.iter().any(|decorator| {
+                        decorator.name == "repr"
+                            && matches!(
+                                decorator.args.first().map(|argument| &argument.value.kind),
+                                Some(luar_ast::ExprKind::String(repr)) if repr == "C"
+                            )
+                    }))
+                }
+                _ => None,
+            })
+            .unwrap_or(false)
     }
 
     fn variant_order(&self, module: ModuleId, name: &str) -> Vec<String> {

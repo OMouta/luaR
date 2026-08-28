@@ -301,11 +301,11 @@ impl Translator<'_, '_> {
             // LR8: an optional holds whether it holds anything, and then what.
             InstKind::MakeSome { value } => {
                 let ty = inst.result.map(|held| self.function.type_of(held).clone());
-                let built = ty.and_then(|ty| self.allocate(&ty, 0));
+                let built = ty.as_ref().and_then(|ty| self.allocate(ty, 0));
                 built.inspect(|&built| {
                     let present = self.builder.ins().iconst(TAG_TYPE, 1);
                     self.builder.ins().store(OWNED, present, built, TAG);
-                    self.write_at(built, 1, *value);
+                    self.write_at(built, ty.as_ref().expect("a result type"), 1, *value);
                 })
             }
             InstKind::IsSome { value } => {
@@ -783,7 +783,7 @@ impl Translator<'_, '_> {
     /// holder would be observable through the other. A cell holding a
     /// reference keeps referring to the same object.
     fn duplicate(&mut self, source: ir::Value, ty: &Ty, depth: u32) -> Option<ir::Value> {
-        let Some(size) = layout::size(self.program, ty) else {
+        let Some(size) = layout::size(self.program, ty, self.pointer) else {
             self.gap(format!("a copy of a value of type `{ty}`"));
             return None;
         };
@@ -799,22 +799,32 @@ impl Translator<'_, '_> {
             self.gap(format!("a copy of a value of type `{ty}`"));
             return None;
         }
-        let parts = parts.unwrap_or_default();
-
         let copy = self.allocate(ty, layout::DEPTH - depth)?;
-        for (index, cell) in (0..size).step_by(layout::CELL as usize).enumerate() {
-            let held = self.builder.ins().load(TAG_TYPE, OWNED, source, cell);
-            let part = parts
-                .get(index)
-                .filter(|part| layout::holds_value_parts(self.program, part, layout::DEPTH));
-            let written = match part {
-                Some(part) => match self.duplicate(held, &part.clone(), depth - 1) {
-                    Some(copied) => copied,
-                    None => held,
-                },
-                None => held,
-            };
-            self.builder.ins().store(OWNED, written, copy, cell);
+        if let Some(parts) = parts {
+            for (index, part) in parts.iter().enumerate() {
+                let index = u32::try_from(index).expect("field count fits in u32");
+                let Some(offset) = layout::field_offset(self.program, ty, index, self.pointer)
+                else {
+                    self.gap(format!("a field outside `{ty}`"));
+                    return None;
+                };
+                let Some(machine) = machine(part, self.pointer) else {
+                    self.gap(format!("a copy of a field of type `{part}`"));
+                    return None;
+                };
+                let held = self.builder.ins().load(machine, OWNED, source, offset);
+                let written = if layout::holds_value_parts(self.program, part, layout::DEPTH) {
+                    self.duplicate(held, part, depth - 1).unwrap_or(held)
+                } else {
+                    held
+                };
+                self.builder.ins().store(OWNED, written, copy, offset);
+            }
+        } else {
+            for cell in (0..size).step_by(layout::CELL as usize) {
+                let held = self.builder.ins().load(TAG_TYPE, OWNED, source, cell);
+                self.builder.ins().store(OWNED, held, copy, cell);
+            }
         }
         Some(copy)
     }
@@ -825,14 +835,14 @@ impl Translator<'_, '_> {
         let built = self.allocate(ty, 0)?;
         for (index, part) in parts.iter().enumerate() {
             let cell = from + u32::try_from(index).unwrap_or(u32::MAX);
-            self.write_at(built, cell, *part);
+            self.write_at(built, ty, cell, *part);
         }
         Some(built)
     }
 
     /// Storage large enough for a value of `ty`.
     fn allocate(&mut self, ty: &Ty, temporary: u32) -> Option<ir::Value> {
-        let Some(size) = layout::size(self.program, ty) else {
+        let Some(size) = layout::size(self.program, ty, self.pointer) else {
             self.gap(format!("storage for a value of type `{ty}`"));
             return None;
         };
@@ -849,25 +859,26 @@ impl Translator<'_, '_> {
 
     /// Reads cell `index` of the aggregate `object` points at.
     fn read(&mut self, object: Value, index: u32, result: Option<Value>) -> Option<ir::Value> {
+        let held = self.function.type_of(object).clone();
+        let offset = layout::field_offset(self.program, &held, index, self.pointer)?;
         let address = self.value(object);
         let ty = result.map_or(types::I8, |value| self.machine_or_gap(value));
-        Some(
-            self.builder
-                .ins()
-                .load(ty, OWNED, address, layout::offset(index)),
-        )
+        Some(self.builder.ins().load(ty, OWNED, address, offset))
     }
 
     fn write(&mut self, object: Value, index: u32, value: Value) {
+        let ty = self.function.type_of(object).clone();
         let address = self.value(object);
-        self.write_at(address, index, value);
+        self.write_at(address, &ty, index, value);
     }
 
-    fn write_at(&mut self, address: ir::Value, index: u32, value: Value) {
+    fn write_at(&mut self, address: ir::Value, owner: &Ty, index: u32, value: Value) {
+        let Some(offset) = layout::field_offset(self.program, owner, index, self.pointer) else {
+            self.gap(format!("a field outside `{owner}`"));
+            return;
+        };
         let written = self.value(value);
-        self.builder
-            .ins()
-            .store(OWNED, written, address, layout::offset(index));
+        self.builder.ins().store(OWNED, written, address, offset);
     }
 
     /// Ends the program where it stands, saying which trap it was (LR50).
