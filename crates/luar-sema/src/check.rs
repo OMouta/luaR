@@ -1117,36 +1117,70 @@ impl Checker<'_> {
                 body,
             } => {
                 // LR10.4: a range written in place yields its bounds' type.
-                // Anything else yields what the iterator protocol says
-                // (LR35), which is not resolved here.
-                let element = match (&iterable.kind, bindings.as_slice()) {
-                    (
-                        ExprKind::Range {
-                            start: Some(start),
-                            end: Some(end),
-                            ..
-                        },
-                        [_],
-                    ) => {
+                // LR10.5: a collection yields what it holds. Anything else
+                // yields what the iterator protocol says (LR35), which is
+                // not resolved here.
+                let yielded = match &iterable.kind {
+                    ExprKind::Range {
+                        start: Some(start),
+                        end: Some(end),
+                        ..
+                    } => {
                         let start = self.expr(start);
                         let end = self.expr(end);
                         // LR39: a literal bound takes the other bound's type.
-                        match (start, end) {
+                        let element = match (start, end) {
                             (Type::IntegerLiteral(_), other) | (other, Type::IntegerLiteral(_)) => {
                                 settle(other)
                             }
                             (start, end) => settle(unify(start, end)),
-                        }
+                        };
+                        Some(vec![element])
                     }
-                    _ => {
-                        self.expr(iterable);
-                        Type::Unresolved
-                    }
+                    _ => match settle(self.expr(iterable)) {
+                        Type::Builtin {
+                            kind:
+                                Builtin::List | Builtin::FrozenList | Builtin::Set | Builtin::FrozenSet,
+                            args,
+                        } => Some(vec![args.first().cloned().unwrap_or(Type::Unresolved)]),
+                        Type::Builtin {
+                            kind: Builtin::Map | Builtin::FrozenMap,
+                            args,
+                        } => Some(vec![
+                            args.first().cloned().unwrap_or(Type::Unresolved),
+                            args.get(1).cloned().unwrap_or(Type::Unresolved),
+                        ]),
+                        _ => None,
+                    },
                 };
-                self.facts.record_binding(stmt.span, element.clone());
+                let yielded = match yielded {
+                    Some(yielded) if yielded.len() == bindings.len() => yielded,
+                    Some(yielded) => {
+                        self.diagnostics.push(
+                            Diagnostic::error(
+                                codes::ITERATION_BINDINGS,
+                                stmt.span,
+                                format!(
+                                    "this loop yields {} value{} but names {} binding{}",
+                                    yielded.len(),
+                                    if yielded.len() == 1 { "" } else { "s" },
+                                    bindings.len(),
+                                    if bindings.len() == 1 { "" } else { "s" },
+                                ),
+                            )
+                            .note("A `for` names one binding for each value an iteration yields (LR10.5)."),
+                        );
+                        vec![Type::Unresolved; bindings.len()]
+                    }
+                    None => vec![Type::Unresolved; bindings.len()],
+                };
+                self.facts.record_binding(
+                    stmt.span,
+                    yielded.first().cloned().unwrap_or(Type::Unresolved),
+                );
                 self.push();
-                for binding in bindings {
-                    self.declare(binding, element.clone(), stmt.span);
+                for (binding, held) in bindings.iter().zip(yielded) {
+                    self.declare(binding, held, stmt.span);
                 }
                 self.enter_loop(label.clone(), None);
                 self.block(body);

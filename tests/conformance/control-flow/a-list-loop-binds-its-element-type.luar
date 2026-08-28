@@ -1,0 +1,12 @@
+--- expect: compile-error
+--- code: LR0145
+--- span: 9:29
+--- spec: LR10.5
+--- spec: LR13.1
+export function main()
+    local names = ["Alice", "Bob"]
+    for name in names do
+        local length: int = name
+        print(length)
+    end
+end

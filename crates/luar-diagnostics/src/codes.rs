@@ -264,6 +264,8 @@ registry! {
         "`await` applies only to a `Task`.";
     active 203 => WRITE_TO_FROZEN_COLLECTION, "LR59",
         "A frozen collection cannot be mutated.";
+    active 204 => ITERATION_BINDINGS, "LR10.5",
+        "A `for` names one binding for each value an iteration yields.";
 }
 
 #[cfg(test)]
