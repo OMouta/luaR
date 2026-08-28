@@ -400,6 +400,7 @@ impl Translator<'_, '_> {
                 self.set_insert(*receiver, *value);
                 None
             }
+            InstKind::SetContains { receiver, value } => self.set_contains(*receiver, *value),
             InstKind::Overflowing {
                 mode,
                 op,
@@ -1650,6 +1651,29 @@ impl Translator<'_, '_> {
         };
         let set = self.value(receiver);
         let _ = self.map_insert(set, value, text);
+    }
+
+    fn set_contains(&mut self, receiver: Value, value: Value) -> Option<ir::Value> {
+        let held = self.function.type_of(receiver).clone();
+        let Ty::Builtin {
+            kind: Builtin::Set | Builtin::FrozenSet,
+            args,
+        } = &held
+        else {
+            self.gap(format!("looking up `{held}`"));
+            return None;
+        };
+        let text = args.first().and_then(|element| self.key_is_text(element))?;
+        let set = self.value(receiver);
+        let hash = self.key_hash(value)?;
+        let word = self.key_word(value);
+        let text = self.builder.ins().iconst(types::I8, i64::from(text));
+        let call = self
+            .builder
+            .ins()
+            .call(self.map_find, &[set, word, hash, text]);
+        let bucket = self.builder.inst_results(call).first().copied()?;
+        Some(self.builder.ins().icmp_imm(IntCC::NotEqual, bucket, 0))
     }
 
     /// Bucket `index` of the map or set `receiver`, below its bucket count.

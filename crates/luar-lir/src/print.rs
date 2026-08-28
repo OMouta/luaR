@@ -263,6 +263,9 @@ fn instruction(inst: &Inst, function: &Function) -> String {
         InstKind::SetInsert { receiver, value } => {
             format!("insert {} <- {}", name(*receiver), name(*value))
         }
+        InstKind::SetContains { receiver, value } => {
+            format!("contains {} {}", name(*receiver), name(*value))
+        }
         InstKind::Overflowing {
             mode,
             op,

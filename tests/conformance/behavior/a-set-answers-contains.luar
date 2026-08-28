@@ -1,0 +1,23 @@
+--- expect: run
+--- exit: 5
+--- spec: LR13.3
+--- spec: LR59
+export function main(): int
+    local ids = Set { 1, 2 }
+    local names = Set.new<string>()
+    names:insert("Alice")
+    local total = 0
+    if ids:contains(2) then
+        total += 1
+    end
+    if ids:contains(3) then
+        total += 10
+    end
+    if names:contains("Alice") then
+        total += 4
+    end
+    if names:frozen():contains("Bob") then
+        total += 20
+    end
+    return total
+end

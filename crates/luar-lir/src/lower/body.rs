@@ -2470,6 +2470,9 @@ impl<'a> Body<'a> {
         if self.context.facts.checked_index(span) {
             return self.checked_index(callee, args, span);
         }
+        if self.context.facts.set_contains(span) {
+            return self.set_contains(callee, args, span);
+        }
         if let Some(mutation) = self.context.facts.collection_mutation(span) {
             return self.collection_mutation(mutation, callee, args, span);
         }
@@ -2828,6 +2831,18 @@ impl<'a> Body<'a> {
         };
         self.emit_void(kind, span);
         self.emit(InstKind::Const(Const::Unit), Ty::Unit, span)
+    }
+
+    fn set_contains(&mut self, callee: &Expr, args: &[Argument], span: Span) -> Value {
+        let receiver = self.expr(callee, None);
+        let Some(element) = self.collection_args(receiver).first().cloned() else {
+            return self.missing(span, "a set lookup without an element type");
+        };
+        let Some(argument) = args.first() else {
+            return self.missing(span, "a set lookup without a value");
+        };
+        let value = self.expr(&argument.value, Some(&element));
+        self.emit(InstKind::SetContains { receiver, value }, Ty::Bool, span)
     }
 
     /// LR4.3: `x:wrappingAdd(y)` and its kin apply the operator they name

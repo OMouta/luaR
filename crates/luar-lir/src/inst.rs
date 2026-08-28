@@ -309,6 +309,11 @@ pub enum InstKind {
         receiver: Value,
         value: Value,
     },
+    /// Whether a set holds `value` (LR13.3).
+    SetContains {
+        receiver: Value,
+        value: Value,
+    },
 
     /// `x:wrappingAdd(y)` and its kin (LR4.3). `Check` produces an optional
     /// of the operand type, and the other modes produce the operand type.
@@ -439,6 +444,7 @@ impl InstKind {
             | Self::MakeMap { .. }
             | Self::MakeSet { .. }
             | Self::GetCheckedIndex { .. }
+            | Self::SetContains { .. }
             | Self::MakeSome { .. }
             | Self::IsSome { .. }
             | Self::Unwrap { .. }
