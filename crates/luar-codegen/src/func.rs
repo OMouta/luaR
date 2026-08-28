@@ -67,6 +67,7 @@ pub(crate) struct Translator<'a, 'b> {
     pub program: &'a Program,
     pub function: &'a Function,
     pub function_name: GlobalValue,
+    pub function_name_length: usize,
     pub builder: FunctionBuilder<'b>,
     pub pointer: Type,
     pub callees: HashMap<FuncId, FuncRef>,
@@ -393,7 +394,7 @@ impl Translator<'_, '_> {
             .store(OWNED, name, frame, cell.saturating_mul(2));
         let name_length = self.builder.ins().iconst(
             self.pointer,
-            i64::try_from(self.function.name.len()).unwrap_or(0),
+            i64::try_from(self.function_name_length).unwrap_or(0),
         );
         self.builder
             .ins()

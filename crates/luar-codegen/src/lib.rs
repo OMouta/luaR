@@ -203,7 +203,12 @@ impl Emitter<'_> {
                 continue;
             }
             let mut description = DataDescription::new();
-            description.define(function.name.as_bytes().to_vec().into_boxed_slice());
+            description.define(
+                backtrace_name(&function.name)
+                    .as_bytes()
+                    .to_vec()
+                    .into_boxed_slice(),
+            );
             let data = self
                 .module
                 .declare_data(
@@ -253,6 +258,7 @@ impl Emitter<'_> {
             let function_name = self
                 .module
                 .declare_data_in_func(self.names[&id], &mut context.func);
+            let function_name_length = backtrace_name(&function.name).len();
 
             let handlers = self
                 .runtime
@@ -290,6 +296,7 @@ impl Emitter<'_> {
                 program: self.program,
                 function,
                 function_name,
+                function_name_length,
                 builder: FunctionBuilder::new(&mut context.func, &mut frame),
                 pointer: self.pointer,
                 callees,
@@ -437,6 +444,10 @@ fn calls(function: &luar_lir::program::Function) -> Vec<FuncId> {
         }
     }
     found
+}
+
+fn backtrace_name(name: &str) -> &str {
+    name.rsplit('/').next().unwrap_or(name)
 }
 
 /// The symbol a function is emitted under. LIR names carry the path they came
