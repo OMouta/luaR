@@ -327,6 +327,12 @@ pub enum InstKind {
         object: Value,
         field: u32,
     },
+    /// `pointer` moved `count` values of its target forward, which
+    /// `p:add(n)` does (LR72).
+    Offset {
+        pointer: Value,
+        count: Value,
+    },
     /// Reading and writing through a pointer, both of which need `unsafe`
     /// (LR29.2, LR72).
     Load {
@@ -378,7 +384,8 @@ impl InstKind {
             | Self::MakeDyn { .. }
             | Self::DynValue { .. }
             | Self::AddressOf { .. }
-            | Self::FieldAddress { .. } => Effect::None,
+            | Self::FieldAddress { .. }
+            | Self::Offset { .. } => Effect::None,
 
             Self::Binary { op, .. } => {
                 if op.can_trap() {

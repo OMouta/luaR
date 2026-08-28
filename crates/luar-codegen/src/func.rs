@@ -356,6 +356,27 @@ impl Translator<'_, '_> {
                     ),
                 }
             }
+            InstKind::Offset { pointer, count } => {
+                let target = match self.function.type_of(*pointer) {
+                    Ty::Pointer { target, .. } => target.as_ref().clone(),
+                    other => other.clone(),
+                };
+                match machine(&target, self.pointer) {
+                    Some(stride) if !layout::is_aggregate(&target) => {
+                        let address = self.value(*pointer);
+                        let count = self.value(*count);
+                        let bytes = self
+                            .builder
+                            .ins()
+                            .imul_imm(count, i64::from(stride.bytes()));
+                        Some(self.builder.ins().iadd(address, bytes))
+                    }
+                    _ => {
+                        self.gap("pointer arithmetic over aggregates");
+                        None
+                    }
+                }
+            }
             InstKind::Load { pointer } => match inst.result {
                 Some(result) if layout::is_aggregate(self.function.type_of(result)) => {
                     self.gap("a read of an aggregate through a pointer");

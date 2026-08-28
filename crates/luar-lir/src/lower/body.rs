@@ -2078,7 +2078,12 @@ impl<'a> Body<'a> {
                 self.emit_void(InstKind::Store { pointer, value }, span);
                 self.emit(InstKind::Const(Const::Unit), Ty::Unit, span)
             }
-            _ => self.missing(span, "pointer arithmetic"),
+            ("add", [argument]) => {
+                let count = self.expr(&argument.value, Some(&Ty::Int(IntTy::Isize)));
+                let ty = self.function.type_of(pointer).clone();
+                self.emit(InstKind::Offset { pointer, count }, ty, span)
+            }
+            _ => self.missing(span, "a memory method of this shape"),
         }
     }
 

@@ -284,6 +284,9 @@ fn instruction(inst: &Inst, function: &Function) -> String {
             let qualifier = if *mutable { "mut " } else { "" };
             format!("address {qualifier}{}.{field}", name(*object))
         }
+        InstKind::Offset { pointer, count } => {
+            format!("offset {} by {}", name(*pointer), name(*count))
+        }
         InstKind::Load { pointer } => format!("load {}", name(*pointer)),
         InstKind::Store { pointer, value } => {
             format!("store {} = {}", name(*pointer), name(*value))
