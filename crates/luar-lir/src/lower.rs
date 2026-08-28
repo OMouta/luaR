@@ -561,9 +561,11 @@ impl Lowering<'_> {
         let mut lowered = Function::new(self.qualify(module, path), params, result, span);
         lowered.type_params = type_params;
         lowered.asynchronous = signature.asynchronous;
-        // Until the body is lowered the function says it never returns, rather
-        // than returning something made up.
-        lowered.block_mut(lowered.entry).term = Some(Terminator::Trap(Trap::Unreachable));
+        lowered.external = extern_symbol(function);
+        if function.body.is_some() {
+            // Until the body is lowered the function says it never returns.
+            lowered.block_mut(lowered.entry).term = Some(Terminator::Trap(Trap::Unreachable));
+        }
 
         let declared_params = lowered.type_params.clone();
         let id = self.program.add_function(lowered);
@@ -583,12 +585,14 @@ impl Lowering<'_> {
             self.program.entry = Some(id);
         }
 
-        self.bodies.push(Pending {
-            id,
-            bindings,
-            throws,
-            body: function.body.clone().expect("declarations carry bodies"),
-        });
+        if let Some(body) = &function.body {
+            self.bodies.push(Pending {
+                id,
+                bindings,
+                throws,
+                body: body.clone(),
+            });
+        }
     }
 
     /// Gives every computed member the functions it is read and written
@@ -856,8 +860,8 @@ impl Lowering<'_> {
         Some((target, params))
     }
 
-    /// Every function declaration in the program that has a body, with the
-    /// path naming it inside its module.
+    /// Every free function declaration, and every member with a body, with
+    /// the path naming it inside its module.
     fn declarations(&self) -> Vec<(ModuleId, String, AstFunction)> {
         let mut found = Vec::new();
         for (module, node) in self.graph.modules() {
@@ -928,7 +932,7 @@ fn overloads(decl: &Decl) -> Vec<&Signature> {
 fn collect(items: &[Item], module: ModuleId, found: &mut Vec<(ModuleId, String, AstFunction)>) {
     for item in items {
         match item {
-            Item::Function(function) if function.body.is_some() => {
+            Item::Function(function) => {
                 found.push((module, function.name.join("."), function.clone()));
             }
             Item::Struct(structure) => {
@@ -993,6 +997,18 @@ fn is_finalizer(function: &AstFunction) -> bool {
         .decorators
         .iter()
         .any(|decorator| decorator.name == "finalizer")
+}
+
+fn extern_symbol(function: &AstFunction) -> Option<String> {
+    function
+        .decorators
+        .iter()
+        .find(|decorator| decorator.name == "extern")
+        .and_then(|decorator| decorator.args.first())
+        .and_then(|argument| match &argument.value.kind {
+            luar_ast::ExprKind::String(abi) if abi == "c" => Some(function.name.join(".")),
+            _ => None,
+        })
 }
 
 /// Where `name` was declared in `module`, if it names a type.

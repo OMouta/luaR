@@ -16,6 +16,7 @@ pub fn machine(ty: &Ty, pointer: Type) -> Option<Type> {
     let machine = match ty {
         Ty::Unit | Ty::Bool => types::I8,
         Ty::Int(int) => integer(*int, pointer),
+        Ty::Pointer { .. } => pointer,
         Ty::Char => types::I32,
         Ty::Never => types::I8,
         // A string is its length and then its bytes, reached through their

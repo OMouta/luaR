@@ -1633,7 +1633,10 @@ impl<'a> Body<'a> {
             }
 
             ExprKind::Unary { op, operand } => {
-                let ty = self.recorded(span);
+                let ty = match op {
+                    AstUnary::Not => Ty::Bool,
+                    _ => wanted.cloned().unwrap_or_else(|| self.recorded(span)),
+                };
                 let operand = self.expr(operand, Some(&ty));
                 let op = match op {
                     AstUnary::Not => UnaryOp::Not,

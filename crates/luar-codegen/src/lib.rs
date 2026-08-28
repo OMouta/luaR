@@ -157,9 +157,13 @@ impl Emitter<'_> {
                 });
                 continue;
             };
+            let (name, linkage) = match &function.external {
+                Some(symbol) => (symbol.clone(), Linkage::Import),
+                None => (symbol(id), Linkage::Local),
+            };
             let declared = self
                 .module
-                .declare_function(&symbol(id), Linkage::Local, &signature)
+                .declare_function(&name, linkage, &signature)
                 .map_err(|error| Error::Cranelift(error.to_string()))?;
             self.declared.insert(id, declared);
         }
@@ -199,7 +203,7 @@ impl Emitter<'_> {
         }
 
         for (id, function) in self.program.functions() {
-            if function.is_template() {
+            if function.is_template() || function.external.is_some() {
                 continue;
             }
             let mut description = DataDescription::new();
@@ -231,6 +235,9 @@ impl Emitter<'_> {
         let mut frame = FunctionBuilderContext::new();
 
         for (id, function) in self.program.functions() {
+            if function.external.is_some() {
+                continue;
+            }
             let Some(&declared) = self.declared.get(&id) else {
                 continue;
             };

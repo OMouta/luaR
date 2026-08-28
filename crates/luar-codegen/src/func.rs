@@ -57,9 +57,11 @@ pub(crate) fn signature(
             .params
             .push(AbiParam::new(machine(param, pointer)?));
     }
-    signature
-        .returns
-        .push(AbiParam::new(machine(&function.result, pointer)?));
+    if function.external.is_none() || function.result != Ty::Unit {
+        signature
+            .returns
+            .push(AbiParam::new(machine(&function.result, pointer)?));
+    }
     Some(signature)
 }
 
@@ -754,7 +756,16 @@ impl Translator<'_, '_> {
         };
         let passed: Vec<ir::Value> = args.iter().map(|arg| self.value(*arg)).collect();
         let call = self.builder.ins().call(reference, &passed);
-        self.builder.inst_results(call).first().copied()
+        match self.builder.inst_results(call).first().copied() {
+            Some(result) => Some(result),
+            None if self.program.function(callee).result == Ty::Unit => {
+                Some(self.builder.ins().iconst(types::I8, 0))
+            }
+            None => {
+                self.gap("a call whose result the ABI did not return");
+                None
+            }
+        }
     }
 
     /// The address of a literal's text, which lives in the object rather than

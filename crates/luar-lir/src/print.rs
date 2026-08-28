@@ -92,9 +92,14 @@ fn function_to(out: &mut String, function: &Function) {
         format!("<{}>", function.type_params.join(", "))
     };
     let asynchronous = if function.asynchronous { "async " } else { "" };
+    let external = if function.external.is_some() {
+        "extern "
+    } else {
+        ""
+    };
     let _ = writeln!(
         out,
-        "{asynchronous}function {}{params}({}) -> {}",
+        "{external}{asynchronous}function {}{params}({}) -> {}",
         function.name,
         function
             .params
@@ -104,6 +109,10 @@ fn function_to(out: &mut String, function: &Function) {
             .join(", "),
         function.result
     );
+
+    if function.external.is_some() {
+        return;
+    }
 
     for (index, ty) in function.slots().iter().enumerate() {
         let _ = writeln!(out, "    slot{index}: {ty}");

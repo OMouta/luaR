@@ -142,6 +142,8 @@ pub struct Function {
     /// Whether calling it produces a `Task<T>` rather than running it (LR27).
     /// The pass that turns one into a state machine reads this.
     pub asynchronous: bool,
+    /// The native symbol this declaration imports (LR46).
+    pub external: Option<String>,
     /// Where it was written, for diagnostics and backtraces.
     pub span: Span,
     /// The block control enters at. Its parameters are the function's.
@@ -162,6 +164,7 @@ impl Function {
             params: params.clone(),
             result,
             asynchronous: false,
+            external: None,
             span,
             entry: BlockId(0),
             blocks: vec![Block::new()],

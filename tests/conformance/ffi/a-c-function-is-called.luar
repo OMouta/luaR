@@ -1,0 +1,11 @@
+--- expect: run
+--- exit: 7
+--- spec: LR46
+@extern("c")
+unsafe function abs(value: i32): i32
+
+export function main(): i32
+    unsafe
+        return abs(-7)
+    end
+end
