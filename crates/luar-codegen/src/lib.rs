@@ -233,6 +233,13 @@ impl Emitter<'_> {
             let allocate = self
                 .runtime
                 .allocate_in(&mut self.module, &mut context.func);
+            let concat = self.runtime.concat_in(&mut self.module, &mut context.func);
+            let text_equal = self
+                .runtime
+                .text_equal_in(&mut self.module, &mut context.func);
+            let hash_bytes = self
+                .runtime
+                .hash_bytes_in(&mut self.module, &mut context.func);
             let roots = self.runtime.roots_in(&mut self.module, &mut context.func);
             let finalizers = self
                 .program
@@ -254,6 +261,9 @@ impl Emitter<'_> {
                 texts,
                 handlers,
                 allocate,
+                concat,
+                text_equal,
+                hash_bytes,
                 finalizers,
                 roots,
                 root_frame: None,

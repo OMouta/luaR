@@ -154,6 +154,10 @@ pub enum InstKind {
         left: Value,
         right: Value,
     },
+    /// The `Hash` result for a primitive value (LR35, LR75).
+    HashValue {
+        value: Value,
+    },
 
     /// `x as T`, between numeric types (LR33, LR39).
     Convert {
@@ -326,6 +330,7 @@ impl InstKind {
         match self {
             Self::Const(_)
             | Self::Unary { .. }
+            | Self::HashValue { .. }
             | Self::Convert { .. }
             | Self::IsType { .. }
             | Self::MakeClosure { .. }

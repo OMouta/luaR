@@ -4,7 +4,8 @@
 //! a build needs a linker and a C runtime and nothing else.
 
 use cranelift_codegen::Context;
-use cranelift_codegen::ir::{AbiParam, FuncRef, InstBuilder, Signature, TrapCode, types};
+use cranelift_codegen::ir::condcodes::IntCC;
+use cranelift_codegen::ir::{AbiParam, FuncRef, InstBuilder, MemFlags, Signature, TrapCode, types};
 use cranelift_codegen::isa::CallConv;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_module::{DataDescription, DataId, FuncId as ModuleFuncId, Linkage, Module};
@@ -37,6 +38,10 @@ pub(crate) struct Runtime {
     pub handlers: [ModuleFuncId; TRAPS.len()],
     /// Where managed aggregate storage comes from (LR29).
     pub allocate: ModuleFuncId,
+    /// Primitive string operations (LR11.2, LR11.3, LR35).
+    pub concat: ModuleFuncId,
+    pub text_equal: ModuleFuncId,
+    pub hash_bytes: ModuleFuncId,
     /// The most recently entered shadow-stack frame.
     roots: DataId,
 }
@@ -65,6 +70,9 @@ impl Runtime {
             .map_err(|error| Error::Cranelift(error.to_string()))?;
 
         let collector = gc::emit(module, pointer, call_conv)?;
+        let concat = define_concat(module, pointer, call_conv, collector.allocate)?;
+        let text_equal = define_text_equal(module, pointer, call_conv)?;
+        let hash_bytes = define_hash_bytes(module, pointer, call_conv)?;
 
         let mut handlers = Vec::with_capacity(TRAPS.len());
         for trap in TRAPS {
@@ -75,6 +83,9 @@ impl Runtime {
                 .try_into()
                 .expect("one handler was emitted per trap kind"),
             allocate: collector.allocate,
+            concat,
+            text_equal,
+            hash_bytes,
             roots: collector.roots,
         })
     }
@@ -97,6 +108,30 @@ impl Runtime {
         module.declare_func_in_func(self.allocate, function)
     }
 
+    pub fn concat_in(
+        &self,
+        module: &mut ObjectModule,
+        function: &mut cranelift_codegen::ir::Function,
+    ) -> FuncRef {
+        module.declare_func_in_func(self.concat, function)
+    }
+
+    pub fn text_equal_in(
+        &self,
+        module: &mut ObjectModule,
+        function: &mut cranelift_codegen::ir::Function,
+    ) -> FuncRef {
+        module.declare_func_in_func(self.text_equal, function)
+    }
+
+    pub fn hash_bytes_in(
+        &self,
+        module: &mut ObjectModule,
+        function: &mut cranelift_codegen::ir::Function,
+    ) -> FuncRef {
+        module.declare_func_in_func(self.hash_bytes, function)
+    }
+
     pub fn roots_in(
         &self,
         module: &mut ObjectModule,
@@ -104,6 +139,314 @@ impl Runtime {
     ) -> cranelift_codegen::ir::GlobalValue {
         module.declare_data_in_func(self.roots, function)
     }
+}
+
+fn define_concat(
+    module: &mut ObjectModule,
+    pointer: types::Type,
+    call_conv: CallConv,
+    allocate: ModuleFuncId,
+) -> Result<ModuleFuncId, Error> {
+    let mut signature = Signature::new(call_conv);
+    signature.params.push(AbiParam::new(pointer));
+    signature.params.push(AbiParam::new(pointer));
+    signature.returns.push(AbiParam::new(pointer));
+    let declared = module
+        .declare_function("luar_string_concat", Linkage::Local, &signature)
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
+
+    let mut context = Context::new();
+    let mut frame = FunctionBuilderContext::new();
+    context.func.signature = signature;
+    let allocate = module.declare_func_in_func(allocate, &mut context.func);
+    let mut builder = FunctionBuilder::new(&mut context.func, &mut frame);
+    let entry = builder.create_block();
+    let copy_left = builder.create_block();
+    let copy_left_byte = builder.create_block();
+    let copy_right = builder.create_block();
+    let copy_right_byte = builder.create_block();
+    let done = builder.create_block();
+    builder.append_block_params_for_function_params(entry);
+    builder.append_block_param(copy_left, types::I64);
+    builder.append_block_param(copy_left_byte, types::I64);
+    builder.append_block_param(copy_right, types::I64);
+    builder.append_block_param(copy_right_byte, types::I64);
+
+    builder.switch_to_block(entry);
+    let left = builder.block_params(entry)[0];
+    let right = builder.block_params(entry)[1];
+    let left_len = builder.ins().load(types::I64, MemFlags::trusted(), left, 0);
+    let right_len = builder
+        .ins()
+        .load(types::I64, MemFlags::trusted(), right, 0);
+    let length = builder.ins().iadd(left_len, right_len);
+    let cell = i64::from(pointer.bytes());
+    let bytes = builder.ins().iadd_imm(length, 8 + cell - 1);
+    let bytes = builder.ins().band_imm(bytes, -cell);
+    let bytes = integer_width(&mut builder, bytes, pointer);
+    let no_finalizer = builder.ins().iconst(pointer, 0);
+    let call = builder.ins().call(allocate, &[bytes, no_finalizer]);
+    let string = builder.inst_results(call)[0];
+    builder.ins().store(MemFlags::trusted(), length, string, 0);
+    let zero = builder.ins().iconst(types::I64, 0);
+    builder
+        .ins()
+        .jump(copy_left, &[cranelift_codegen::ir::BlockArg::Value(zero)]);
+
+    builder.switch_to_block(copy_left);
+    let index = builder.block_params(copy_left)[0];
+    let more = builder.ins().icmp(IntCC::UnsignedLessThan, index, left_len);
+    builder.ins().brif(
+        more,
+        copy_left_byte,
+        &[cranelift_codegen::ir::BlockArg::Value(index)],
+        copy_right,
+        &[cranelift_codegen::ir::BlockArg::Value(zero)],
+    );
+
+    builder.switch_to_block(copy_left_byte);
+    let index = builder.block_params(copy_left_byte)[0];
+    copy_byte(&mut builder, left, index, string, index);
+    let next = builder.ins().iadd_imm(index, 1);
+    builder
+        .ins()
+        .jump(copy_left, &[cranelift_codegen::ir::BlockArg::Value(next)]);
+
+    builder.switch_to_block(copy_right);
+    let index = builder.block_params(copy_right)[0];
+    let more = builder
+        .ins()
+        .icmp(IntCC::UnsignedLessThan, index, right_len);
+    builder.ins().brif(
+        more,
+        copy_right_byte,
+        &[cranelift_codegen::ir::BlockArg::Value(index)],
+        done,
+        &[],
+    );
+
+    builder.switch_to_block(copy_right_byte);
+    let index = builder.block_params(copy_right_byte)[0];
+    let destination = builder.ins().iadd(left_len, index);
+    copy_byte(&mut builder, right, index, string, destination);
+    let next = builder.ins().iadd_imm(index, 1);
+    builder
+        .ins()
+        .jump(copy_right, &[cranelift_codegen::ir::BlockArg::Value(next)]);
+
+    builder.switch_to_block(done);
+    builder.ins().return_(&[string]);
+    builder.seal_all_blocks();
+    builder.finalize();
+    module
+        .define_function(declared, &mut context)
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
+    Ok(declared)
+}
+
+fn define_text_equal(
+    module: &mut ObjectModule,
+    pointer: types::Type,
+    call_conv: CallConv,
+) -> Result<ModuleFuncId, Error> {
+    let mut signature = Signature::new(call_conv);
+    signature.params.push(AbiParam::new(pointer));
+    signature.params.push(AbiParam::new(pointer));
+    signature.returns.push(AbiParam::new(types::I8));
+    let declared = module
+        .declare_function("luar_text_equal", Linkage::Local, &signature)
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
+
+    let mut context = Context::new();
+    let mut frame = FunctionBuilderContext::new();
+    context.func.signature = signature;
+    let mut builder = FunctionBuilder::new(&mut context.func, &mut frame);
+    let entry = builder.create_block();
+    let compare = builder.create_block();
+    let compare_byte = builder.create_block();
+    let same = builder.create_block();
+    let different = builder.create_block();
+    builder.append_block_params_for_function_params(entry);
+    builder.append_block_param(compare, types::I64);
+    builder.append_block_param(compare_byte, types::I64);
+
+    builder.switch_to_block(entry);
+    let left = builder.block_params(entry)[0];
+    let right = builder.block_params(entry)[1];
+    let left_len = builder.ins().load(types::I64, MemFlags::trusted(), left, 0);
+    let right_len = builder
+        .ins()
+        .load(types::I64, MemFlags::trusted(), right, 0);
+    let lengths_match = builder.ins().icmp(IntCC::Equal, left_len, right_len);
+    let zero = builder.ins().iconst(types::I64, 0);
+    builder.ins().brif(
+        lengths_match,
+        compare,
+        &[cranelift_codegen::ir::BlockArg::Value(zero)],
+        different,
+        &[],
+    );
+
+    builder.switch_to_block(compare);
+    let index = builder.block_params(compare)[0];
+    let more = builder.ins().icmp(IntCC::UnsignedLessThan, index, left_len);
+    builder.ins().brif(
+        more,
+        compare_byte,
+        &[cranelift_codegen::ir::BlockArg::Value(index)],
+        same,
+        &[],
+    );
+
+    builder.switch_to_block(compare_byte);
+    let index = builder.block_params(compare_byte)[0];
+    let a = load_byte(&mut builder, left, index);
+    let b = load_byte(&mut builder, right, index);
+    let matches = builder.ins().icmp(IntCC::Equal, a, b);
+    let next = builder.ins().iadd_imm(index, 1);
+    builder.ins().brif(
+        matches,
+        compare,
+        &[cranelift_codegen::ir::BlockArg::Value(next)],
+        different,
+        &[],
+    );
+
+    builder.switch_to_block(same);
+    let one = builder.ins().iconst(types::I8, 1);
+    builder.ins().return_(&[one]);
+
+    builder.switch_to_block(different);
+    let zero = builder.ins().iconst(types::I8, 0);
+    builder.ins().return_(&[zero]);
+    builder.seal_all_blocks();
+    builder.finalize();
+    module
+        .define_function(declared, &mut context)
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
+    Ok(declared)
+}
+
+fn define_hash_bytes(
+    module: &mut ObjectModule,
+    pointer: types::Type,
+    call_conv: CallConv,
+) -> Result<ModuleFuncId, Error> {
+    let mut signature = Signature::new(call_conv);
+    signature.params.push(AbiParam::new(pointer));
+    signature.returns.push(AbiParam::new(types::I64));
+    let declared = module
+        .declare_function("luar_hash_bytes", Linkage::Local, &signature)
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
+
+    let mut context = Context::new();
+    let mut frame = FunctionBuilderContext::new();
+    context.func.signature = signature;
+    let mut builder = FunctionBuilder::new(&mut context.func, &mut frame);
+    let entry = builder.create_block();
+    let hash = builder.create_block();
+    let hash_byte = builder.create_block();
+    let done = builder.create_block();
+    builder.append_block_params_for_function_params(entry);
+    builder.append_block_param(hash, types::I64);
+    builder.append_block_param(hash, types::I64);
+    builder.append_block_param(hash_byte, types::I64);
+    builder.append_block_param(hash_byte, types::I64);
+    builder.append_block_param(done, types::I64);
+
+    builder.switch_to_block(entry);
+    let text = builder.block_params(entry)[0];
+    let length = builder.ins().load(types::I64, MemFlags::trusted(), text, 0);
+    let zero = builder.ins().iconst(types::I64, 0);
+    let basis = builder
+        .ins()
+        .iconst(types::I64, 0xcbf29ce484222325_u64 as i64);
+    builder.ins().jump(
+        hash,
+        &[
+            cranelift_codegen::ir::BlockArg::Value(zero),
+            cranelift_codegen::ir::BlockArg::Value(basis),
+        ],
+    );
+
+    builder.switch_to_block(hash);
+    let index = builder.block_params(hash)[0];
+    let value = builder.block_params(hash)[1];
+    let more = builder.ins().icmp(IntCC::UnsignedLessThan, index, length);
+    builder.ins().brif(
+        more,
+        hash_byte,
+        &[
+            cranelift_codegen::ir::BlockArg::Value(index),
+            cranelift_codegen::ir::BlockArg::Value(value),
+        ],
+        done,
+        &[cranelift_codegen::ir::BlockArg::Value(value)],
+    );
+
+    builder.switch_to_block(hash_byte);
+    let index = builder.block_params(hash_byte)[0];
+    let value = builder.block_params(hash_byte)[1];
+    let byte = load_byte(&mut builder, text, index);
+    let byte = builder.ins().uextend(types::I64, byte);
+    let value = builder.ins().bxor(value, byte);
+    let value = builder.ins().imul_imm(value, 0x100000001b3);
+    let next = builder.ins().iadd_imm(index, 1);
+    builder.ins().jump(
+        hash,
+        &[
+            cranelift_codegen::ir::BlockArg::Value(next),
+            cranelift_codegen::ir::BlockArg::Value(value),
+        ],
+    );
+
+    builder.switch_to_block(done);
+    let value = builder.block_params(done)[0];
+    builder.ins().return_(&[value]);
+    builder.seal_all_blocks();
+    builder.finalize();
+    module
+        .define_function(declared, &mut context)
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
+    Ok(declared)
+}
+
+fn integer_width(
+    builder: &mut FunctionBuilder<'_>,
+    value: cranelift_codegen::ir::Value,
+    wanted: types::Type,
+) -> cranelift_codegen::ir::Value {
+    let held = builder.func.dfg.value_type(value);
+    match held.bits().cmp(&wanted.bits()) {
+        std::cmp::Ordering::Greater => builder.ins().ireduce(wanted, value),
+        std::cmp::Ordering::Less => builder.ins().uextend(wanted, value),
+        std::cmp::Ordering::Equal => value,
+    }
+}
+
+fn load_byte(
+    builder: &mut FunctionBuilder<'_>,
+    text: cranelift_codegen::ir::Value,
+    index: cranelift_codegen::ir::Value,
+) -> cranelift_codegen::ir::Value {
+    let start = builder.ins().iadd_imm(text, 8);
+    let address = builder.ins().iadd(start, index);
+    builder
+        .ins()
+        .load(types::I8, MemFlags::trusted(), address, 0)
+}
+
+fn copy_byte(
+    builder: &mut FunctionBuilder<'_>,
+    source: cranelift_codegen::ir::Value,
+    source_index: cranelift_codegen::ir::Value,
+    destination: cranelift_codegen::ir::Value,
+    destination_index: cranelift_codegen::ir::Value,
+) {
+    let byte = load_byte(builder, source, source_index);
+    let start = builder.ins().iadd_imm(destination, 8);
+    let address = builder.ins().iadd(start, destination_index);
+    builder.ins().store(MemFlags::trusted(), byte, address, 0);
 }
 
 fn handler(

@@ -1,0 +1,11 @@
+--- expect: run
+--- exit: 1
+--- spec: LR11.2
+--- spec: LR11.3
+export function main(): int
+    local name = "lua" .. "r"
+    if name == "luar" and name ~= "lua" then
+        return 1
+    end
+    return 0
+end

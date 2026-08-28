@@ -131,7 +131,9 @@ pub const DEPTH: u32 = 32;
 pub fn is_aggregate(ty: &Ty) -> bool {
     matches!(
         ty,
-        Ty::Named { .. }
+        Ty::Str
+            | Ty::Bytes
+            | Ty::Named { .. }
             | Ty::Tuple(_)
             | Ty::Record(_)
             | Ty::Optional(_)

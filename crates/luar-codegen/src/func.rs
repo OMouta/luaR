@@ -72,6 +72,9 @@ pub(crate) struct Translator<'a, 'b> {
     pub handlers: [FuncRef; TRAPS.len()],
     /// Where managed aggregate storage comes from (LR29).
     pub allocate: FuncRef,
+    pub concat: FuncRef,
+    pub text_equal: FuncRef,
+    pub hash_bytes: FuncRef,
     pub finalizers: HashMap<Ty, FuncRef>,
     /// The global holding the top shadow-stack frame.
     pub roots: GlobalValue,
@@ -215,6 +218,7 @@ impl Translator<'_, '_> {
             InstKind::Const(literal) => self.constant(literal, inst.result),
             InstKind::Unary { op, operand } => self.unary(*op, *operand),
             InstKind::Binary { op, left, right } => self.binary(*op, *left, *right),
+            InstKind::HashValue { value } => self.hash_value(*value),
             InstKind::Convert { value, to } => self.convert(*value, to),
             InstKind::Call {
                 callee,
@@ -445,6 +449,17 @@ impl Translator<'_, '_> {
         let a = self.value(left);
         let b = self.value(right);
 
+        if matches!(self.function.type_of(left), Ty::Str | Ty::Bytes)
+            && matches!(op, BinaryOp::Equal | BinaryOp::NotEqual)
+        {
+            let call = self.builder.ins().call(self.text_equal, &[a, b]);
+            let equal = self.builder.inst_results(call).first().copied()?;
+            return Some(match op {
+                BinaryOp::NotEqual => self.builder.ins().bxor_imm(equal, 1),
+                _ => equal,
+            });
+        }
+
         // `icmp` already answers the byte holding 0 or 1 that a `bool` is.
         if let Some(condition) = comparison(op, signed) {
             return Some(self.builder.ins().icmp(condition, a, b));
@@ -471,12 +486,36 @@ impl Translator<'_, '_> {
             }
             BinaryOp::Power => return self.power(signed, a, b),
             BinaryOp::Concat => {
-                self.gap("`..`");
-                return None;
+                let call = self.builder.ins().call(self.concat, &[a, b]);
+                return self.builder.inst_results(call).first().copied();
             }
             _ => unreachable!("every comparison was answered above"),
         };
         Some(produced)
+    }
+
+    fn hash_value(&mut self, value: Value) -> Option<ir::Value> {
+        let ty = self.function.type_of(value);
+        let value = self.value(value);
+        match ty {
+            Ty::Str | Ty::Bytes => {
+                let call = self.builder.ins().call(self.hash_bytes, &[value]);
+                self.builder.inst_results(call).first().copied()
+            }
+            Ty::Unit | Ty::Nil => Some(self.builder.ins().iconst(types::I64, 0)),
+            Ty::Bool | Ty::Int(_) | Ty::Char => {
+                let held = self.builder.func.dfg.value_type(value);
+                Some(match held.bits().cmp(&64) {
+                    std::cmp::Ordering::Less => self.builder.ins().uextend(types::I64, value),
+                    std::cmp::Ordering::Equal => value,
+                    std::cmp::Ordering::Greater => self.builder.ins().ireduce(types::I64, value),
+                })
+            }
+            _ => {
+                self.gap(format!("hashing a value of type `{ty}`"));
+                None
+            }
+        }
     }
 
     /// LR11.1: exponentiation, as repeated multiplication, so LR4.3 decides
