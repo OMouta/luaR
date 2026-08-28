@@ -22,6 +22,15 @@ pub const CAPACITY: i32 = CELL;
 pub const BUFFER: i32 = CELL * 2;
 pub const COLLECTION_CELLS: u32 = 3;
 
+/// The cells of one map bucket, in order (LR13.2). `occupied` is zero in a
+/// bucket nothing has been written to, and the key is stored as one word
+/// whatever its type.
+pub const BUCKET_OCCUPIED: i32 = 0;
+pub const BUCKET_KEY: i32 = CELL;
+pub const BUCKET_VALUE: i32 = CELL * 2;
+pub const BUCKET_HASH: i32 = CELL * 3;
+pub const BUCKET_BYTES: i64 = CELL as i64 * 4;
+
 /// The byte an ordinary aggregate part sits at.
 #[must_use]
 fn cell_offset(index: u32) -> i32 {

@@ -4,6 +4,7 @@ mod func;
 mod gc;
 mod layout;
 mod link;
+mod map;
 mod runtime;
 mod ty;
 

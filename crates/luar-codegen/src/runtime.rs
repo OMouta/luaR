@@ -15,6 +15,7 @@ use luar_lir::inst::Trap;
 use crate::Error;
 use crate::func::TRAPS;
 use crate::gc;
+use crate::map;
 
 /// The exit status a trapped program leaves with.
 const TRAPPED: i64 = 101;
@@ -45,6 +46,9 @@ pub(crate) struct Runtime {
     pub display_signed: ModuleFuncId,
     pub display_unsigned: ModuleFuncId,
     pub abort: ModuleFuncId,
+    /// The bucket a map holds a key in, and the bucket it will (LR13.2).
+    pub map_find: ModuleFuncId,
+    pub map_insert: ModuleFuncId,
     /// The most recently entered shadow-stack frame.
     roots: DataId,
 }
@@ -81,6 +85,7 @@ impl Runtime {
         let display_unsigned =
             define_display_integer(module, pointer, call_conv, collector.allocate, false)?;
         let abort = define_abort(module, pointer, call_conv, exit, write, collector.roots)?;
+        let table = map::emit(module, pointer, call_conv, collector.allocate, text_equal)?;
 
         let mut handlers = Vec::with_capacity(TRAPS.len());
         for trap in TRAPS {
@@ -97,8 +102,26 @@ impl Runtime {
             display_signed,
             display_unsigned,
             abort,
+            map_find: table.find,
+            map_insert: table.insert,
             roots: collector.roots,
         })
+    }
+
+    pub fn map_find_in(
+        &self,
+        module: &mut ObjectModule,
+        function: &mut cranelift_codegen::ir::Function,
+    ) -> FuncRef {
+        module.declare_func_in_func(self.map_find, function)
+    }
+
+    pub fn map_insert_in(
+        &self,
+        module: &mut ObjectModule,
+        function: &mut cranelift_codegen::ir::Function,
+    ) -> FuncRef {
+        module.declare_func_in_func(self.map_insert, function)
     }
 
     /// Puts every handler in `function`'s reference table.
