@@ -1,0 +1,9 @@
+--- expect: run
+--- exit: 101
+--- trap: assertion-failed
+--- mode: debug
+--- spec: LR49
+export function main(): int
+    debugAssert(false)
+    return 0
+end

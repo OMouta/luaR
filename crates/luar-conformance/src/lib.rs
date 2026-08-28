@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use luar_diagnostics::{Diagnostic, SourceMap};
-use luar_driver::{BuildError, Check};
+use luar_driver::{BuildError, Check, CompilationMode};
 
 pub use directives::{DirectiveError, Directives, Expect};
 
@@ -165,7 +165,11 @@ fn execute(
     directives: &Directives,
 ) -> Outcome {
     let output = executable(path);
-    if let Err(error) = luar_driver::build(sources, file, &output) {
+    let mode = match directives.mode {
+        Some(directives::Mode::Release) => CompilationMode::Release,
+        Some(directives::Mode::Debug) | None => CompilationMode::Debug,
+    };
+    if let Err(error) = luar_driver::build_in_mode(sources, file, &output, mode) {
         let _ = fs::remove_file(&output);
         return match error {
             BuildError::Rejected(diagnostics) => {

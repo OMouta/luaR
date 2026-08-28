@@ -1,6 +1,6 @@
 //! Tests the directive header parser.
 
-use luar_conformance::directives::{Expect, parse};
+use luar_conformance::directives::{Expect, Mode, parse};
 
 #[test]
 fn a_compile_error_header_says_which_rule_and_where() {
@@ -37,6 +37,19 @@ fn a_run_header_decodes_escapes_in_stdout() {
 
     assert_eq!(d.stdout.as_deref(), Some("3\n"));
     assert_eq!(d.exit, Some(0));
+}
+
+#[test]
+fn a_run_header_selects_release_mode() {
+    let d = parse(
+        "--- expect: run\n\
+         --- exit: 0\n\
+         --- mode: release\n\
+         --- spec: LR49\n",
+    )
+    .unwrap();
+
+    assert_eq!(d.mode, Some(Mode::Release));
 }
 
 #[test]

@@ -1,0 +1,13 @@
+--- expect: run
+--- exit: 9
+--- mode: release
+--- spec: LR49
+function condition(): bool
+    local maximum: u8 = 255
+    return maximum + 1 == 0
+end
+
+export function main(): int
+    debugAssert(condition())
+    return 9
+end

@@ -14,6 +14,12 @@ pub enum Expect {
     Run,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    Debug,
+    Release,
+}
+
 impl Expect {
     fn label(self) -> &'static str {
         match self {
@@ -35,6 +41,7 @@ pub struct Directives {
     pub exit: Option<i32>,
     pub stdout: Option<String>,
     pub trap: Option<String>,
+    pub mode: Option<Mode>,
 }
 
 /// A header that does not say what it means.
@@ -57,7 +64,9 @@ impl fmt::Display for DirectiveError {
 
 impl std::error::Error for DirectiveError {}
 
-const KEYS: [&str; 7] = ["expect", "code", "span", "spec", "exit", "stdout", "trap"];
+const KEYS: [&str; 8] = [
+    "expect", "code", "span", "spec", "exit", "stdout", "trap", "mode",
+];
 
 /// Splits `--- key: value` into its parts, for known keys only.
 fn split(line: &str) -> Option<(&str, &str)> {
@@ -75,6 +84,7 @@ pub fn parse(source: &str) -> Result<Directives, DirectiveError> {
     let mut exit = None;
     let mut stdout = None;
     let mut trap = None;
+    let mut mode = None;
 
     let mut lines = source.lines().enumerate();
     let mut header_end = None;
@@ -155,6 +165,18 @@ pub fn parse(source: &str) -> Result<Directives, DirectiveError> {
                 }
                 trap = Some(value.to_owned());
             }
+            "mode" => {
+                if mode.is_some() {
+                    return Err(twice());
+                }
+                mode = Some(match value {
+                    "debug" => Mode::Debug,
+                    "release" => Mode::Release,
+                    other => {
+                        return Err(at(format!("unknown mode `{other}`, want debug or release")));
+                    }
+                });
+            }
             _ => unreachable!("split only returns known keys"),
         }
     }
@@ -187,6 +209,7 @@ pub fn parse(source: &str) -> Result<Directives, DirectiveError> {
         exit,
         stdout,
         trap,
+        mode,
     };
     directives.validate()?;
     Ok(directives)
@@ -207,7 +230,7 @@ impl Directives {
         let (required, allowed): (&[&str], &[&str]) = match self.expect {
             Expect::CompileOk => (&[], &[]),
             Expect::CompileError => (&["code", "span"], &["code", "span"]),
-            Expect::Run => (&["exit"], &["exit", "stdout", "trap"]),
+            Expect::Run => (&["exit"], &["exit", "stdout", "trap", "mode"]),
         };
 
         let given = [
@@ -216,6 +239,7 @@ impl Directives {
             ("exit", self.exit.is_some()),
             ("stdout", self.stdout.is_some()),
             ("trap", self.trap.is_some()),
+            ("mode", self.mode.is_some()),
         ];
 
         let label = self.expect.label();

@@ -7,6 +7,8 @@ use std::path::Path;
 use luar_diagnostics::{Diagnostic, FileId, SourceMap};
 use luar_lir::lower::Lowered;
 
+pub use luar_lir::lower::CompilationMode;
+
 /// What checking a module produced.
 #[derive(Debug)]
 pub enum Check {
@@ -24,11 +26,20 @@ pub fn check(sources: &mut SourceMap, root: FileId) -> Check {
 
 /// Checks `root` and lowers what was accepted to LIR.
 pub fn lower(sources: &mut SourceMap, root: FileId) -> Result<Lowered, Vec<Diagnostic>> {
+    lower_in_mode(sources, root, CompilationMode::Debug)
+}
+
+pub fn lower_in_mode(
+    sources: &mut SourceMap,
+    root: FileId,
+    mode: CompilationMode,
+) -> Result<Lowered, Vec<Diagnostic>> {
     let checked = frontend(sources, root);
     if checked.diagnostics.iter().any(Diagnostic::is_error) {
         return Err(checked.diagnostics);
     }
-    let mut lowered = luar_lir::lower::lower(&checked.graph, &checked.table, &checked.facts);
+    let mut lowered =
+        luar_lir::lower::lower_in_mode(&checked.graph, &checked.table, &checked.facts, mode);
     // LR19: a generic function is a template until a call says what fills it,
     // so this runs over the whole program rather than one module at a time.
     luar_lir::mono::run(&mut lowered.program);
@@ -59,7 +70,16 @@ pub enum BuildError {
 /// Returns [`BuildError`] where the program is rejected, where a stage does
 /// not cover all of it, or where the linker fails.
 pub fn build(sources: &mut SourceMap, root: FileId, output: &Path) -> Result<(), BuildError> {
-    let lowered = lower(sources, root).map_err(BuildError::Rejected)?;
+    build_in_mode(sources, root, output, CompilationMode::Debug)
+}
+
+pub fn build_in_mode(
+    sources: &mut SourceMap,
+    root: FileId,
+    output: &Path,
+    mode: CompilationMode,
+) -> Result<(), BuildError> {
+    let lowered = lower_in_mode(sources, root, mode).map_err(BuildError::Rejected)?;
     if !lowered.gaps.is_empty() {
         return Err(BuildError::NotLowered(lowered.gaps));
     }
