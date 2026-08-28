@@ -3048,6 +3048,14 @@ impl Checker<'_> {
             ));
             return;
         }
+        if matches!(receiver, Type::Builtin { .. }) {
+            self.diagnostics.push(Diagnostic::error(
+                codes::NO_SUCH_METHOD,
+                span,
+                format!("`{receiver}` has no method `{name}`"),
+            ));
+            return;
+        }
 
         let Type::Named {
             module,
