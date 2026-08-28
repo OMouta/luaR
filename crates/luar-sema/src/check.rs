@@ -1151,6 +1151,36 @@ impl Checker<'_> {
                         };
                         Some(vec![element])
                     }
+                    // LR10.5: `enumerated()` written in place yields each
+                    // index and the element at it.
+                    ExprKind::Call {
+                        callee,
+                        method: Some(method),
+                        type_args,
+                        args,
+                    } if method == "enumerated" && type_args.is_empty() && args.is_empty() => {
+                        let receiver = self.expr(callee);
+                        match settle(receiver.clone()) {
+                            Type::Builtin {
+                                kind: Builtin::List | Builtin::FrozenList,
+                                args,
+                            } => Some(vec![
+                                Type::Primitive(Primitive::I64),
+                                args.first().cloned().unwrap_or(Type::Unresolved),
+                            ]),
+                            _ => {
+                                self.call(
+                                    callee,
+                                    Some(method),
+                                    &receiver,
+                                    &[],
+                                    args,
+                                    iterable.span,
+                                );
+                                None
+                            }
+                        }
+                    }
                     _ => match settle(self.expr(iterable)) {
                         Type::Builtin {
                             kind:

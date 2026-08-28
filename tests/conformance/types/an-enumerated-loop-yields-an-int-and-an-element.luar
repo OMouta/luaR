@@ -1,0 +1,11 @@
+--- expect: compile-error
+--- code: LR0145
+--- span: 8:27
+--- spec: LR10.5
+function show(names: FrozenList<string>)
+    for index, name in names:enumerated() do
+        local position: int = index
+        local held: int = name
+        print(position, held)
+    end
+end
