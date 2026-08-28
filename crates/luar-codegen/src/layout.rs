@@ -81,7 +81,7 @@ pub fn size(program: &Program, ty: &Ty, pointer: Type) -> Option<i32> {
         } => 2,
         // LR13: a count, a capacity, and the storage the elements live in.
         Ty::Builtin {
-            kind: Builtin::List | Builtin::Map,
+            kind: Builtin::List | Builtin::Map | Builtin::Set,
             ..
         } => COLLECTION_CELLS,
         Ty::Tuple(members) => u32::try_from(members.len()).ok()?,
@@ -252,7 +252,7 @@ pub fn is_aggregate(ty: &Ty) -> bool {
             | Ty::Record(_)
             | Ty::Optional(_)
             | Ty::Builtin {
-                kind: Builtin::Result | Builtin::List | Builtin::Map,
+                kind: Builtin::Result | Builtin::List | Builtin::Map | Builtin::Set,
                 ..
             }
     )

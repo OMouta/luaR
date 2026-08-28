@@ -388,6 +388,7 @@ impl Translator<'_, '_> {
 
             InstKind::MakeList { values, .. } => self.make_list(inst.result, values),
             InstKind::MakeMap { entries, .. } => self.make_map(inst.result, entries),
+            InstKind::MakeSet { values, .. } => self.make_set(inst.result, values),
             InstKind::GetIndex { receiver, index } => {
                 self.get_index(*receiver, *index, inst.result)
             }
@@ -486,11 +487,6 @@ impl Translator<'_, '_> {
                 Some(stack) => Some(self.builder.ins().stack_addr(self.pointer, stack, 0)),
                 None => None,
             },
-
-            other => {
-                self.gap(describe(other));
-                None
-            }
         };
 
         let Some(result) = inst.result else {
@@ -1292,6 +1288,30 @@ impl Translator<'_, '_> {
         Some(header)
     }
 
+    /// LR13.3: a set stores each distinct value as a table key.
+    fn make_set(&mut self, result: Option<Value>, values: &[Value]) -> Option<ir::Value> {
+        let ty = self.function.type_of(result?).clone();
+        let Ty::Builtin { args, .. } = &ty else {
+            return None;
+        };
+        let text = self.key_is_text(args.first()?)?;
+        let header = self.allocate(&ty, 0)?;
+        let zero = self.builder.ins().iconst(self.pointer, 0);
+        self.builder
+            .ins()
+            .store(OWNED, zero, header, layout::LENGTH);
+        self.builder
+            .ins()
+            .store(OWNED, zero, header, layout::CAPACITY);
+        self.builder
+            .ins()
+            .store(OWNED, zero, header, layout::BUFFER);
+        for value in values {
+            self.map_insert(header, *value, text)?;
+        }
+        Some(header)
+    }
+
     /// The bucket `key` occupies in `map`, claimed where it had none.
     fn map_insert(&mut self, map: ir::Value, key: Value, text: bool) -> Option<ir::Value> {
         let hash = self.key_hash(key)?;
@@ -1456,24 +1476,4 @@ fn comparison(op: BinaryOp, signed: bool) -> Option<IntCC> {
         _ => return None,
     };
     Some(condition)
-}
-
-fn describe(kind: &InstKind) -> &'static str {
-    match kind {
-        InstKind::MakeStruct { .. } | InstKind::GetField { .. } | InstKind::SetField { .. } => {
-            "a struct"
-        }
-        InstKind::MakeEnum { .. } | InstKind::GetTag { .. } | InstKind::GetPayload { .. } => {
-            "an enum"
-        }
-        InstKind::MakeTuple(_) | InstKind::GetElement { .. } => "a tuple",
-        InstKind::MakeList { .. } | InstKind::MakeMap { .. } | InstKind::MakeSet { .. } => {
-            "a collection"
-        }
-        InstKind::GetIndex { .. } | InstKind::SetIndex { .. } => "an indexing operation",
-        InstKind::MakeSome { .. } | InstKind::IsSome { .. } | InstKind::Unwrap { .. } => {
-            "an optional"
-        }
-        _ => "this instruction",
-    }
 }
