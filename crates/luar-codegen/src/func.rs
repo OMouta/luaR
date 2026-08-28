@@ -4,8 +4,8 @@ use std::collections::HashMap;
 
 use cranelift_codegen::ir::condcodes::IntCC;
 use cranelift_codegen::ir::{
-    self, AbiParam, Block, FuncRef, GlobalValue, InstBuilder, MemFlags, Signature, TrapCode, Type,
-    types,
+    self, AbiParam, Block, FuncRef, GlobalValue, InstBuilder, MemFlags, Signature, StackSlot,
+    StackSlotData, StackSlotKind, TrapCode, Type, types,
 };
 use cranelift_frontend::{FunctionBuilder, Switch};
 use luar_lir::inst::{BinaryOp, Const, Inst, InstKind, Terminator, Trap, UnaryOp, Value};
@@ -73,6 +73,10 @@ pub(crate) struct Translator<'a, 'b> {
     /// Where an aggregate's storage comes from. Nothing gives it back yet,
     /// because there is no collector (LR29).
     pub allocate: FuncRef,
+    /// The global holding the top shadow-stack frame.
+    pub roots: GlobalValue,
+    pub root_frame: Option<StackSlot>,
+    pub root_offsets: HashMap<Value, i32>,
     pub blocks: HashMap<BlockId, Block>,
     pub values: HashMap<Value, ir::Value>,
     pub gaps: Vec<Gap>,
@@ -83,6 +87,7 @@ impl Translator<'_, '_> {
     /// back what it could not emit.
     pub fn run(mut self) -> Vec<Gap> {
         self.create_blocks();
+        self.prepare_roots();
 
         let entry = self.blocks[&self.function.entry];
         self.builder.append_block_params_for_function_params(entry);
@@ -124,6 +129,14 @@ impl Translator<'_, '_> {
     fn block(&mut self, id: BlockId) {
         let block = self.blocks[&id];
         self.builder.switch_to_block(block);
+
+        if id == self.function.entry {
+            self.enter_roots();
+        }
+        for param in self.function.block(id).params.clone() {
+            let value = self.value(param);
+            self.root(param, value);
+        }
 
         for inst in self.function.block(id).insts.clone() {
             self.inst(&inst);
@@ -183,6 +196,7 @@ impl Translator<'_, '_> {
             }
             Terminator::Return(value) => {
                 let value = self.value(*value);
+                self.leave_roots();
                 self.builder.ins().return_(&[value]);
             }
             Terminator::Trap(trap) => self.raise(*trap),
@@ -285,6 +299,74 @@ impl Translator<'_, '_> {
             }
         };
         self.values.insert(result, value);
+        self.root(result, value);
+    }
+
+    fn prepare_roots(&mut self) {
+        let values: Vec<Value> = self
+            .function
+            .values()
+            .filter_map(|(value, ty)| layout::is_aggregate(ty).then_some(value))
+            .collect();
+        let cell = i32::try_from(self.pointer.bytes()).expect("pointer width fits in i32");
+        let count = i32::try_from(values.len()).unwrap_or(i32::MAX / cell);
+        let size = cell.saturating_mul(count.saturating_add(2));
+        let slot = self.builder.create_sized_stack_slot(StackSlotData::new(
+            StackSlotKind::ExplicitSlot,
+            u32::try_from(size).unwrap_or(u32::MAX),
+            self.pointer.bytes().ilog2() as u8,
+        ));
+        self.root_frame = Some(slot);
+        for (index, value) in values.into_iter().enumerate() {
+            let offset = cell.saturating_mul(i32::try_from(index).unwrap_or(i32::MAX) + 2);
+            self.root_offsets.insert(value, offset);
+        }
+    }
+
+    fn enter_roots(&mut self) {
+        let frame = self.builder.ins().stack_addr(
+            self.pointer,
+            self.root_frame.expect("root frame exists"),
+            0,
+        );
+        let top = self.builder.ins().global_value(self.pointer, self.roots);
+        let previous = self.builder.ins().load(self.pointer, OWNED, top, 0);
+        self.builder.ins().store(OWNED, previous, frame, 0);
+
+        let cell = i32::try_from(self.pointer.bytes()).expect("pointer width fits in i32");
+        let count = self
+            .builder
+            .ins()
+            .iconst(self.pointer, self.root_offsets.len() as i64);
+        self.builder.ins().store(OWNED, count, frame, cell);
+        let zero = self.builder.ins().iconst(self.pointer, 0);
+        for offset in self.root_offsets.values() {
+            self.builder.ins().store(OWNED, zero, frame, *offset);
+        }
+        self.builder.ins().store(OWNED, frame, top, 0);
+    }
+
+    fn leave_roots(&mut self) {
+        let frame = self.builder.ins().stack_addr(
+            self.pointer,
+            self.root_frame.expect("root frame exists"),
+            0,
+        );
+        let previous = self.builder.ins().load(self.pointer, OWNED, frame, 0);
+        let top = self.builder.ins().global_value(self.pointer, self.roots);
+        self.builder.ins().store(OWNED, previous, top, 0);
+    }
+
+    fn root(&mut self, value: Value, machine: ir::Value) {
+        let Some(offset) = self.root_offsets.get(&value).copied() else {
+            return;
+        };
+        let frame = self.builder.ins().stack_addr(
+            self.pointer,
+            self.root_frame.expect("root frame exists"),
+            0,
+        );
+        self.builder.ins().store(OWNED, machine, frame, offset);
     }
 
     fn constant(&mut self, literal: &Const, result: Option<Value>) -> Option<ir::Value> {

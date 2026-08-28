@@ -232,6 +232,7 @@ impl Emitter<'_> {
             let allocate = self
                 .runtime
                 .allocate_in(&mut self.module, &mut context.func);
+            let roots = self.runtime.roots_in(&mut self.module, &mut context.func);
             let translator = Translator {
                 program: self.program,
                 function,
@@ -241,6 +242,9 @@ impl Emitter<'_> {
                 texts,
                 handlers,
                 allocate,
+                roots,
+                root_frame: None,
+                root_offsets: HashMap::new(),
                 blocks: HashMap::new(),
                 values: HashMap::new(),
                 gaps: Vec::new(),

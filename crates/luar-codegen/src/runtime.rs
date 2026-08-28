@@ -7,7 +7,7 @@ use cranelift_codegen::Context;
 use cranelift_codegen::ir::{AbiParam, FuncRef, InstBuilder, Signature, TrapCode, types};
 use cranelift_codegen::isa::CallConv;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
-use cranelift_module::{DataDescription, FuncId as ModuleFuncId, Linkage, Module};
+use cranelift_module::{DataDescription, DataId, FuncId as ModuleFuncId, Linkage, Module};
 use cranelift_object::ObjectModule;
 use luar_lir::inst::Trap;
 
@@ -37,6 +37,8 @@ pub(crate) struct Runtime {
     /// Where aggregate storage comes from. Nothing gives it back, because
     /// there is no collector yet (LR29).
     pub allocate: ModuleFuncId,
+    /// The most recently entered shadow-stack frame.
+    roots: DataId,
 }
 
 impl Runtime {
@@ -69,6 +71,15 @@ impl Runtime {
             .declare_function("malloc", Linkage::Import, &allocate)
             .map_err(|error| Error::Cranelift(error.to_string()))?;
 
+        let mut roots = DataDescription::new();
+        roots.define_zeroinit(pointer.bytes() as usize);
+        let root_data = module
+            .declare_data("luar_gc_roots", Linkage::Local, true, false)
+            .map_err(|error| Error::Cranelift(error.to_string()))?;
+        module
+            .define_data(root_data, &roots)
+            .map_err(|error| Error::Cranelift(error.to_string()))?;
+
         let mut handlers = Vec::with_capacity(TRAPS.len());
         for trap in TRAPS {
             handlers.push(handler(module, pointer, call_conv, trap, exit, write)?);
@@ -78,6 +89,7 @@ impl Runtime {
                 .try_into()
                 .expect("one handler was emitted per trap kind"),
             allocate,
+            roots: root_data,
         })
     }
 
@@ -97,6 +109,14 @@ impl Runtime {
         function: &mut cranelift_codegen::ir::Function,
     ) -> FuncRef {
         module.declare_func_in_func(self.allocate, function)
+    }
+
+    pub fn roots_in(
+        &self,
+        module: &mut ObjectModule,
+        function: &mut cranelift_codegen::ir::Function,
+    ) -> cranelift_codegen::ir::GlobalValue {
+        module.declare_data_in_func(self.roots, function)
     }
 }
 

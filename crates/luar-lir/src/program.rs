@@ -250,6 +250,14 @@ impl Function {
         self.blocks.iter_mut()
     }
 
+    /// Every SSA value and its type, in value-id order.
+    pub fn values(&self) -> impl Iterator<Item = (Value, &Ty)> {
+        self.values
+            .iter()
+            .enumerate()
+            .map(|(i, ty)| (Value(i as u32), ty))
+    }
+
     /// Whether the function is a template rather than code: something a call
     /// instantiates rather than jumps to (LR19).
     #[must_use]
