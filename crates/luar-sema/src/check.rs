@@ -4743,6 +4743,7 @@ fn collection_mutation_method(
         (Builtin::Set, "insert") => CollectionMutation::SetInsert,
         (Builtin::Map, "remove") => CollectionMutation::MapRemove,
         (Builtin::Set, "remove") => CollectionMutation::SetRemove,
+        (Builtin::List | Builtin::Map | Builtin::Set, "clear") => CollectionMutation::Clear,
         _ => return None,
     };
     let param = |name: &str| {
@@ -4763,6 +4764,7 @@ fn collection_mutation_method(
             args.get(1).cloned().unwrap_or(Type::Unresolved).optional(),
         ),
         CollectionMutation::SetRemove => (param("value"), Type::BOOL),
+        CollectionMutation::Clear => (Vec::new(), Type::Tuple(Vec::new())),
     };
     Some((
         mutation,

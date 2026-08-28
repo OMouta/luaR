@@ -1,0 +1,10 @@
+--- expect: compile-error
+--- code: LR0156
+--- span: 9:5
+--- spec: LR13.3
+--- spec: LR59
+export function main()
+    local ids = Set { 1, 2 }
+    local frozenIds = ids:frozen()
+    frozenIds:clear()
+end
