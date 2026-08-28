@@ -1,6 +1,6 @@
 //! A whole program in LIR: its types, its functions, and where it starts.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use luar_diagnostics::Span;
 
@@ -290,6 +290,7 @@ pub struct Program {
     pub initializers: Vec<FuncId>,
     /// Where each type came from, so a pass can find one it did not build.
     by_name: BTreeMap<String, TypeId>,
+    finalizers: HashMap<Ty, FuncId>,
 }
 
 impl Program {
@@ -354,5 +355,22 @@ impl Program {
             .iter()
             .enumerate()
             .map(|(i, nominal)| (TypeId(i as u32), nominal))
+    }
+
+    pub fn set_finalizer(&mut self, ty: Ty, function: FuncId) {
+        self.finalizers.insert(ty, function);
+    }
+
+    #[must_use]
+    pub fn finalizer(&self, ty: &Ty) -> Option<FuncId> {
+        self.finalizers.get(ty).copied()
+    }
+
+    pub fn finalizers(&self) -> impl Iterator<Item = (&Ty, FuncId)> {
+        self.finalizers.iter().map(|(ty, function)| (ty, *function))
+    }
+
+    pub fn replace_finalizers(&mut self, finalizers: HashMap<Ty, FuncId>) {
+        self.finalizers = finalizers;
     }
 }

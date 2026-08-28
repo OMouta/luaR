@@ -65,6 +65,7 @@ pub fn lower(graph: &Graph, table: &Table, facts: &Facts) -> Lowered {
     lowering.build_types();
     lowering.find_throwing();
     lowering.declare_functions();
+    lowering.declare_finalizers();
     lowering.declare_properties();
     lowering.declare_derived();
     lowering.build_vtables();
@@ -388,6 +389,56 @@ impl Lowering<'_> {
         let declarations = self.declarations();
         for (module, path, function) in declarations {
             self.declare(module, &path, &function);
+        }
+    }
+
+    fn declare_finalizers(&mut self) {
+        let mut found = Vec::new();
+        for (module, node) in self.graph.modules() {
+            for item in &node.ast.items {
+                let Item::Struct(structure) = item else {
+                    continue;
+                };
+                if structure.semantics != Semantics::Ref {
+                    continue;
+                }
+                for member in &structure.members {
+                    let Member::Function { function, .. } = member else {
+                        continue;
+                    };
+                    if is_finalizer(function) {
+                        found.push((module, structure.name.clone(), function.clone()));
+                    }
+                }
+            }
+        }
+
+        for (module, owner, function) in found {
+            let Some(id) = self.ids.get(&(module, owner.clone())).copied() else {
+                continue;
+            };
+            let params = self.program.nominal(id).type_params.clone();
+            let receiver = Ty::Named {
+                id,
+                args: params.iter().cloned().map(Ty::Parameter).collect(),
+            };
+            let name = function.name.last().cloned().unwrap_or_default();
+            let mut lowered = Function::new(
+                self.qualify(module, &format!("{owner}.{name}")),
+                vec![receiver.clone()],
+                Ty::Unit,
+                function.span,
+            );
+            lowered.type_params = params;
+            lowered.block_mut(lowered.entry).term = Some(Terminator::Trap(Trap::Unreachable));
+            let finalizer = self.program.add_function(lowered);
+            self.program.set_finalizer(receiver, finalizer);
+            self.bodies.push(Pending {
+                id: finalizer,
+                bindings: vec![Binding::Name("self".to_owned())],
+                throws: false,
+                body: function.body.expect("a finalizer has a body"),
+            });
         }
     }
 
@@ -848,6 +899,13 @@ fn collect(items: &[Item], module: ModuleId, found: &mut Vec<(ModuleId, String, 
             _ => {}
         }
     }
+}
+
+fn is_finalizer(function: &AstFunction) -> bool {
+    function
+        .decorators
+        .iter()
+        .any(|decorator| decorator.name == "finalizer")
 }
 
 /// Where `name` was declared in `module`, if it names a type.

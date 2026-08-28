@@ -30,6 +30,8 @@ pub fn run(program: &mut Program) {
     while let Some(id) = mono.pending.pop() {
         mono.rewrite(program, id);
     }
+
+    mono.finalizers(program);
 }
 
 /// One instance: the template, and what filled its parameters.
@@ -89,6 +91,74 @@ impl Mono {
         self.made.insert((template, args), id);
         self.pending.push(id);
         id
+    }
+
+    fn finalizers(&mut self, program: &mut Program) {
+        let templates: Vec<(Ty, FuncId)> = program
+            .finalizers()
+            .map(|(ty, function)| (ty.clone(), function))
+            .collect();
+        let mut finalizers = HashMap::new();
+
+        loop {
+            while let Some(id) = self.pending.pop() {
+                self.rewrite(program, id);
+            }
+
+            let mut receivers = Vec::new();
+            for (_, function) in program
+                .functions()
+                .filter(|(_, function)| !function.is_template())
+            {
+                for (_, ty) in function.values() {
+                    if matches!(ty, Ty::Named { .. }) && concrete(ty) && !receivers.contains(ty) {
+                        receivers.push(ty.clone());
+                    }
+                }
+            }
+
+            let mut added = false;
+            for receiver in receivers {
+                if finalizers.contains_key(&receiver) {
+                    continue;
+                }
+                let Ty::Named { id, args } = &receiver else {
+                    continue;
+                };
+                let Some((_, template)) = templates.iter().find(
+                    |(ty, _)| matches!(ty, Ty::Named { id: candidate, .. } if candidate == id),
+                ) else {
+                    continue;
+                };
+                let function = if program.function(*template).is_template() {
+                    self.instance(program, *template, args.clone())
+                } else {
+                    *template
+                };
+                finalizers.insert(receiver, function);
+                added = true;
+            }
+
+            if !added {
+                break;
+            }
+        }
+
+        program.replace_finalizers(finalizers);
+    }
+}
+
+fn concrete(ty: &Ty) -> bool {
+    match ty {
+        Ty::Parameter(_) => false,
+        Ty::Named { args, .. } | Ty::Builtin { args, .. } | Ty::Tuple(args) | Ty::Union(args) => {
+            args.iter().all(concrete)
+        }
+        Ty::Record(fields) => fields.iter().all(|(_, ty)| concrete(ty)),
+        Ty::Optional(held) | Ty::Array(held) => concrete(held),
+        Ty::Pointer { target, .. } => concrete(target),
+        Ty::Function { params, result } => params.iter().all(concrete) && concrete(result),
+        _ => true,
     }
 }
 
@@ -274,5 +344,59 @@ mod tests {
             .sum::<usize>();
 
         assert_eq!(carried, 0);
+    }
+
+    #[test]
+    fn a_generic_finalizer_gets_an_instance_for_its_receiver() {
+        let mut program = Program::default();
+        let generic = Ty::Named {
+            id: crate::ty::TypeId(0),
+            args: vec![Ty::Parameter("T".to_owned())],
+        };
+        let mut finalizer = Function::new(
+            "Box.release".to_owned(),
+            vec![generic.clone()],
+            Ty::Unit,
+            SPAN,
+        );
+        finalizer.type_params = vec!["T".to_owned()];
+        let unit = finalizer.add_value(Ty::Unit);
+        finalizer.block_mut(finalizer.entry).insts.push(Inst {
+            result: Some(unit),
+            kind: InstKind::Const(Const::Unit),
+            span: SPAN,
+        });
+        finalizer.block_mut(finalizer.entry).term = Some(Terminator::Return(unit));
+        let finalizer = program.add_function(finalizer);
+        program.set_finalizer(generic, finalizer);
+
+        let receiver = Ty::Named {
+            id: crate::ty::TypeId(0),
+            args: vec![Ty::INT],
+        };
+        let mut main = Function::new("main".to_owned(), Vec::new(), Ty::Unit, SPAN);
+        let value = main.add_value(receiver.clone());
+        main.block_mut(main.entry).insts.push(Inst {
+            result: Some(value),
+            kind: InstKind::MakeStruct {
+                ty: receiver.clone(),
+                fields: Vec::new(),
+            },
+            span: SPAN,
+        });
+        let unit = main.add_value(Ty::Unit);
+        main.block_mut(main.entry).insts.push(Inst {
+            result: Some(unit),
+            kind: InstKind::Const(Const::Unit),
+            span: SPAN,
+        });
+        main.block_mut(main.entry).term = Some(Terminator::Return(unit));
+        program.add_function(main);
+
+        run(&mut program);
+
+        let instance = program.finalizer(&receiver).expect("a finalizer instance");
+        assert!(!program.function(instance).is_template());
+        assert_eq!(program.function(instance).params, [receiver]);
     }
 }
