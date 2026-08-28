@@ -1139,17 +1139,35 @@ impl Checker<'_> {
                         start: Some(start),
                         end: Some(end),
                         ..
-                    } => {
-                        let start = self.expr(start);
-                        let end = self.expr(end);
-                        // LR39: a literal bound takes the other bound's type.
-                        let element = match (start, end) {
-                            (Type::IntegerLiteral(_), other) | (other, Type::IntegerLiteral(_)) => {
-                                settle(other)
+                    } => Some(vec![self.range_element(start, end)]),
+                    // LR10.4: `reversed()` on a range written in place yields
+                    // the same values.
+                    ExprKind::Call {
+                        callee,
+                        method: Some(method),
+                        type_args,
+                        args,
+                    } if method == "reversed"
+                        && type_args.is_empty()
+                        && args.is_empty()
+                        && matches!(
+                            callee.kind,
+                            ExprKind::Range {
+                                start: Some(_),
+                                end: Some(_),
+                                ..
                             }
-                            (start, end) => settle(unify(start, end)),
+                        ) =>
+                    {
+                        let ExprKind::Range {
+                            start: Some(start),
+                            end: Some(end),
+                            ..
+                        } = &callee.kind
+                        else {
+                            unreachable!()
                         };
-                        Some(vec![element])
+                        Some(vec![self.range_element(start, end)])
                     }
                     // LR10.5: `enumerated()` written in place yields each
                     // index and the element at it.
@@ -1515,6 +1533,17 @@ impl Checker<'_> {
             | PatternKind::Literal(_)
             | PatternKind::Range { .. }
             | PatternKind::Error => {}
+        }
+    }
+
+    /// LR10.4: a range written in place yields its bounds' type. LR39: a
+    /// literal bound takes the other bound's type.
+    fn range_element(&mut self, start: &Expr, end: &Expr) -> Type {
+        let start = self.expr(start);
+        let end = self.expr(end);
+        match (start, end) {
+            (Type::IntegerLiteral(_), other) | (other, Type::IntegerLiteral(_)) => settle(other),
+            (start, end) => settle(unify(start, end)),
         }
     }
 
