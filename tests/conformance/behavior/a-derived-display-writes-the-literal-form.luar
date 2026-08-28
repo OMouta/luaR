@@ -1,0 +1,28 @@
+--- expect: run
+--- exit: 1
+--- spec: LR35
+--- spec: LR75
+@derive(Display)
+struct Point
+    x: int
+    y: int
+end
+
+@derive(Display)
+enum Event
+    Idle
+    Moved(Point)
+end
+
+export function main(): int
+    local point = Point { x = 12, y = -3 }
+    local moved = Event.Moved(point)
+    local idle = Event.Idle
+    if point:display() == "Point { x = 12, y = -3 }"
+        and moved:display() == "Event.Moved(Point { x = 12, y = -3 })"
+        and idle:display() == "Event.Idle"
+    then
+        return 1
+    end
+    return 0
+end

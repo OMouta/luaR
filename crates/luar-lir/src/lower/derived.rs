@@ -87,7 +87,12 @@ impl Lowering<'_> {
                 ("eq", Shape::Enum(enumeration)) => self.enum_eq(id, span, &enumeration),
                 ("hash", Shape::Struct(structure)) => self.struct_hash(id, span, &structure),
                 ("hash", Shape::Enum(enumeration)) => self.enum_hash(id, span, &enumeration),
-                ("display", _) => self.gap(span, "a derived `display`"),
+                ("display", Shape::Struct(structure)) => {
+                    self.struct_display(id, span, owner, &structure);
+                }
+                ("display", Shape::Enum(enumeration)) => {
+                    self.enum_display(id, span, owner, &enumeration);
+                }
                 (_, Shape::Interface(_)) => {}
                 _ => self.gap(span, format!("a derived `{member}`")),
             }
@@ -208,6 +213,170 @@ impl Lowering<'_> {
             _ => return None,
         };
         Some(emit(function, block, kind, Ty::Int(IntTy::U64), span))
+    }
+
+    fn struct_display(&mut self, id: FuncId, span: Span, owner: TypeId, structure: &Struct) {
+        let mut function = self.program.function(id).clone();
+        let [value] = *function.block(function.entry).params else {
+            return;
+        };
+        let block = function.entry;
+        let name = short_name(&self.program.nominal(owner).name);
+        let mut text = string(
+            &mut function,
+            block,
+            if structure.fields.is_empty() {
+                format!("{name} {{}}")
+            } else {
+                format!("{name} {{ ")
+            },
+            span,
+        );
+
+        for (at, field) in structure.fields.iter().enumerate() {
+            if at > 0 {
+                text = append_text(&mut function, block, text, ", ", span);
+            }
+            text = append_text(
+                &mut function,
+                block,
+                text,
+                &format!("{} = ", field.name),
+                span,
+            );
+            let field_index = u32::try_from(at).expect("field count fits in u32");
+            let held = emit(
+                &mut function,
+                block,
+                InstKind::GetField {
+                    object: value,
+                    field: field_index,
+                },
+                field.ty.clone(),
+                span,
+            );
+            let Some(displayed) = self.display(&mut function, block, held, &field.ty, span) else {
+                self.gap(span, "a derived `display` over a field it cannot display");
+                return;
+            };
+            text = concat(&mut function, block, text, displayed, span);
+        }
+        if !structure.fields.is_empty() {
+            text = append_text(&mut function, block, text, " }", span);
+        }
+        function.block_mut(block).term = Some(Terminator::Return(text));
+        *self.program.function_mut(id) = function;
+    }
+
+    fn enum_display(&mut self, id: FuncId, span: Span, owner: TypeId, enumeration: &Enum) {
+        let mut function = self.program.function(id).clone();
+        let [value] = *function.block(function.entry).params else {
+            return;
+        };
+        let entry = function.entry;
+        let tag = emit(
+            &mut function,
+            entry,
+            InstKind::GetTag { value },
+            Ty::Int(IntTy::I64),
+            span,
+        );
+        let owner_name = short_name(&self.program.nominal(owner).name);
+        let mut cases = Vec::new();
+
+        for (at, variant) in enumeration.variants.iter().enumerate() {
+            let index = u32::try_from(at).expect("variant count fits in u32");
+            let block = function.add_block();
+            cases.push((at as u64, Target::new(block, Vec::new())));
+            let tuple = !variant.fields.is_empty()
+                && variant
+                    .fields
+                    .iter()
+                    .enumerate()
+                    .all(|(at, field)| field.name == at.to_string());
+            let mut text = string(
+                &mut function,
+                block,
+                match (variant.fields.is_empty(), tuple) {
+                    (true, _) => format!("{owner_name}.{}", variant.name),
+                    (false, true) => format!("{owner_name}.{}(", variant.name),
+                    (false, false) => format!("{owner_name}.{} {{ ", variant.name),
+                },
+                span,
+            );
+
+            for (field_at, field) in variant.fields.iter().enumerate() {
+                if field_at > 0 {
+                    text = append_text(&mut function, block, text, ", ", span);
+                }
+                if !tuple {
+                    text = append_text(
+                        &mut function,
+                        block,
+                        text,
+                        &format!("{} = ", field.name),
+                        span,
+                    );
+                }
+                let field_index = u32::try_from(field_at).expect("field count fits in u32");
+                let held = emit(
+                    &mut function,
+                    block,
+                    InstKind::GetPayload {
+                        value,
+                        variant: index,
+                        field: field_index,
+                    },
+                    field.ty.clone(),
+                    span,
+                );
+                let Some(displayed) = self.display(&mut function, block, held, &field.ty, span)
+                else {
+                    self.gap(span, "a derived `display` over a payload it cannot display");
+                    return;
+                };
+                text = concat(&mut function, block, text, displayed, span);
+            }
+            if !variant.fields.is_empty() {
+                text = append_text(
+                    &mut function,
+                    block,
+                    text,
+                    if tuple { ")" } else { " }" },
+                    span,
+                );
+            }
+            function.block_mut(block).term = Some(Terminator::Return(text));
+        }
+
+        let unreached = function.add_block();
+        function.block_mut(unreached).term = Some(Terminator::Trap(Trap::Unreachable));
+        function.block_mut(entry).term = Some(Terminator::Switch {
+            value: tag,
+            cases,
+            default: Target::new(unreached, Vec::new()),
+        });
+        *self.program.function_mut(id) = function;
+    }
+
+    fn display(
+        &self,
+        function: &mut Function,
+        block: BlockId,
+        value: Value,
+        ty: &Ty,
+        span: Span,
+    ) -> Option<Value> {
+        let kind = match ty {
+            Ty::Named { id, args } => InstKind::Call {
+                callee: self.member_of(*id, "display")?,
+                type_args: args.clone(),
+                args: vec![value],
+            },
+            Ty::Str | Ty::Int(_) => InstKind::DisplayValue { value },
+            _ => return None,
+        };
+        Some(emit(function, block, kind, Ty::Str, span))
     }
 
     /// LR75: `Eq` compares every field, and the first that differs answers.
@@ -444,6 +613,45 @@ fn combine(
         Ty::Int(IntTy::U64),
         span,
     )
+}
+
+fn string(function: &mut Function, block: BlockId, value: String, span: Span) -> Value {
+    emit(
+        function,
+        block,
+        InstKind::Const(Const::Str(value)),
+        Ty::Str,
+        span,
+    )
+}
+
+fn append_text(
+    function: &mut Function,
+    block: BlockId,
+    left: Value,
+    right: &str,
+    span: Span,
+) -> Value {
+    let right = string(function, block, right.to_owned(), span);
+    concat(function, block, left, right, span)
+}
+
+fn concat(function: &mut Function, block: BlockId, left: Value, right: Value, span: Span) -> Value {
+    emit(
+        function,
+        block,
+        InstKind::Binary {
+            op: BinaryOp::Concat,
+            left,
+            right,
+        },
+        Ty::Str,
+        span,
+    )
+}
+
+fn short_name(name: &str) -> &str {
+    name.rsplit('.').next().unwrap_or(name)
 }
 
 fn emit(function: &mut Function, block: BlockId, kind: InstKind, ty: Ty, span: Span) -> Value {
