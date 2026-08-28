@@ -10,7 +10,7 @@ use luar_ast::{
 };
 use luar_diagnostics::Span;
 use luar_sema::check::protocol_of;
-use luar_sema::facts::{Facts, Intrinsic};
+use luar_sema::facts::{CollectionMutation, Facts, Intrinsic};
 use luar_sema::modules::ModuleId;
 
 use luar_sema::types::Type;
@@ -2265,6 +2265,9 @@ impl<'a> Body<'a> {
         if self.context.facts.checked_index(span) {
             return self.checked_index(callee, args, span);
         }
+        if let Some(mutation) = self.context.facts.collection_mutation(span) {
+            return self.collection_mutation(mutation, callee, args, span);
+        }
 
         if let Some(intrinsic) = self.context.facts.intrinsic(span) {
             return self.intrinsic(intrinsic, args, span);
@@ -2587,6 +2590,36 @@ impl<'a> Body<'a> {
         let index = self.expr(&argument.value, Some(&wanted));
         let result = self.recorded(span);
         self.emit(InstKind::GetCheckedIndex { receiver, index }, result, span)
+    }
+
+    fn collection_mutation(
+        &mut self,
+        mutation: CollectionMutation,
+        callee: &Expr,
+        args: &[Argument],
+        span: Span,
+    ) -> Value {
+        let receiver = self.expr(callee, None);
+        let held = self.function.type_of(receiver).clone();
+        let Ty::Builtin {
+            args: type_args, ..
+        } = &held
+        else {
+            return self.missing(span, "a collection mutation on something else");
+        };
+        let Some(element) = type_args.first().cloned() else {
+            return self.missing(span, "a collection mutation without an element type");
+        };
+        let Some(argument) = args.first() else {
+            return self.missing(span, "a collection mutation without a value");
+        };
+        let value = self.expr(&argument.value, Some(&element));
+        let kind = match mutation {
+            CollectionMutation::ListPush => InstKind::ListPush { receiver, value },
+            CollectionMutation::SetInsert => InstKind::SetInsert { receiver, value },
+        };
+        self.emit_void(kind, span);
+        self.emit(InstKind::Const(Const::Unit), Ty::Unit, span)
     }
 
     /// LR25.3: a call that may have thrown says which happened, so the caller

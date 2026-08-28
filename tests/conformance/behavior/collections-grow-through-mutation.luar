@@ -1,0 +1,23 @@
+--- expect: run
+--- exit: 60
+--- spec: LR13.1
+--- spec: LR13.3
+--- spec: LR59
+function keep(ids: FrozenSet<int>): int
+    return 0
+end
+
+export function main(): int
+    local values = List.new<int>()
+    values:push(10)
+    values:push(20)
+    values:push(30)
+    values:push(40)
+    values:push(50)
+
+    local ids = Set.new<int>()
+    ids:insert(7)
+    ids:insert(7)
+
+    return values[0] + values[4] + keep(ids:frozen())
+end

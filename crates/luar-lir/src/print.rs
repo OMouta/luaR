@@ -257,6 +257,12 @@ fn instruction(inst: &Inst, function: &Function) -> String {
         InstKind::MakeSet { element, values } => {
             format!("set<{element}> {{ {} }}", list(values))
         }
+        InstKind::ListPush { receiver, value } => {
+            format!("push {} <- {}", name(*receiver), name(*value))
+        }
+        InstKind::SetInsert { receiver, value } => {
+            format!("insert {} <- {}", name(*receiver), name(*value))
+        }
         InstKind::GetIndex { receiver, index } => {
             format!("index {}[{}]", name(*receiver), name(*index))
         }

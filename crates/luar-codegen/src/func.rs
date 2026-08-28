@@ -390,6 +390,14 @@ impl Translator<'_, '_> {
             InstKind::MakeList { values, .. } => self.make_list(inst.result, values),
             InstKind::MakeMap { entries, .. } => self.make_map(inst.result, entries),
             InstKind::MakeSet { values, .. } => self.make_set(inst.result, values),
+            InstKind::ListPush { receiver, value } => {
+                self.list_push(*receiver, *value);
+                None
+            }
+            InstKind::SetInsert { receiver, value } => {
+                self.set_insert(*receiver, *value);
+                None
+            }
             InstKind::GetIndex { receiver, index } => {
                 self.get_index(*receiver, *index, inst.result)
             }
@@ -1381,6 +1389,126 @@ impl Translator<'_, '_> {
             self.map_insert(header, *value, text)?;
         }
         Some(header)
+    }
+
+    fn list_push(&mut self, receiver: Value, value: Value) {
+        let held = self.function.type_of(receiver).clone();
+        let Ty::Builtin {
+            kind: Builtin::List,
+            args,
+        } = &held
+        else {
+            self.gap(format!("pushing onto `{held}`"));
+            return;
+        };
+        let Some(element) = args.first() else {
+            self.gap("a list without an element type");
+            return;
+        };
+        let Some(machine) = machine(element, self.pointer) else {
+            self.gap(format!("a list holding `{element}`"));
+            return;
+        };
+
+        let list = self.value(receiver);
+        let length = self
+            .builder
+            .ins()
+            .load(self.pointer, OWNED, list, layout::LENGTH);
+        let capacity = self
+            .builder
+            .ins()
+            .load(self.pointer, OWNED, list, layout::CAPACITY);
+        let full = self
+            .builder
+            .ins()
+            .icmp(IntCC::UnsignedGreaterThanOrEqual, length, capacity);
+        let grow = self.builder.create_block();
+        let copy = self.builder.create_block();
+        let copy_one = self.builder.create_block();
+        let swap = self.builder.create_block();
+        let write = self.builder.create_block();
+        self.builder.append_block_param(copy, self.pointer);
+        self.builder.ins().brif(full, grow, &[], write, &[]);
+
+        self.builder.switch_to_block(grow);
+        let doubled = self.builder.ins().imul_imm(capacity, 2);
+        let least = self.builder.ins().iconst(self.pointer, 4);
+        let small = self
+            .builder
+            .ins()
+            .icmp(IntCC::UnsignedLessThan, doubled, least);
+        let grown = self.builder.ins().select(small, least, doubled);
+        let bytes = self.builder.ins().imul_imm(grown, i64::from(layout::CELL));
+        let no_finalizer = self.builder.ins().iconst(self.pointer, 0);
+        let call = self
+            .builder
+            .ins()
+            .call(self.allocate, &[bytes, no_finalizer]);
+        let fresh = self.builder.inst_results(call)[0];
+        let zero = self.builder.ins().iconst(self.pointer, 0);
+        self.builder.ins().jump(copy, &[ir::BlockArg::Value(zero)]);
+
+        self.builder.switch_to_block(copy);
+        let index = self.builder.block_params(copy)[0];
+        let more = self
+            .builder
+            .ins()
+            .icmp(IntCC::UnsignedLessThan, index, length);
+        self.builder.ins().brif(more, copy_one, &[], swap, &[]);
+
+        self.builder.switch_to_block(copy_one);
+        let old = self
+            .builder
+            .ins()
+            .load(self.pointer, OWNED, list, layout::BUFFER);
+        let offset = self.builder.ins().imul_imm(index, i64::from(layout::CELL));
+        let old_cell = self.builder.ins().iadd(old, offset);
+        let new_cell = self.builder.ins().iadd(fresh, offset);
+        let copied = self.builder.ins().load(machine, OWNED, old_cell, 0);
+        self.builder.ins().store(OWNED, copied, new_cell, 0);
+        let following = self.builder.ins().iadd_imm(index, 1);
+        self.builder
+            .ins()
+            .jump(copy, &[ir::BlockArg::Value(following)]);
+
+        self.builder.switch_to_block(swap);
+        self.builder.ins().store(OWNED, fresh, list, layout::BUFFER);
+        self.builder
+            .ins()
+            .store(OWNED, grown, list, layout::CAPACITY);
+        self.builder.ins().jump(write, &[]);
+
+        self.builder.switch_to_block(write);
+        let buffer = self
+            .builder
+            .ins()
+            .load(self.pointer, OWNED, list, layout::BUFFER);
+        let offset = self.builder.ins().imul_imm(length, i64::from(layout::CELL));
+        let cell = self.builder.ins().iadd(buffer, offset);
+        let written = self.value(value);
+        self.builder.ins().store(OWNED, written, cell, 0);
+        let length = self.builder.ins().iadd_imm(length, 1);
+        self.builder
+            .ins()
+            .store(OWNED, length, list, layout::LENGTH);
+    }
+
+    fn set_insert(&mut self, receiver: Value, value: Value) {
+        let held = self.function.type_of(receiver).clone();
+        let Ty::Builtin {
+            kind: Builtin::Set,
+            args,
+        } = &held
+        else {
+            self.gap(format!("inserting into `{held}`"));
+            return;
+        };
+        let Some(text) = args.first().and_then(|element| self.key_is_text(element)) else {
+            return;
+        };
+        let set = self.value(receiver);
+        let _ = self.map_insert(set, value, text);
     }
 
     /// The bucket `key` occupies in `map`, claimed where it had none.

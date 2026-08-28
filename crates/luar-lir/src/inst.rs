@@ -292,6 +292,14 @@ pub enum InstKind {
         element: Ty,
         values: Vec<Value>,
     },
+    ListPush {
+        receiver: Value,
+        value: Value,
+    },
+    SetInsert {
+        receiver: Value,
+        value: Value,
+    },
 
     /// `x[i]` and `x[i] = v` (LR37). The index is checked against what the
     /// container holds unless a pass proves it in range (LR70).
@@ -413,6 +421,8 @@ impl InstKind {
             | Self::CallVirtual { .. }
             | Self::SetField { .. }
             | Self::SetIndex { .. }
+            | Self::ListPush { .. }
+            | Self::SetInsert { .. }
             | Self::Load { .. }
             | Self::Store { .. }
             | Self::SlotGet { .. }
