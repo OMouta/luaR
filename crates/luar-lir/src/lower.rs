@@ -878,21 +878,16 @@ impl Lowering<'_> {
         // LR20: a method an extension block adds is a method of the type the
         // block extends.
         let table = self.table;
-        let Some(Decl::Extension { target, .. }) = table.get(module, owner) else {
+        let Some(Decl::Extension {
+            type_params,
+            target,
+            ..
+        }) = table.get(module, owner)
+        else {
             return None;
         };
         let target = types::convert(target, &self.ids).ok()?;
-        let params = match &target {
-            Ty::Named { args, .. } => args
-                .iter()
-                .filter_map(|arg| match arg {
-                    Ty::Parameter(name) => Some(name.clone()),
-                    _ => None,
-                })
-                .collect(),
-            _ => Vec::new(),
-        };
-        Some((target, params))
+        Some((target, type_params.clone()))
     }
 
     /// Every free function declaration, and every member with a body, with
