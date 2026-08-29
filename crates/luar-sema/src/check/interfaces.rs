@@ -14,8 +14,9 @@ use super::builtins::{
     checked_index_method, collection_mutation_method, contains_method, frozen_method,
     index_of_method, map_err_method, ok_or_method, overflow_method,
 };
+use super::calls::{against, filled, takes_self};
 use super::unsafe_ops::{unavailable_unsafe_memory_method, unsafe_memory_method};
-use super::{Checker, Found, ThreadMarker, against, filled, takes_self};
+use super::{Checker, Found, ThreadMarker};
 
 /// Whether two signatures are the same to a caller: same parameters, same
 /// result, and the same about `self` and `async` (LR18, LR40).
