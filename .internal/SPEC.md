@@ -1107,6 +1107,10 @@ The inferred type is `List<string>`. `[...]` always produces a sequence and neve
 
 `values:contains(value)` is whether an element equals `value`, a `bool`.
 
+`values:insert(index, value)` puts `value` at `index` and moves the elements from there on up by one. `index` may equal `values.length`, and anything past it traps. It returns `()`.
+
+`values:removeAt(index)` removes the element at `index`, moves the ones after it down by one, and returns it, a `T`. An `index` outside the valid range traps.
+
 `values.length` is the number of elements the list holds, an `int`. It is not a field, so it cannot be assigned (LR89.2).
 
 Lists are zero-indexed.
