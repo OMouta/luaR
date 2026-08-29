@@ -375,13 +375,15 @@ impl Type {
             (Self::Tuple(members), Self::Tuple(held)) => {
                 members.len() == held.len() && members.iter().zip(held).all(|(m, h)| m.accepts(h))
             }
+            // LR72: a `*mut T` serves where a `*const T` is wanted, and not
+            // the other way round.
             (
                 Self::Pointer { mutable, target },
                 Self::Pointer {
                     mutable: held_mutable,
                     target: held,
                 },
-            ) => mutable == held_mutable && target.accepts(held),
+            ) => (!*mutable || *held_mutable) && target.accepts(held),
             // LR9.3: a function fits where it takes what it will be given
             // and gives back what is wanted; `Send` is a promise the wanted
             // type may ask for (LR28).

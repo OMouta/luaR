@@ -1,0 +1,13 @@
+--- expect: run
+--- exit: 4
+--- spec: LR72
+unsafe function peek(pointer: *const int): int
+    return pointer:read()
+end
+
+export function main(): int
+    local value = 4
+    unsafe
+        return peek(&mut value)
+    end
+end
