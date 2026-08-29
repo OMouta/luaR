@@ -3375,6 +3375,8 @@ end
 
 Taking the address of a temporary, of a `const` binding through `&mut`, or of a value the compiler may keep in a register without spilling is a compile-time error. The compiler guarantees that an addressable binding stays put for the duration of the enclosing `unsafe` block, and makes no promise beyond it: storing a raw pointer past that point is the programmer's responsibility.
 
+A `*mut T` is accepted where a `*const T` is wanted. A `*const T` is not accepted where a `*mut T` is wanted.
+
 Managed references are never written as raw pointers in source, and there is no operator that converts one into the other outside `unsafe` reinterpretation.
 
 Pointer dereference and arithmetic use the unsafe methods `read()`, `write(value)`, and `add(offset)` (LR29.2). The `reinterpret<T>(value)` function from `std/mem` accepts plain ABI-representable values and raw pointers, never managed references.
