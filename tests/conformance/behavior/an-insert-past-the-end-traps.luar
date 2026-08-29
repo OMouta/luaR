@@ -1,0 +1,10 @@
+--- expect: run
+--- exit: 101
+--- trap: bounds
+--- spec: LR13.1
+--- spec: LR70
+export function main(): int
+    local values = [1, 2]
+    values:insert(3, 9)
+    return 0
+end

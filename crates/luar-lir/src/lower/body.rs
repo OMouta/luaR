@@ -2821,7 +2821,23 @@ impl<'a> Body<'a> {
             }
             CollectionMutation::Clear => InstKind::Clear { receiver },
             CollectionMutation::ListInsert | CollectionMutation::ListRemoveAt => {
-                return self.missing(span, "a list mutation at an index");
+                let Some(argument) = args.first() else {
+                    return self.missing(span, "a list mutation without an index");
+                };
+                let index = self.expr(&argument.value, Some(&Ty::INT));
+                if mutation == CollectionMutation::ListRemoveAt {
+                    let result = self.recorded(span);
+                    return self.emit(InstKind::ListRemoveAt { receiver, index }, result, span);
+                }
+                let Some(argument) = args.get(1) else {
+                    return self.missing(span, "an insertion without a value");
+                };
+                let value = self.expr(&argument.value, Some(&element));
+                InstKind::ListInsert {
+                    receiver,
+                    index,
+                    value,
+                }
             }
             CollectionMutation::MapRemove | CollectionMutation::SetRemove => {
                 let Some(argument) = args.first() else {
