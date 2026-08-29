@@ -55,7 +55,7 @@ Finding a compiler bug while working on something else does not change this. Fix
 
 `std/` holds it, one LuaR module per file, compiled into `luarc`. `std/mem` is `std/mem.luar`.
 
-Native code enters through `@extern("c")` to libc (LR46). An operation with no LuaR spelling is a bodiless `@intrinsic` declaration in `std/` and its lowering in `luar-lir` (LR60). Predeclared names (LR54.1) are the compiler's. The compiler recognizes no standard library function by name, and no module lives in Rust.
+Native code enters through `@extern("c")` to libc (LR46). An operation with no LuaR spelling is a bodiless `@intrinsic` declaration in `std/` (LR60): one over ABI-representable values is a runtime symbol `luar_<name>` in `luar-codegen`, and one whose lowering depends on types is lowered in `luar-lir`. Predeclared names (LR54.1) are the compiler's. The compiler recognizes no standard library function by name, and no module lives in Rust.
 
 ## Before committing
 
