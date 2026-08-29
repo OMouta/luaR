@@ -1,9 +1,9 @@
 //! Lowering `match` and the patterns it tests.
 
-use luar_ast::{ArmBody, Expr, FieldPattern, MatchArm, Pattern, PatternKind, Payload};
+use luar_ast::{ArmBody, Expr, ExprKind, FieldPattern, MatchArm, Pattern, PatternKind, Payload};
 use luar_diagnostics::Span;
 
-use crate::inst::{BinaryOp, Const, InstKind, Target, Terminator, Trap, Value};
+use crate::inst::{BinaryOp, Const, InstKind, Target, Terminator, Trap, UnaryOp, Value};
 use crate::lower::body::{Arrival, Body};
 use crate::program::{BlockId, Shape};
 use crate::ty::{Builtin, Ty};
@@ -165,6 +165,19 @@ impl<'a> Body<'a> {
         match &pattern.kind {
             PatternKind::Literal(literal) => {
                 let held = self.function.type_of(subject).clone();
+                // LR8: `nil` matches an optional holding nothing, which is
+                // the check that settles it.
+                if matches!(literal.kind, ExprKind::Nil) && held.is_optional() {
+                    let some = self.emit(InstKind::IsSome { value: subject }, Ty::Bool, span);
+                    return Some(self.emit(
+                        InstKind::Unary {
+                            op: UnaryOp::Not,
+                            operand: some,
+                        },
+                        Ty::Bool,
+                        span,
+                    ));
+                }
                 let value = self.expr(literal, Some(&held));
                 Some(self.emit(
                     InstKind::Binary {
