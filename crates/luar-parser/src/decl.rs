@@ -824,7 +824,7 @@ fn interface_member(cursor: &mut Cursor) -> InterfaceMember {
     }
 }
 
-/// `extend Name for Type ... end` (LR20).
+/// `extend Name<T> for Type ... end` (LR20).
 fn extension(
     cursor: &mut Cursor,
     start: Span,
@@ -834,6 +834,7 @@ fn extension(
     cursor.advance();
 
     let name = cursor.name().0;
+    let type_params = type_parameters(cursor);
 
     if !cursor.eat_keyword(Keyword::For) {
         let here = cursor.span();
@@ -885,6 +886,7 @@ fn extension(
         decorators,
         exported,
         name,
+        type_params,
         target,
         functions,
         span: start.to(cursor.previous_span()),

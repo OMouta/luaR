@@ -240,6 +240,7 @@ pub struct Extend {
     pub decorators: Vec<Decorator>,
     pub exported: bool,
     pub name: String,
+    pub type_params: Vec<String>,
     pub target: Type,
     pub functions: Vec<Function>,
     pub span: Span,
