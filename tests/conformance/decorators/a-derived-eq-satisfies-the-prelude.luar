@@ -1,0 +1,21 @@
+--- expect: run
+--- exit: 0
+--- stdout: "true\nfalse\n1\n"
+--- spec: LR75
+--- spec: LR35
+--- spec: LR54.1
+@derive(Eq)
+struct Point
+    x: int
+    y: int
+end
+
+export function main()
+    local points: List<Point> = [Point { x = 1, y = 2 }, Point { x = 3, y = 4 }]
+    print(points:contains(Point { x = 3, y = 4 }))
+    print(points:contains(Point { x = 4, y = 3 }))
+    local found = points:indexOf(Point { x = 3, y = 4 })
+    if found ~= nil then
+        print(found)
+    end
+end

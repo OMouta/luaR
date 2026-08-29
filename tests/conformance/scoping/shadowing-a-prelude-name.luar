@@ -1,0 +1,29 @@
+--- expect: compile-ok
+--- spec: LR54.1
+--- spec: LR35
+import { ListSearch, Eq as Equal } from "std/prelude"
+
+interface Eq
+    function eq(self, other: Self): bool
+end
+
+struct Point implements Eq
+    x: int
+
+    function eq(self, other: Point): bool
+        return self.x == other.x
+    end
+end
+
+function same<T>(a: T, b: T): bool
+where T: Equal
+    return a == b
+end
+
+export function main()
+    local values = [1, 2, 3]
+    print(values:contains(2))
+    print(ListSearch.contains(values, 3))
+    print(same(1, 2))
+    print(Point { x = 1 } == Point { x = 1 })
+end

@@ -1,0 +1,20 @@
+--- expect: run
+--- exit: 0
+--- stdout: "true\nfalse\n2\ntrue\n1\n"
+--- spec: LR54.1
+--- spec: LR13.1
+export function main()
+    local values = [3, 5, 7]
+    local names = ["ada", "grace"]
+    print(values:contains(7))
+    print(values:contains(4))
+    local seven = values:indexOf(7)
+    if seven ~= nil then
+        print(seven)
+    end
+    print(names:contains("grace"))
+    local grace = names:indexOf("grace")
+    if grace ~= nil then
+        print(grace)
+    end
+end
