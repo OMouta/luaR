@@ -1,0 +1,12 @@
+--- expect: run
+--- exit: 1
+--- spec: LR4.6
+export function main(): int
+    local host = "localhost"
+    local port: u16 = 8080
+    local message = `serving on {host}:{port}`
+    if message == "serving on localhost:8080" then
+        return 1
+    end
+    return 0
+end

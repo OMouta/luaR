@@ -5,8 +5,8 @@ use std::collections::{HashMap, HashSet};
 
 use luar_ast::{
     Argument, ArmBody, BinaryOp as AstBinary, Binding, Block, Branch, CatchClause, Expr, ExprKind,
-    FieldInit, FieldPattern, FunctionBody, MapEntry, MapKey, MatchArm, Param, Pattern, PatternKind,
-    Payload, Stmt, StmtKind, UnaryOp as AstUnary,
+    FieldInit, FieldPattern, FunctionBody, InterpolationPart, MapEntry, MapKey, MatchArm, Param,
+    Pattern, PatternKind, Payload, Stmt, StmtKind, UnaryOp as AstUnary,
 };
 use luar_diagnostics::Span;
 use luar_sema::check::protocol_of;
@@ -1999,6 +1999,7 @@ impl<'a> Body<'a> {
             ExprKind::Char(value) => {
                 self.emit(InstKind::Const(Const::Char(*value)), Ty::Char, span)
             }
+            ExprKind::Interpolation(parts) => self.interpolation(parts, span),
 
             ExprKind::Name(name) => match self.lookup(name) {
                 Some(var) => {
@@ -2178,6 +2179,41 @@ impl<'a> Body<'a> {
             Some(wanted) => wanted.clone(),
             None => self.recorded(span),
         }
+    }
+
+    /// LR4.6: an interpolated string formats its expressions and joins every
+    /// part from left to right.
+    fn interpolation(&mut self, parts: &[InterpolationPart], span: Span) -> Value {
+        let mut joined = self.emit(InstKind::Const(Const::Str(String::new())), Ty::Str, span);
+
+        for part in parts {
+            let next = match part {
+                InterpolationPart::Text(text) => {
+                    self.emit(InstKind::Const(Const::Str(text.clone())), Ty::Str, span)
+                }
+                InterpolationPart::Expr(expr) => {
+                    let value = self.expr(expr, None);
+                    match self.function.type_of(value) {
+                        Ty::Str => value,
+                        Ty::Int(_) => {
+                            self.emit(InstKind::DisplayValue { value }, Ty::Str, expr.span)
+                        }
+                        ty => return self.missing(expr.span, format!("formatting `{ty}`")),
+                    }
+                }
+            };
+            joined = self.emit(
+                InstKind::Binary {
+                    op: BinaryOp::Concat,
+                    left: joined,
+                    right: next,
+                },
+                Ty::Str,
+                span,
+            );
+        }
+
+        joined
     }
 
     fn propagate(&mut self, inner: &Expr, span: Span) -> Value {
