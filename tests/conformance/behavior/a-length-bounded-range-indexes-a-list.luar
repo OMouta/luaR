@@ -7,7 +7,11 @@ export function main(): int
     local values = [1, 2, 3, 4]
     local total = 0
     for index in 0..<values.length do
-        total += values[index]
+        if index % 2 == 0 then
+            total += values[index]
+        else
+            total += values[index]
+        end
     end
     return total
 end
