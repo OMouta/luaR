@@ -405,10 +405,6 @@ impl Translator<'_, '_> {
             InstKind::MakeList { values, .. } => self.make_list(inst.result, values),
             InstKind::MakeMap { entries, .. } => self.make_map(inst.result, entries),
             InstKind::MakeSet { values, .. } => self.make_set(inst.result, values),
-            InstKind::ListPushAll { receiver, other } => {
-                self.list_push_all(*receiver, *other);
-                None
-            }
             InstKind::ListPush { receiver, value } => {
                 self.list_push(*receiver, *value);
                 None

@@ -335,7 +335,6 @@ pub(super) fn collection_mutation_method(
         (Builtin::List, "pop") => CollectionMutation::ListPop,
         (Builtin::List, "insert") => CollectionMutation::ListInsert,
         (Builtin::List, "removeAt") => CollectionMutation::ListRemoveAt,
-        (Builtin::List, "pushAll") => CollectionMutation::ListPushAll,
         (Builtin::Set, "insert") => CollectionMutation::SetInsert,
         (Builtin::Map, "remove") => CollectionMutation::MapRemove,
         (Builtin::Set, "remove") => CollectionMutation::SetRemove,
@@ -350,10 +349,6 @@ pub(super) fn collection_mutation_method(
     };
     let index = Type::Primitive(Primitive::I64);
     let unit = Type::Tuple(Vec::new());
-    let sequence = |kind: Builtin| Type::Builtin {
-        kind,
-        args: vec![element.clone()],
-    };
     let signatures = match mutation {
         CollectionMutation::ListPush | CollectionMutation::SetInsert => {
             vec![(vec![param("value", &element)], unit)]
@@ -363,11 +358,6 @@ pub(super) fn collection_mutation_method(
             vec![(vec![param("index", &index), param("value", &element)], unit)]
         }
         CollectionMutation::ListRemoveAt => vec![(vec![param("index", &index)], element.clone())],
-        // LR59: a frozen list is accepted where a read-only sequence is.
-        CollectionMutation::ListPushAll => vec![
-            (vec![param("other", &sequence(Builtin::List))], unit.clone()),
-            (vec![param("other", &sequence(Builtin::FrozenList))], unit),
-        ],
         CollectionMutation::MapRemove => vec![(
             vec![param("key", &element)],
             args.get(1).cloned().unwrap_or(Type::Unresolved).optional(),

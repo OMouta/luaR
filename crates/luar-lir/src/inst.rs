@@ -313,11 +313,6 @@ pub enum InstKind {
         receiver: Value,
         value: Value,
     },
-    /// Every element of `other` appended to the list, in order (LR13.1).
-    ListPushAll {
-        receiver: Value,
-        other: Value,
-    },
     /// `value` put at `index`, the elements from there on moved up (LR13.1).
     ListInsert {
         receiver: Value,
@@ -515,7 +510,6 @@ impl InstKind {
             | Self::SetField { .. }
             | Self::SetIndex { .. }
             | Self::ListPush { .. }
-            | Self::ListPushAll { .. }
             | Self::ListPop { .. }
             | Self::ListInsert { .. }
             | Self::ListRemoveAt { .. }

@@ -62,6 +62,19 @@ export extend FrozenListSearch<T> for FrozenList<T>
 end
 
 export extend ListMutation<T> for List<T>
+    function pushAll(self, other: List<T>)
+        local count = other.length
+        for i in 0..<count do
+            self:push(other[i])
+        end
+    end
+
+    function pushAll(self, other: FrozenList<T>)
+        for i in 0..<other.length do
+            self:push(other[i])
+        end
+    end
+
     function reverse(self)
         local low = 0
         local high = self.length - 1

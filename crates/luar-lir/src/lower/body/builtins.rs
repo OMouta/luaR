@@ -238,13 +238,6 @@ impl<'a> Body<'a> {
                 return self.emit(InstKind::ListPop { receiver }, result, span);
             }
             CollectionMutation::Clear => InstKind::Clear { receiver },
-            CollectionMutation::ListPushAll => {
-                let Some(argument) = args.first() else {
-                    return self.missing(span, "a push without a list");
-                };
-                let other = self.expr(&argument.value, None);
-                InstKind::ListPushAll { receiver, other }
-            }
             CollectionMutation::ListInsert | CollectionMutation::ListRemoveAt => {
                 let Some(argument) = args.first() else {
                     return self.missing(span, "a list mutation without an index");
