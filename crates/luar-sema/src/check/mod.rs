@@ -715,7 +715,15 @@ impl Checker<'_> {
             self.expect(&declared, &value, default.span);
         }
 
-        self.declare(&param.binding, declared, param.span);
+        let held = if param.variadic {
+            Type::Builtin {
+                kind: Builtin::FrozenList,
+                args: vec![declared],
+            }
+        } else {
+            declared
+        };
+        self.declare(&param.binding, held, param.span);
     }
 
     fn block(&mut self, block: &Block) {
