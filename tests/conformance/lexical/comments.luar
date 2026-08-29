@@ -1,6 +1,8 @@
 --- expect: compile-ok
 --- spec: LR3.3
 --- spec: LR62
+--- spec: LR63
+@deprecated("Use answer instead")
 --- Returns the answer.
 ---
 --- The comment above documents this function.

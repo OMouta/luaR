@@ -1,0 +1,11 @@
+--- expect: run
+--- exit: 3
+--- spec: LR1
+--- spec: LR2
+--- spec: LR3.1
+--- spec: LR3.4
+export function main(): int
+    local cafe = 1; local café = 2
+    local Cafe = cafe
+    return Cafe + café
+end
