@@ -264,6 +264,7 @@ fn instruction(inst: &Inst, function: &Function) -> String {
         InstKind::SetInsert { receiver, value } => {
             format!("insert {} <- {}", name(*receiver), name(*value))
         }
+        InstKind::Clear { receiver } => format!("clear {}", name(*receiver)),
         InstKind::MapRemove { receiver, key } => {
             format!("remove {} {}", name(*receiver), name(*key))
         }

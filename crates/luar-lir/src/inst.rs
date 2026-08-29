@@ -313,6 +313,10 @@ pub enum InstKind {
         receiver: Value,
         value: Value,
     },
+    /// Every element taken out of a list, a map, or a set (LR13).
+    Clear {
+        receiver: Value,
+    },
     /// The value at `key`, taken out of the map, or nothing (LR13.2).
     MapRemove {
         receiver: Value,
@@ -489,6 +493,7 @@ impl InstKind {
             | Self::SetInsert { .. }
             | Self::MapRemove { .. }
             | Self::SetRemove { .. }
+            | Self::Clear { .. }
             | Self::Length { .. }
             | Self::Buckets { .. }
             | Self::Occupied { .. }

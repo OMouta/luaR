@@ -1,0 +1,34 @@
+--- expect: run
+--- exit: 6
+--- spec: LR13.1
+--- spec: LR13.2
+--- spec: LR13.3
+--- spec: LR10.5
+export function main(): int
+    local values = [1, 2, 3]
+    values:clear()
+    values:push(7)
+    local total = values.length
+    local scores = Map { alice = 10 }
+    scores:clear()
+    if scores:contains("alice") then
+        total += 100
+    end
+    scores["bob"] = 3
+    local bob = scores:get("bob")
+    if bob ~= nil then
+        total += bob
+    end
+    total += scores.length
+    local ids = Set { 4, 5 }
+    ids:clear()
+    local walked = 0
+    for id in ids do
+        walked += 1
+    end
+    ids:insert(4)
+    if ids:contains(5) then
+        total += 100
+    end
+    return total + ids.length + walked
+end

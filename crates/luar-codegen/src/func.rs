@@ -405,6 +405,10 @@ impl Translator<'_, '_> {
             InstKind::Contains { receiver, value } => self.contains(*receiver, *value),
             InstKind::MapRemove { receiver, key } => self.map_remove(*receiver, *key, inst.result),
             InstKind::SetRemove { receiver, value } => self.set_remove(*receiver, *value),
+            InstKind::Clear { receiver } => {
+                self.clear(*receiver);
+                None
+            }
             InstKind::Overflowing {
                 mode,
                 op,
@@ -1750,6 +1754,30 @@ impl Translator<'_, '_> {
         self.builder.ins().jump(carry_on, &[]);
         self.builder.switch_to_block(carry_on);
         Some(present)
+    }
+
+    fn clear(&mut self, receiver: Value) {
+        let held = self.function.type_of(receiver).clone();
+        let table = self.value(receiver);
+        let zero = self.builder.ins().iconst(self.pointer, 0);
+        self.builder.ins().store(OWNED, zero, table, layout::LENGTH);
+        match &held {
+            Ty::Builtin {
+                kind: Builtin::List,
+                ..
+            } => {}
+            // At zero capacity `find` misses and the next insert allocates.
+            Ty::Builtin {
+                kind: Builtin::Map | Builtin::Set,
+                ..
+            } => {
+                self.builder
+                    .ins()
+                    .store(OWNED, zero, table, layout::CAPACITY);
+                self.builder.ins().store(OWNED, zero, table, layout::BUFFER);
+            }
+            _ => self.gap(format!("clearing `{held}`")),
+        }
     }
 
     /// The bucket `key` occupies in the map or set `receiver`, or null.
