@@ -162,6 +162,16 @@ pub(super) fn builtin_method(
                     (Builtin::ListPush, vec![param("value", arg(args, 0))], unit)
                 }
                 (Kind::List, "pop") => (Builtin::ListPop, Vec::new(), arg(args, 0).optional()),
+                (Kind::RangeExclusive, "reversed") => (
+                    Builtin::ReverseRange,
+                    Vec::new(),
+                    frozen(Kind::ReversedRangeExclusive),
+                ),
+                (Kind::RangeInclusive, "reversed") => (
+                    Builtin::ReverseRange,
+                    Vec::new(),
+                    frozen(Kind::ReversedRangeInclusive),
+                ),
                 (Kind::Set, "insert") => {
                     (Builtin::SetInsert, vec![param("value", arg(args, 0))], unit)
                 }

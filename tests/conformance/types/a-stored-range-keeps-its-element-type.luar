@@ -1,0 +1,8 @@
+--- expect: compile-ok
+--- spec: LR10.4
+local values = 1..<4
+local backward = values:reversed()
+
+for value in backward do
+    local held: int = value
+end

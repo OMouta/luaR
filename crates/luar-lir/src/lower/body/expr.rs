@@ -132,6 +132,22 @@ impl<'a> Body<'a> {
                 right,
             } => self.binary(*op, *op_span, left, right, span),
 
+            ExprKind::Range {
+                start: Some(start),
+                end: Some(end),
+                ..
+            } => {
+                let ty = self.recorded(span);
+                let element = match &ty {
+                    Ty::Builtin { args, .. } => args.first().cloned().unwrap_or(Ty::Never),
+                    _ => Ty::Never,
+                };
+                let start = self.expr(start, Some(&element));
+                let end = self.expr(end, Some(&element));
+                self.emit(InstKind::MakeTuple(vec![start, end]), ty, span)
+            }
+            ExprKind::Range { .. } => self.missing(span, "an open range value"),
+
             ExprKind::Call {
                 callee,
                 method,

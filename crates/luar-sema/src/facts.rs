@@ -38,6 +38,7 @@ pub enum Builtin {
     SetInsert,
     MapRemove,
     SetRemove,
+    ReverseRange,
     Overflow {
         mode: Overflow,
         op: luar_ast::BinaryOp,

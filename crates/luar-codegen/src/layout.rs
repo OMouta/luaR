@@ -79,6 +79,14 @@ pub fn size(program: &Program, ty: &Ty, pointer: Type) -> Option<i32> {
             kind: Builtin::Result,
             ..
         } => 2,
+        Ty::Builtin {
+            kind:
+                Builtin::RangeExclusive
+                | Builtin::RangeInclusive
+                | Builtin::ReversedRangeExclusive
+                | Builtin::ReversedRangeInclusive,
+            ..
+        } => 2,
         // LR13: a count, a capacity, and the storage the elements live in.
         Ty::Builtin {
             kind:
@@ -265,7 +273,11 @@ pub fn is_aggregate(ty: &Ty) -> bool {
                     | Builtin::Set
                     | Builtin::FrozenList
                     | Builtin::FrozenMap
-                    | Builtin::FrozenSet,
+                    | Builtin::FrozenSet
+                    | Builtin::RangeExclusive
+                    | Builtin::RangeInclusive
+                    | Builtin::ReversedRangeExclusive
+                    | Builtin::ReversedRangeInclusive,
                 ..
             }
     )

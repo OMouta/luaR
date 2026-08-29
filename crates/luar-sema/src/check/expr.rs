@@ -179,11 +179,24 @@ impl Checker<'_> {
                 left,
                 right,
             } => self.binary(*op, *op_span, left, right),
-            ExprKind::Range { start, end, .. } => {
-                for bound in [start, end].into_iter().flatten() {
-                    self.expr(bound);
+            ExprKind::Range {
+                start,
+                end,
+                inclusive,
+            } => {
+                let element = match (start.as_deref(), end.as_deref()) {
+                    (Some(start), Some(end)) => self.range_element(start, end),
+                    (Some(bound), None) | (None, Some(bound)) => settle(self.expr(bound)),
+                    (None, None) => Type::Unresolved,
+                };
+                Type::Builtin {
+                    kind: if *inclusive {
+                        Builtin::RangeInclusive
+                    } else {
+                        Builtin::RangeExclusive
+                    },
+                    args: vec![element],
                 }
-                Type::Unresolved
             }
             ExprKind::Call {
                 callee,

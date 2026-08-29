@@ -152,6 +152,10 @@ pub enum Builtin {
     FrozenList,
     FrozenMap,
     FrozenSet,
+    RangeExclusive,
+    RangeInclusive,
+    ReversedRangeExclusive,
+    ReversedRangeInclusive,
     /// `Task<T>`, what calling an async function produces (LR27).
     Task,
 }
@@ -185,6 +189,10 @@ impl Builtin {
             Self::FrozenList => "FrozenList",
             Self::FrozenMap => "FrozenMap",
             Self::FrozenSet => "FrozenSet",
+            Self::RangeExclusive => "range",
+            Self::RangeInclusive => "range",
+            Self::ReversedRangeExclusive => "reversed range",
+            Self::ReversedRangeInclusive => "reversed range",
             Self::Task => "Task",
         }
     }

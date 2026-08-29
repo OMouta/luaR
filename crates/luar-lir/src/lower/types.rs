@@ -129,6 +129,10 @@ fn builtin(kind: SemaBuiltin) -> Builtin {
         SemaBuiltin::FrozenList => Builtin::FrozenList,
         SemaBuiltin::FrozenMap => Builtin::FrozenMap,
         SemaBuiltin::FrozenSet => Builtin::FrozenSet,
+        SemaBuiltin::RangeExclusive => Builtin::RangeExclusive,
+        SemaBuiltin::RangeInclusive => Builtin::RangeInclusive,
+        SemaBuiltin::ReversedRangeExclusive => Builtin::ReversedRangeExclusive,
+        SemaBuiltin::ReversedRangeInclusive => Builtin::ReversedRangeInclusive,
         SemaBuiltin::Task => Builtin::Task,
     }
 }

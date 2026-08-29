@@ -321,6 +321,14 @@ impl Checker<'_> {
                             args.first().cloned().unwrap_or(Type::Unresolved),
                             args.get(1).cloned().unwrap_or(Type::Unresolved),
                         ]),
+                        Type::Builtin {
+                            kind:
+                                Builtin::RangeExclusive
+                                | Builtin::RangeInclusive
+                                | Builtin::ReversedRangeExclusive
+                                | Builtin::ReversedRangeInclusive,
+                            args,
+                        } => Some(vec![args.first().cloned().unwrap_or(Type::Unresolved)]),
                         receiver => self.iteration_yield(iterable, &receiver),
                     },
                 };

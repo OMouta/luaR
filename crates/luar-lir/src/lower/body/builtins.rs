@@ -36,6 +36,7 @@ impl<'a> Body<'a> {
             }
             Builtin::CheckedIndex => self.checked_index(callee, args, span),
             Builtin::Contains => self.contains(callee, args, span),
+            Builtin::ReverseRange => self.reverse_range(callee, span),
             Builtin::ListPush
             | Builtin::ListPop
             | Builtin::Clear
@@ -50,6 +51,32 @@ impl<'a> Body<'a> {
                 self.pointer_method(kind, callee, args, span)
             }
         }
+    }
+
+    fn reverse_range(&mut self, callee: &Expr, span: Span) -> Value {
+        let range = self.expr(callee, None);
+        let ty = self.recorded(span);
+        let element = match &ty {
+            Ty::Builtin { args, .. } => args.first().cloned().unwrap_or(Ty::Never),
+            _ => Ty::Never,
+        };
+        let start = self.emit(
+            InstKind::GetElement {
+                tuple: range,
+                index: 0,
+            },
+            element.clone(),
+            span,
+        );
+        let end = self.emit(
+            InstKind::GetElement {
+                tuple: range,
+                index: 1,
+            },
+            element,
+            span,
+        );
+        self.emit(InstKind::MakeTuple(vec![start, end]), ty, span)
     }
 
     /// LR72: a raw pointer's methods reach no declaration; `read` and `write`
