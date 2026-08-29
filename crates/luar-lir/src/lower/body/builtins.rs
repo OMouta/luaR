@@ -49,7 +49,7 @@ impl<'a> Body<'a> {
             | Builtin::SetRemove => self.collection_mutation(kind, callee, args, span),
             Builtin::Overflow { mode, op } => self.overflowing(mode, op, callee, args, span),
             Builtin::Unchecked | Builtin::UncheckedSet => {
-                self.missing(span, "an unchecked element access")
+                self.unchecked_index(kind, callee, args, span)
             }
             Builtin::PointerRead | Builtin::PointerWrite | Builtin::PointerAdd => {
                 self.pointer_method(kind, callee, args, span)
@@ -265,6 +265,52 @@ impl<'a> Body<'a> {
         let index = self.expr(&argument.value, Some(&wanted));
         let result = self.recorded(span);
         self.emit(InstKind::GetCheckedIndex { receiver, index }, result, span)
+    }
+
+    fn unchecked_index(
+        &mut self,
+        kind: Builtin,
+        callee: &Expr,
+        args: &[Argument],
+        span: Span,
+    ) -> Value {
+        let receiver = self.expr(callee, None);
+        let held = self.function.type_of(receiver).clone();
+        let Ty::Builtin {
+            kind: ty::Builtin::List | ty::Builtin::FrozenList,
+            args: type_args,
+        } = held
+        else {
+            return self.missing(span, "an unchecked element access on this type");
+        };
+        let Some(element) = type_args.first() else {
+            return self.missing(span, "an unchecked list access without an element type");
+        };
+        let Some(index) = args.first() else {
+            return self.missing(span, "an unchecked list access without an index");
+        };
+        let index = self.expr(&index.value, Some(&Ty::INT));
+
+        match (kind, args) {
+            (Builtin::Unchecked, [_]) => self.emit(
+                InstKind::GetUncheckedIndex { receiver, index },
+                element.clone(),
+                span,
+            ),
+            (Builtin::UncheckedSet, [_, value]) => {
+                let value = self.stored(&value.value, Some(element));
+                self.emit_void(
+                    InstKind::SetUncheckedIndex {
+                        receiver,
+                        index,
+                        value,
+                    },
+                    span,
+                );
+                self.emit(InstKind::Const(Const::Unit), Ty::Unit, span)
+            }
+            _ => self.missing(span, "an unchecked list access of this shape"),
+        }
     }
 
     fn collection_mutation(
