@@ -1,0 +1,10 @@
+--- expect: run
+--- exit: 0
+--- spec: LR38
+export function main(): int
+    local inclusiveStart = ..=10
+    local exclusiveStart = ..<10
+    local inclusiveEnd = 10..=
+    local exclusiveEnd = 10..<
+    return 0
+end

@@ -56,8 +56,10 @@ impl<'a> Body<'a> {
     fn reverse_range(&mut self, callee: &Expr, span: Span) -> Value {
         let range = self.expr(callee, None);
         let ty = self.recorded(span);
-        let element = match &ty {
-            Ty::Builtin { args, .. } => args.first().cloned().unwrap_or(Ty::Never),
+        let bound = match &ty {
+            Ty::Builtin { args, .. } => {
+                Ty::Optional(Box::new(args.first().cloned().unwrap_or(Ty::Never)))
+            }
             _ => Ty::Never,
         };
         let start = self.emit(
@@ -65,7 +67,7 @@ impl<'a> Body<'a> {
                 tuple: range,
                 index: 0,
             },
-            element.clone(),
+            bound.clone(),
             span,
         );
         let end = self.emit(
@@ -73,7 +75,7 @@ impl<'a> Body<'a> {
                 tuple: range,
                 index: 1,
             },
-            element,
+            bound,
             span,
         );
         self.emit(InstKind::MakeTuple(vec![start, end]), ty, span)

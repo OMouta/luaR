@@ -113,12 +113,13 @@ impl<'a> Body<'a> {
                     )
                 {
                     let element = args.first().cloned().unwrap_or(Ty::Never);
+                    let bound = Ty::Optional(Box::new(element.clone()));
                     let start = self.emit(
                         InstKind::GetElement {
                             tuple: receiver,
                             index: 0,
                         },
-                        element.clone(),
+                        bound.clone(),
                         span,
                     );
                     let end = self.emit(
@@ -126,9 +127,11 @@ impl<'a> Body<'a> {
                             tuple: receiver,
                             index: 1,
                         },
-                        element.clone(),
+                        bound,
                         span,
                     );
+                    let start = self.emit(InstKind::Unwrap { value: start }, element.clone(), span);
+                    let end = self.emit(InstKind::Unwrap { value: end }, element.clone(), span);
                     let inclusive = matches!(
                         kind,
                         Builtin::RangeInclusive | Builtin::ReversedRangeInclusive
