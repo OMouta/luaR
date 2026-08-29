@@ -227,8 +227,8 @@ fn settled(
                 args: passed,
             })
         }
-        // LR35: matched by the method's name until `std/prelude` declares the
-        // protocols (LR54.1).
+        // LR35: a primitive satisfies only the prelude's protocols, so `eq` on
+        // one is the built-in comparison.
         Ty::Bool | Ty::Int(_) | Ty::Float(_) | Ty::Char | Ty::Str | Ty::Bytes => {
             let name = interface.methods.get(method.slot as usize)?.name.as_str();
             match (name, args) {

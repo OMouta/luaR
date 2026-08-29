@@ -32,9 +32,9 @@ pub(super) fn same_signature(left: &Signature, right: &Signature) -> bool {
             .all(|(left, right)| left.ty == right.ty)
 }
 
-/// LR35: a primitive type and `string` satisfy `Eq`, `Hash`, and `Display`
-/// without declaring them, and the numeric types, `char`, and `string` satisfy
-/// `Comparable`. Matched by name until `std/prelude` declares them (LR54.1).
+/// LR35: a primitive type and `string` satisfy the prelude's `Eq`, `Hash`, and
+/// `Display` without declaring them, and the numeric types, `char`, and
+/// `string` satisfy its `Comparable`.
 fn builtin_protocol(protocol: &str, held: &Type) -> bool {
     match held {
         Type::Primitive(Primitive::Any | Primitive::Unknown | Primitive::Never) => false,
@@ -143,7 +143,7 @@ impl Checker<'_> {
             return false;
         };
 
-        if builtin_protocol(name, held) {
+        if self.graph.prelude() == Some(*module) && builtin_protocol(name, held) {
             return true;
         }
 

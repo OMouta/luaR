@@ -97,7 +97,7 @@ pub fn expand(
     // derived type sees what that type derived.
     let mut written = HashMap::new();
     for derivation in &planned {
-        if let Some(owner) = write(derivation, decls)
+        if let Some(owner) = write(derivation, decls, graph.prelude())
             && let Some(protocol) = protocol(&derivation.protocol)
         {
             written.insert(
@@ -218,7 +218,11 @@ fn declares(
     }
 }
 
-fn write(derivation: &Derivation, decls: &mut BTreeMap<(ModuleId, String), Decl>) -> Option<Type> {
+fn write(
+    derivation: &Derivation,
+    decls: &mut BTreeMap<(ModuleId, String), Decl>,
+    prelude: Option<ModuleId>,
+) -> Option<Type> {
     let protocol = protocol(&derivation.protocol)?;
 
     let key = (derivation.module, derivation.owner.clone());
@@ -258,8 +262,27 @@ fn write(derivation: &Derivation, decls: &mut BTreeMap<(ModuleId, String), Decl>
         unsafe_: false,
     };
 
+    // LR75: a derived member is an ordinary conforming implementation, so
+    // the type implements the prelude's protocol (LR35).
+    let claim = prelude.map(|module| Type::Named {
+        module,
+        name: derivation.protocol.clone(),
+        args: Vec::new(),
+    });
+
     let methods = match decls.get_mut(&key) {
-        Some(Decl::Struct(StructType { methods, .. })) => methods,
+        Some(Decl::Struct(StructType {
+            methods,
+            implements,
+            ..
+        })) => {
+            if let Some(claim) = claim
+                && !implements.contains(&claim)
+            {
+                implements.push(claim);
+            }
+            methods
+        }
         Some(Decl::Enum(EnumType { methods, .. })) => methods,
         _ => return None,
     };

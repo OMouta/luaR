@@ -4,10 +4,6 @@
 --- spec: LR20
 --- spec: LR19
 --- spec: LR36
-interface Eq
-    function eq(self, other: Self): bool
-end
-
 struct Point implements Eq
     x: int
     y: int
