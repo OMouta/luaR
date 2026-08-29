@@ -1,13 +1,10 @@
-//! Text: literals, strings built at runtime, and values shown as text.
+//! Text: literals, and values shown as text.
 
-use cranelift_codegen::ir::condcodes::IntCC;
 use cranelift_codegen::ir::{self, InstBuilder, types};
 use luar_lir::inst::Value;
 use luar_lir::ty::Ty;
 
-use crate::layout;
-
-use super::{OWNED, Translator};
+use super::Translator;
 
 impl Translator<'_, '_> {
     /// The address of a literal's text, which lives in the object rather than
@@ -18,52 +15,6 @@ impl Translator<'_, '_> {
             return None;
         };
         Some(self.builder.ins().global_value(self.pointer, data))
-    }
-
-    /// LR72: a string holding `length` bytes copied from `data`.
-    pub(super) fn make_text(&mut self, data: Value, length: Value) -> Option<ir::Value> {
-        let data = self.value(data);
-        let length = self.value(length);
-        let cell = i64::from(layout::CELL);
-        let size = self.builder.ins().iadd_imm(length, cell + cell - 1);
-        let size = self.builder.ins().band_imm(size, -cell);
-        let size = self.word_of(size);
-        let text = self.allocate_sized(size, &Ty::Str, 0)?;
-        self.builder
-            .ins()
-            .store(OWNED, length, text, layout::LENGTH);
-
-        let copy = self.builder.create_block();
-        let copy_one = self.builder.create_block();
-        let done = self.builder.create_block();
-        self.builder.append_block_param(copy, self.pointer);
-        self.builder.append_block_param(copy_one, self.pointer);
-        let zero = self.builder.ins().iconst(self.pointer, 0);
-        self.builder.ins().jump(copy, &[ir::BlockArg::Value(zero)]);
-
-        self.builder.switch_to_block(copy);
-        let index = self.builder.block_params(copy)[0];
-        let more = self
-            .builder
-            .ins()
-            .icmp(IntCC::UnsignedLessThan, index, length);
-        self.builder
-            .ins()
-            .brif(more, copy_one, &[ir::BlockArg::Value(index)], done, &[]);
-
-        self.builder.switch_to_block(copy_one);
-        let index = self.builder.block_params(copy_one)[0];
-        let from = self.builder.ins().iadd(data, index);
-        let byte = self.builder.ins().load(types::I8, OWNED, from, 0);
-        let to = self.builder.ins().iadd(text, index);
-        self.builder.ins().store(OWNED, byte, to, layout::CELL);
-        let following = self.builder.ins().iadd_imm(index, 1);
-        self.builder
-            .ins()
-            .jump(copy, &[ir::BlockArg::Value(following)]);
-
-        self.builder.switch_to_block(done);
-        Some(text)
     }
 
     pub(super) fn display_value(&mut self, value: Value) -> Option<ir::Value> {

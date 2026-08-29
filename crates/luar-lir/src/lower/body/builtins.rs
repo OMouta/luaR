@@ -129,23 +129,6 @@ impl<'a> Body<'a> {
             );
         }
 
-        if intrinsic == Intrinsic::BytesOf {
-            let Some(argument) = args.first() else {
-                return self.missing(span, "a `bytesOf` without a string");
-            };
-            let text = self.expr(&argument.value, Some(&Ty::Str));
-            return self.emit(InstKind::TextBytes { text }, constructed, span);
-        }
-
-        if intrinsic == Intrinsic::StringFromBytes {
-            let [data, length] = args else {
-                return self.missing(span, "a `stringFromBytes` without bytes and a length");
-            };
-            let data = self.expr(&data.value, None);
-            let length = self.expr(&length.value, Some(&Ty::INT));
-            return self.emit(InstKind::MakeText { data, length }, Ty::Str, span);
-        }
-
         if intrinsic == Intrinsic::Error {
             let Some(argument) = args.first() else {
                 return self.missing(span, "an `Error` without a message");

@@ -85,7 +85,10 @@ impl Checker<'_> {
             return;
         };
         let standard = crate::modules::is_standard(&self.graph.module(self.scope).path);
-        let known = matches!(function.name.as_slice(), [name] if intrinsic_named(name).is_some());
+        let known = matches!(
+            function.name.as_slice(),
+            [name] if intrinsic_named(name).is_some() || runtime_symbol(name).is_some()
+        );
         if standard && known {
             return;
         }
@@ -497,7 +500,7 @@ pub(super) fn is_frozen_collection(ty: &Type) -> bool {
 pub(super) fn intrinsic_signature(intrinsic: Intrinsic, span: Span) -> Signature {
     let (type_params, params, result) = match intrinsic {
         // LR60: a standard library intrinsic is declared where it is written.
-        Intrinsic::Identical | Intrinsic::BytesOf | Intrinsic::StringFromBytes => {
+        Intrinsic::Identical => {
             unreachable!("a standard library intrinsic has a declared signature")
         }
         Intrinsic::Print => (
@@ -595,12 +598,22 @@ fn is_intrinsic(function: &luar_ast::Function) -> bool {
         .any(|decorator| decorator.name == "intrinsic")
 }
 
-/// The operation an `@intrinsic` declaration named `name` stands for (LR60).
+/// The operation an `@intrinsic` declaration named `name` stands for, where
+/// the lowering depends on the types at the call (LR60).
 fn intrinsic_named(name: &str) -> Option<Intrinsic> {
     match name {
         "identical" => Some(Intrinsic::Identical),
-        "bytesOf" => Some(Intrinsic::BytesOf),
-        "stringFromBytes" => Some(Intrinsic::StringFromBytes),
+        _ => None,
+    }
+}
+
+/// The runtime symbol an `@intrinsic` declaration named `name` is a call to
+/// (LR60).
+#[must_use]
+pub fn runtime_symbol(name: &str) -> Option<&'static str> {
+    match name {
+        "bytesOf" => Some("luar_bytes_of"),
+        "stringFromBytes" => Some("luar_string_from_bytes"),
         _ => None,
     }
 }

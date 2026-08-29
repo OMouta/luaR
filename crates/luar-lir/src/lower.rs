@@ -13,6 +13,7 @@ use std::collections::{HashMap, HashSet};
 
 use luar_ast::{Binding, Function as AstFunction, Item, Member, Module, Semantics};
 use luar_diagnostics::Span;
+use luar_sema::check::runtime_symbol;
 use luar_sema::facts::Facts;
 use luar_sema::modules::{Graph, ModuleId};
 use luar_sema::table::{Decl, EnumType, InterfaceType, Signature, StructType, Table, Variant};
@@ -987,9 +988,11 @@ fn overloads(decl: &Decl) -> Vec<&Signature> {
 fn collect(items: &[Item], module: ModuleId, found: &mut Vec<(ModuleId, String, AstFunction)>) {
     for item in items {
         match item {
-            // LR60: an intrinsic has no body to lower, and every call to it is
-            // lowered in place.
-            Item::Function(function) if !is_intrinsic(function) => {
+            // LR60: an intrinsic without a runtime symbol is lowered in place
+            // at every call.
+            Item::Function(function)
+                if !is_intrinsic(function) || extern_symbol(function).is_some() =>
+            {
                 found.push((module, function.name.join("."), function.clone()));
             }
             Item::Struct(structure) => {
@@ -1057,6 +1060,12 @@ fn is_finalizer(function: &AstFunction) -> bool {
 }
 
 fn extern_symbol(function: &AstFunction) -> Option<String> {
+    if is_intrinsic(function) {
+        let [name] = function.name.as_slice() else {
+            return None;
+        };
+        return runtime_symbol(name).map(str::to_owned);
+    }
     function
         .decorators
         .iter()

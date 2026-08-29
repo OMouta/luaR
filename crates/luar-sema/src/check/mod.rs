@@ -32,6 +32,7 @@ mod patterns;
 mod stmt;
 mod unsafe_ops;
 
+pub use builtins::runtime_symbol;
 pub use operators::protocol_of;
 
 /// Checks the types of every module in `graph`, and gives back what it worked

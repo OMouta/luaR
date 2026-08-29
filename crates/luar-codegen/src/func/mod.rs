@@ -587,11 +587,6 @@ impl Translator<'_, '_> {
                 }
                 None
             }
-            InstKind::TextBytes { text } => {
-                let text = self.value(*text);
-                Some(self.builder.ins().iadd_imm(text, i64::from(layout::CELL)))
-            }
-            InstKind::MakeText { data, length } => self.make_text(*data, *length),
             // An aggregate already sits in storage of its own, and its slot
             // holds the pointer to it, so that pointer is its address.
             InstKind::AddressOf { slot, .. } => match self.slots.get(slot).copied() {

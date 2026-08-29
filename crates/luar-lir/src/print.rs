@@ -332,10 +332,6 @@ fn instruction(inst: &Inst, function: &Function) -> String {
         InstKind::MakeSome { value } => format!("some {}", name(*value)),
         InstKind::IsSome { value } => format!("is some {}", name(*value)),
         InstKind::Unwrap { value } => format!("unwrap {}", name(*value)),
-        InstKind::TextBytes { text } => format!("text bytes {}", name(*text)),
-        InstKind::MakeText { data, length } => {
-            format!("text {} {}", name(*data), name(*length))
-        }
         InstKind::AddressOf { mutable, slot } => {
             let qualifier = if *mutable { "mut " } else { "" };
             format!("address {qualifier}slot{}", slot.0)

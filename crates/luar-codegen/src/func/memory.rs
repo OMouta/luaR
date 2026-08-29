@@ -26,15 +26,6 @@ impl Translator<'_, '_> {
         temporary: u32,
     ) -> Option<ir::Value> {
         let size = self.builder.ins().iconst(self.pointer, i64::from(size));
-        self.allocate_sized(size, ty, temporary)
-    }
-
-    pub(super) fn allocate_sized(
-        &mut self,
-        size: ir::Value,
-        ty: &Ty,
-        temporary: u32,
-    ) -> Option<ir::Value> {
         let finalizer = match self.finalizers.get(ty).copied() {
             Some(function) => self.builder.ins().func_addr(self.pointer, function),
             None => self.builder.ins().iconst(self.pointer, 0),
