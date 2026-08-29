@@ -58,7 +58,7 @@ impl Checker<'_> {
 pub(super) fn unavailable_unsafe_memory_method(receiver: &Type, name: &str) -> bool {
     let memory_receiver = matches!(
         receiver,
-        Type::Array(_)
+        Type::Array(..)
             | Type::Pointer { .. }
             | Type::Primitive(Primitive::Bytes)
             | Type::Builtin {

@@ -272,6 +272,8 @@ registry! {
         "`@intrinsic` names an operation the compiler implements, in a standard library module.";
     active 207 => ITERATOR_RESULT, "LR35",
         "`Iterator.next` returns an optional item.";
+    active 208 => ARRAY_LENGTH, "LR71",
+        "A bracket literal filling an array has the array's declared length.";
 }
 
 #[cfg(test)]

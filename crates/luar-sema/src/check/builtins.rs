@@ -197,7 +197,7 @@ pub(super) fn builtin_method(
                 _ => return None,
             }
         }
-        Type::Array(element) => match name {
+        Type::Array(element, _) => match name {
             "unchecked" => (
                 Builtin::Unchecked,
                 vec![param("index", int)],
@@ -392,7 +392,7 @@ fn mentions(ty: &Type, params: &[String]) -> bool {
         Type::Builtin { args, .. } | Type::Named { args, .. } => {
             args.iter().any(|arg| mentions(arg, params))
         }
-        Type::Optional(inner) | Type::Array(inner) | Type::SequenceLiteral(inner) => {
+        Type::Optional(inner) | Type::Array(inner, _) | Type::SequenceLiteral(inner) => {
             mentions(inner, params)
         }
         Type::Pointer { target, .. } => mentions(target, params),

@@ -28,6 +28,20 @@ impl Checker<'_> {
     /// LR25.1: `Result.Ok(value)` and `Result.Err(error)` take the type
     /// arguments of the `Result` the value is asked for.
     pub(super) fn expr_wanting(&mut self, expr: &Expr, wanted: &Type) -> Type {
+        if let ExprKind::List(items) = &expr.kind
+            && let Type::Array(_, Some(length)) = wanted
+            && u64::try_from(items.len()).ok() != Some(*length)
+        {
+            self.diagnostics.push(Diagnostic::error(
+                codes::ARRAY_LENGTH,
+                expr.span,
+                format!(
+                    "this has {} elements, and the array has {length}",
+                    items.len()
+                ),
+            ));
+        }
+
         // LR9.2: a closure takes the parameter types it does not write from
         // the function type asked for.
         if let ExprKind::Function { params, .. } = &expr.kind
@@ -628,7 +642,7 @@ impl Checker<'_> {
                 Some(Type::Primitive(Primitive::I64)),
                 args.first().cloned().unwrap_or(Type::Unresolved),
             ),
-            Type::Array(element) => (
+            Type::Array(element, _) => (
                 Some(Type::Primitive(Primitive::I64)),
                 element.as_ref().clone(),
             ),

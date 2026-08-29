@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use luar_ast::TypeKind;
+use luar_ast::{ExprKind, TypeKind};
 use luar_diagnostics::{Diagnostic, Span, codes};
 
 use crate::aliases::Aliases;
@@ -83,9 +83,13 @@ impl<'a> Resolver<'a> {
                 params: self.each(params, diagnostics),
                 result: Box::new(self.resolve(result, diagnostics)),
             },
-            TypeKind::Array { element, .. } => {
-                Type::Array(Box::new(self.resolve(element, diagnostics)))
-            }
+            TypeKind::Array { element, length } => Type::Array(
+                Box::new(self.resolve(element, diagnostics)),
+                match length.kind {
+                    ExprKind::Integer(value) => Some(value),
+                    _ => None,
+                },
+            ),
             TypeKind::Pointer { mutable, target } => Type::Pointer {
                 mutable: *mutable,
                 target: Box::new(self.resolve(target, diagnostics)),

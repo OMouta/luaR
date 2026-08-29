@@ -71,8 +71,10 @@ pub(super) fn infer(
             }
         }
         (Type::Optional(wanted), Type::Optional(held)) => infer(params, wanted, held, bound),
-        (Type::Array(wanted), Type::Array(held)) => infer(params, wanted, held, bound),
-        (Type::Array(wanted), Type::SequenceLiteral(held)) => infer(params, wanted, held, bound),
+        (Type::Array(wanted, _), Type::Array(held, _)) => infer(params, wanted, held, bound),
+        (Type::Array(wanted, _), Type::SequenceLiteral(held)) => {
+            infer(params, wanted, held, bound);
+        }
         (Type::Pointer { target: wanted, .. }, Type::Pointer { target: held, .. }) => {
             infer(params, wanted, held, bound);
         }

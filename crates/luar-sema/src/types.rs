@@ -226,9 +226,9 @@ pub enum Type {
         params: Vec<Type>,
         result: Box<Type>,
     },
-    /// `[T; N]` (LR71). The length is a constant expression, so comparing
-    /// lengths waits for `const` evaluation (LR24).
-    Array(Box<Type>),
+    /// `[T; N]` (LR71). A length that is not a literal waits for `const`
+    /// evaluation (LR24).
+    Array(Box<Type>, Option<u64>),
     Pointer {
         mutable: bool,
         target: Box<Type>,
@@ -345,7 +345,7 @@ impl Type {
             (Self::Primitive(target), Self::FloatLiteral) => target.is_float(),
 
             // A bracket literal fills either sequence (LR13.1, LR71).
-            (Self::Array(element), Self::SequenceLiteral(held)) => element.accepts(held),
+            (Self::Array(element, _), Self::SequenceLiteral(held)) => element.accepts(held),
             (
                 Self::Builtin {
                     kind: Builtin::List,
@@ -492,7 +492,8 @@ impl fmt::Display for Type {
                 join(f, params, ", ")?;
                 write!(f, ") -> {result}")
             }
-            Self::Array(element) => write!(f, "[{element}; N]"),
+            Self::Array(element, Some(length)) => write!(f, "[{element}; {length}]"),
+            Self::Array(element, None) => write!(f, "[{element}; N]"),
             Self::Pointer { mutable, target } => {
                 let qualifier = if *mutable { "mut" } else { "const" };
                 write!(f, "*{qualifier} {target}")

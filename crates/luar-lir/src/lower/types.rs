@@ -66,7 +66,7 @@ pub fn convert(ty: &Type, ids: &Ids) -> Result<Ty, Refused> {
                 result: Box::new(convert(result, ids)?),
             }
         }
-        Type::Array(element) => Ty::Array(Box::new(convert(element, ids)?)),
+        Type::Array(element, _) => Ty::Array(Box::new(convert(element, ids)?)),
         Type::Pointer { mutable, target } => Ty::Pointer {
             mutable: *mutable,
             target: Box::new(convert(target, ids)?),

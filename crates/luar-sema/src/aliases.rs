@@ -50,7 +50,7 @@ impl Aliases {
             Type::Union(members) => Type::Union(self.each(members)),
             Type::Intersection(members) => Type::Intersection(self.each(members)),
             Type::Tuple(members) => Type::Tuple(self.each(members)),
-            Type::Array(element) => Type::Array(Box::new(self.expand(element))),
+            Type::Array(element, length) => Type::Array(Box::new(self.expand(element)), *length),
             Type::SequenceLiteral(element) => Type::SequenceLiteral(Box::new(self.expand(element))),
             Type::Pointer { mutable, target } => Type::Pointer {
                 mutable: *mutable,
@@ -175,7 +175,10 @@ fn follow(
         Type::Union(members) => Type::Union(all(members, written, ring, diagnostics)),
         Type::Intersection(members) => Type::Intersection(all(members, written, ring, diagnostics)),
         Type::Tuple(members) => Type::Tuple(all(members, written, ring, diagnostics)),
-        Type::Array(element) => Type::Array(Box::new(follow(element, written, ring, diagnostics))),
+        Type::Array(element, length) => Type::Array(
+            Box::new(follow(element, written, ring, diagnostics)),
+            *length,
+        ),
         Type::SequenceLiteral(element) => {
             Type::SequenceLiteral(Box::new(follow(element, written, ring, diagnostics)))
         }
@@ -262,7 +265,9 @@ pub fn substitute(ty: &Type, params: &[String], args: &[Type]) -> Type {
                 .map(|ty| substitute(ty, params, args))
                 .collect(),
         ),
-        Type::Array(element) => Type::Array(Box::new(substitute(element, params, args))),
+        Type::Array(element, length) => {
+            Type::Array(Box::new(substitute(element, params, args)), *length)
+        }
         Type::SequenceLiteral(element) => {
             Type::SequenceLiteral(Box::new(substitute(element, params, args)))
         }

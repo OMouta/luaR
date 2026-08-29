@@ -176,7 +176,7 @@ impl Checker<'_> {
                 .iter()
                 .all(|arg| self.has_thread_marker_inner(arg, marker, visiting)),
             Type::Builtin { .. } | Type::SequenceLiteral(_) | Type::Pointer { .. } => false,
-            Type::Optional(inner) | Type::Array(inner) => {
+            Type::Optional(inner) | Type::Array(inner, _) => {
                 self.has_thread_marker_inner(inner, marker, visiting)
             }
             Type::Union(members) | Type::Tuple(members) => members
