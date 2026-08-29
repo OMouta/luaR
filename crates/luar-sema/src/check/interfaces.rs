@@ -54,6 +54,29 @@ fn builtin_protocol(protocol: &str, held: &Type) -> bool {
     }
 }
 
+/// The method `name` the language itself gives a value of type `receiver`
+/// (LR4.3, LR8, LR13, LR25.1, LR59, LR72).
+fn language_method(receiver: &Type, name: &str, span: Span) -> Option<Overloads> {
+    let single = [
+        unsafe_memory_method,
+        frozen_method,
+        checked_index_method,
+        contains_method,
+        index_of_method,
+        ok_or_method,
+        map_err_method,
+    ]
+    .iter()
+    .find_map(|method| method(receiver, name, span));
+    if let Some(signature) = single {
+        return Some(vec![signature]);
+    }
+    if let Some((_, signatures)) = collection_mutation_method(receiver, name, span) {
+        return Some(signatures);
+    }
+    overflow_method(receiver, name, span).map(|(_, signature)| vec![signature])
+}
+
 /// A method that was found, and what the receiver filled the type parameters
 /// of the block offering it with (LR20).
 pub(super) type Reached = (Overloads, Vec<Type>);
@@ -367,21 +390,23 @@ impl Checker<'_> {
     /// type already has. Letting it would make what a call means depend on
     /// which blocks the calling module happens to import.
     pub(super) fn overrides(&mut self, target: &Type, name: &str, span: Span) {
-        let Type::Named {
-            module,
-            name: declared,
-            ..
-        } = target
-        else {
-            return;
+        let declared = match target {
+            Type::Named {
+                module,
+                name: declared,
+                ..
+            } => {
+                let Some(structure) = self.table.structure(*module, declared) else {
+                    return;
+                };
+                if !structure.has_member(name) {
+                    return;
+                }
+                declared.clone()
+            }
+            _ if language_method(target, name, span).is_some() => target.to_string(),
+            _ => return,
         };
-        let Some(structure) = self.table.structure(*module, declared) else {
-            return;
-        };
-
-        if !structure.has_member(name) {
-            return;
-        }
 
         self.diagnostics.push(
             Diagnostic::error(
@@ -481,32 +506,8 @@ impl Checker<'_> {
             };
         }
 
-        if let Some(signature) = unsafe_memory_method(receiver, name, span) {
-            return Some((vec![signature], Vec::new()));
-        }
-        if let Some(signature) = frozen_method(receiver, name, span) {
-            return Some((vec![signature], Vec::new()));
-        }
-        if let Some(signature) = checked_index_method(receiver, name, span) {
-            return Some((vec![signature], Vec::new()));
-        }
-        if let Some(signature) = contains_method(receiver, name, span) {
-            return Some((vec![signature], Vec::new()));
-        }
-        if let Some(signature) = index_of_method(receiver, name, span) {
-            return Some((vec![signature], Vec::new()));
-        }
-        if let Some(signature) = ok_or_method(receiver, name, span) {
-            return Some((vec![signature], Vec::new()));
-        }
-        if let Some(signature) = map_err_method(receiver, name, span) {
-            return Some((vec![signature], Vec::new()));
-        }
-        if let Some((_, signatures)) = collection_mutation_method(receiver, name, span) {
-            return Some((signatures, Vec::new()));
-        }
-        if let Some((_, signature)) = overflow_method(receiver, name, span) {
-            return Some((vec![signature], Vec::new()));
+        if let Some(found) = language_method(receiver, name, span) {
+            return Some((found, Vec::new()));
         }
 
         if let Type::Named {
