@@ -27,7 +27,6 @@ pub enum CollectionMutation {
     ListPop,
     ListInsert,
     ListRemoveAt,
-    ListReverse,
     ListPushAll,
     SetInsert,
     MapRemove,

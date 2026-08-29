@@ -335,7 +335,6 @@ pub(super) fn collection_mutation_method(
         (Builtin::List, "pop") => CollectionMutation::ListPop,
         (Builtin::List, "insert") => CollectionMutation::ListInsert,
         (Builtin::List, "removeAt") => CollectionMutation::ListRemoveAt,
-        (Builtin::List, "reverse") => CollectionMutation::ListReverse,
         (Builtin::List, "pushAll") => CollectionMutation::ListPushAll,
         (Builtin::Set, "insert") => CollectionMutation::SetInsert,
         (Builtin::Map, "remove") => CollectionMutation::MapRemove,
@@ -374,7 +373,7 @@ pub(super) fn collection_mutation_method(
             args.get(1).cloned().unwrap_or(Type::Unresolved).optional(),
         )],
         CollectionMutation::SetRemove => vec![(vec![param("value", &element)], Type::BOOL)],
-        CollectionMutation::Clear | CollectionMutation::ListReverse => vec![(Vec::new(), unit)],
+        CollectionMutation::Clear => vec![(Vec::new(), unit)],
     };
     let signatures = signatures
         .into_iter()

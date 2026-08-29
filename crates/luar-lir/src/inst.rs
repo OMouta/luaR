@@ -342,10 +342,6 @@ pub enum InstKind {
     Clear {
         receiver: Value,
     },
-    /// The elements of a list put in the opposite order, in place (LR13.1).
-    ListReverse {
-        receiver: Value,
-    },
     /// The value at `key`, taken out of the map, or nothing (LR13.2).
     MapRemove {
         receiver: Value,
@@ -527,7 +523,6 @@ impl InstKind {
             | Self::MapRemove { .. }
             | Self::SetRemove { .. }
             | Self::Clear { .. }
-            | Self::ListReverse { .. }
             | Self::Length { .. }
             | Self::Buckets { .. }
             | Self::Occupied { .. }

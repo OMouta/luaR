@@ -430,10 +430,6 @@ impl Translator<'_, '_> {
             InstKind::Contains { receiver, value } => self.contains(*receiver, *value),
             InstKind::MapRemove { receiver, key } => self.map_remove(*receiver, *key, inst.result),
             InstKind::SetRemove { receiver, value } => self.set_remove(*receiver, *value),
-            InstKind::ListReverse { receiver } => {
-                self.list_reverse(*receiver);
-                None
-            }
             InstKind::Clear { receiver } => {
                 self.clear(*receiver);
                 None

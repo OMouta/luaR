@@ -60,3 +60,17 @@ export extend FrozenListSearch<T> for FrozenList<T>
         return nil
     end
 end
+
+export extend ListMutation<T> for List<T>
+    function reverse(self)
+        local low = 0
+        local high = self.length - 1
+        while low < high do
+            local held = self[low]
+            self[low] = self[high]
+            self[high] = held
+            low += 1
+            high -= 1
+        end
+    end
+end

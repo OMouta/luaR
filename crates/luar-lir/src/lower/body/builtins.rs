@@ -238,7 +238,6 @@ impl<'a> Body<'a> {
                 return self.emit(InstKind::ListPop { receiver }, result, span);
             }
             CollectionMutation::Clear => InstKind::Clear { receiver },
-            CollectionMutation::ListReverse => InstKind::ListReverse { receiver },
             CollectionMutation::ListPushAll => {
                 let Some(argument) = args.first() else {
                     return self.missing(span, "a push without a list");
