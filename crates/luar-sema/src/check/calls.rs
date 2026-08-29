@@ -561,6 +561,14 @@ impl Checker<'_> {
     ) -> Option<Callee> {
         if let Some(method) = method {
             let (overloads, type_args) = self.method(receiver, method, span)?;
+            // LR20: the receiver fills the block's parameters, which come
+            // first, before any argument is read against the method.
+            let block: Vec<String> = overloads
+                .first()
+                .and_then(|signature| signature.type_params.get(..type_args.len()))
+                .map(<[String]>::to_vec)
+                .unwrap_or_default();
+            let overloads = filled(&overloads, &block, &type_args);
             return Some(Callee {
                 name: method.to_owned(),
                 overloads,

@@ -1,0 +1,38 @@
+--- expect: run
+--- exit: 0
+--- stdout: "3\n2\n"
+--- spec: LR20
+--- spec: LR40
+--- spec: LR9.2
+extend Growth<T> for List<T>
+    function absorb(self, other: List<T>)
+        for i in 0..<other.length do
+            self:push(other[i])
+        end
+    end
+
+    function absorb(self, other: FrozenList<T>)
+        for i in 0..<other.length do
+            self:push(other[i])
+        end
+    end
+
+    function count(self, keep: (T) -> bool): int
+        local found = 0
+        for i in 0..<self.length do
+            if keep(self[i]) then
+                found += 1
+            end
+        end
+        return found
+    end
+end
+
+export function main()
+    local values: List<int> = [1]
+    values:absorb([2])
+    local more = [3]
+    values:absorb(more:frozen())
+    print(values.length)
+    print(values:count((value) => value > 1))
+end
