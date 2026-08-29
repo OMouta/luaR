@@ -558,6 +558,8 @@ local double = (value: int) => value * 2
 
 Multiple statements require a normal function body.
 
+A closure written where a function type is asked for, as an argument or the value of an annotated binding, takes the parameter types it does not write from that type. An arrow closure with no written result returns what its expression is (LR7).
+
 ### 9.3 Function Types
 
 ```lua
@@ -1869,6 +1871,8 @@ end
 ```
 
 `Result.Ok(value)` and `Result.Err(error)` take their type arguments from what the value is asked for: the result of the enclosing function at a `return`, the annotation of the binding they initialize, or the parameter they are passed to. Where nothing asks for one, they are written: `Result.Ok<T, E>(value)`.
+
+`result:mapErr(f)` is the same `Ok`, or `Result.Err(f(error))` where `result` is `Err(error)`: a `Result<T, F>`, with `F` what `f` returns.
 
 ### 25.2 Propagation Operator
 
