@@ -28,7 +28,7 @@ export function main()
         total += 1
     until total >= 3
 
-    local rows = [[1, 2], [3, 4]]
+    local rows = [ [1, 2], [3, 4] ]
     local target = 3
 
     outer: for row in rows do
