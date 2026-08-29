@@ -378,9 +378,35 @@ impl Type {
                     target: held,
                 },
             ) => mutable == held_mutable && target.accepts(held),
+            // LR9.3: a function fits where it takes what it will be given
+            // and gives back what is wanted; `Send` is a promise the wanted
+            // type may ask for (LR28).
+            (
+                Self::Function {
+                    asynchronous,
+                    sendable,
+                    params,
+                    result,
+                },
+                Self::Function {
+                    asynchronous: held_asynchronous,
+                    sendable: held_sendable,
+                    params: held_params,
+                    result: held_result,
+                },
+            ) => {
+                asynchronous == held_asynchronous
+                    && (!sendable || *held_sendable)
+                    && params.len() == held_params.len()
+                    && params
+                        .iter()
+                        .zip(held_params)
+                        .all(|(wanted, held)| held.accepts(wanted))
+                    && result.accepts(held_result)
+            }
 
             // Anything else pairs shapes this stage does not compare yet:
-            // functions, records, arrays, intersections, and every mixture of
+            // records, arrays, intersections, and every mixture of
             // kinds not named above.
             _ => !compared(self) || !compared(value),
         }
@@ -411,6 +437,7 @@ fn compared(ty: &Type) -> bool {
             | Type::Union(_)
             | Type::Tuple(_)
             | Type::Pointer { .. }
+            | Type::Function { .. }
             | Type::IntegerLiteral(_)
             | Type::FloatLiteral
             | Type::SequenceLiteral(_)

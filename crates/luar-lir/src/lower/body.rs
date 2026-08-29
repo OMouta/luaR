@@ -2479,6 +2479,9 @@ impl<'a> Body<'a> {
         if self.context.facts.ok_or(span) {
             return self.ok_or(callee, args, span);
         }
+        if self.context.facts.map_err(span) {
+            return self.missing(span, "a result mapping its error");
+        }
         if let Some(mutation) = self.context.facts.collection_mutation(span) {
             return self.collection_mutation(mutation, callee, args, span);
         }

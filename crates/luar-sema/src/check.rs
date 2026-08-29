@@ -1593,6 +1593,19 @@ impl Checker<'_> {
     /// LR25.1: `Result.Ok(value)` and `Result.Err(error)` take the type
     /// arguments of the `Result` the value is asked for.
     fn expr_wanting(&mut self, expr: &Expr, wanted: &Type) -> Type {
+        // LR9.2: a closure takes the parameter types it does not write from
+        // the function type asked for.
+        if let ExprKind::Function { params, .. } = &expr.kind
+            && let Type::Function {
+                params: expected, ..
+            } = wanted
+            && expected.len() == params.len()
+        {
+            let expected = expected.clone();
+            let ty = self.function_expr(expr, &expected);
+            self.facts.record_type(expr.span, ty.clone());
+            return ty;
+        }
         if let ExprKind::Call {
             callee,
             method: None,
@@ -1615,6 +1628,79 @@ impl Checker<'_> {
             return ty;
         }
         self.expr(expr)
+    }
+
+    /// LR9.2: a closure, with a parameter type it does not write taken from
+    /// `expected`, and the result of an arrow closure worked out from its
+    /// expression (LR7).
+    fn function_expr(&mut self, expr: &Expr, expected: &[Type]) -> Type {
+        let ExprKind::Function {
+            asynchronous,
+            params,
+            result,
+            body,
+        } = &expr.kind
+        else {
+            return Type::Unresolved;
+        };
+        let base = self.values.len();
+        let outer_mutations = self.mutations.last().cloned().unwrap_or_default();
+        self.push();
+        self.closures.push(ClosureCaptures {
+            base,
+            values: HashMap::new(),
+            mutable: HashSet::new(),
+            outer_mutations,
+        });
+        self.mutations.push(assigned_function(body));
+        let mut types = Vec::with_capacity(params.len());
+        for (i, param) in params.iter().enumerate() {
+            let declared = match &param.ty {
+                Some(ty) => self.resolve(ty),
+                None => expected.get(i).cloned().unwrap_or(Type::Unresolved),
+            };
+            self.param(param, declared.clone());
+            types.push(declared);
+        }
+
+        let declared = result.as_ref().map(|result| self.resolve(result));
+
+        self.returns.push(declared.clone());
+        self.asynchronously.push(*asynchronous);
+        self.bodies.push(None);
+
+        let produced = match body.as_ref() {
+            FunctionBody::Block(block) => {
+                for stmt in &block.stmts {
+                    self.stmt(stmt);
+                }
+                None
+            }
+            FunctionBody::Expr(expr) => Some(self.expr(expr)),
+        };
+
+        self.mutations.pop();
+        let captures = self.closures.pop().expect("a closure is open");
+        self.bodies.pop();
+        self.asynchronously.pop();
+        self.returns.pop();
+        self.pop();
+
+        let sendable = captures.values.iter().all(|(name, ty)| {
+            !captures.mutable.contains(name)
+                && !captures.outer_mutations.contains(name)
+                && self.has_thread_marker(ty, ThreadMarker::Send)
+        });
+        let returns = declared
+            .or_else(|| produced.map(settle))
+            .unwrap_or(Type::Unresolved);
+
+        Type::Function {
+            asynchronous: *asynchronous,
+            sendable,
+            params: types,
+            result: Box::new(returns),
+        }
     }
 
     fn expr_type(&mut self, expr: &Expr) -> Type {
@@ -1816,72 +1902,7 @@ impl Checker<'_> {
                     args: vec![element],
                 }
             }
-            ExprKind::Function {
-                asynchronous,
-                params,
-                result,
-                body,
-            } => {
-                let base = self.values.len();
-                let outer_mutations = self.mutations.last().cloned().unwrap_or_default();
-                self.push();
-                self.closures.push(ClosureCaptures {
-                    base,
-                    values: HashMap::new(),
-                    mutable: HashSet::new(),
-                    outer_mutations,
-                });
-                self.mutations.push(assigned_function(body));
-                let mut types = Vec::with_capacity(params.len());
-                for param in params {
-                    let declared = match &param.ty {
-                        Some(ty) => self.resolve(ty),
-                        None => Type::Unresolved,
-                    };
-                    self.param(param, declared.clone());
-                    types.push(declared);
-                }
-
-                let returns = match result {
-                    Some(result) => self.resolve(result),
-                    None => Type::Unresolved,
-                };
-
-                self.returns.push(result.as_ref().map(|_| returns.clone()));
-                self.asynchronously.push(*asynchronous);
-                self.bodies.push(None);
-
-                match body.as_ref() {
-                    FunctionBody::Block(block) => {
-                        for stmt in &block.stmts {
-                            self.stmt(stmt);
-                        }
-                    }
-                    FunctionBody::Expr(expr) => {
-                        self.expr(expr);
-                    }
-                }
-
-                self.mutations.pop();
-                let captures = self.closures.pop().expect("a closure is open");
-                self.bodies.pop();
-                self.asynchronously.pop();
-                self.returns.pop();
-                self.pop();
-
-                let sendable = captures.values.iter().all(|(name, ty)| {
-                    !captures.mutable.contains(name)
-                        && !captures.outer_mutations.contains(name)
-                        && self.has_thread_marker(ty, ThreadMarker::Send)
-                });
-
-                Type::Function {
-                    asynchronous: *asynchronous,
-                    sendable,
-                    params: types,
-                    result: Box::new(returns),
-                }
-            }
+            ExprKind::Function { .. } => self.function_expr(expr, &[]),
             ExprKind::Match { scrutinee, arms } => {
                 let held = self.expr(scrutinee);
                 for arm in arms {
@@ -2801,6 +2822,7 @@ impl Checker<'_> {
         let contains = method.is_some_and(|name| contains_method(receiver, name, span).is_some());
         let index_of = method.is_some_and(|name| index_of_method(receiver, name, span).is_some());
         let ok_or = method.is_some_and(|name| ok_or_method(receiver, name, span).is_some());
+        let map_err = method.is_some_and(|name| map_err_method(receiver, name, span).is_some());
         let collection_mutation = method.and_then(|name| {
             collection_mutation_method(receiver, name, span).map(|(mutation, _)| mutation)
         });
@@ -2813,11 +2835,7 @@ impl Checker<'_> {
         // LR25.1: with one signature, what each parameter asks for is known
         // before its argument is read.
         let expected: Vec<Option<Type>> = match &resolved {
-            Some(resolved)
-                if resolved.overloads.len() == 1
-                    && resolved.receiver.is_none()
-                    && resolved.overloads[0].type_params.is_empty() =>
-            {
+            Some(resolved) if resolved.overloads.len() == 1 && resolved.receiver.is_none() => {
                 let signature = &resolved.overloads[0];
                 args.iter()
                     .enumerate()
@@ -2830,6 +2848,7 @@ impl Checker<'_> {
                             .get(i)
                             .filter(|param| !param.variadic)
                             .map(|param| param.ty.clone())
+                            .filter(|ty| usable(ty, &signature.type_params))
                     })
                     .collect()
             }
@@ -2927,6 +2946,9 @@ impl Checker<'_> {
         }
         if ok_or {
             self.facts.record_ok_or(span);
+        }
+        if map_err {
+            self.facts.record_map_err(span);
         }
         if let Some(mutation) = collection_mutation {
             self.facts.record_collection_mutation(span, mutation);
@@ -3232,6 +3254,9 @@ impl Checker<'_> {
             return Some(vec![signature]);
         }
         if let Some(signature) = ok_or_method(receiver, name, span) {
+            return Some(vec![signature]);
+        }
+        if let Some(signature) = map_err_method(receiver, name, span) {
             return Some(vec![signature]);
         }
         if let Some((_, signatures)) = collection_mutation_method(receiver, name, span) {
@@ -4904,6 +4929,85 @@ fn ok_or_method(receiver: &Type, name: &str, span: Span) -> Option<Signature> {
         inferred: false,
         unsafe_: false,
     })
+}
+
+/// `result:mapErr(f)` (LR25.1).
+fn map_err_method(receiver: &Type, name: &str, span: Span) -> Option<Signature> {
+    if name != "mapErr" {
+        return None;
+    }
+    let Type::Builtin {
+        kind: Builtin::Result,
+        args,
+    } = receiver
+    else {
+        return None;
+    };
+    let (Some(value), Some(error)) = (args.first(), args.get(1)) else {
+        return None;
+    };
+    let mapped = || Type::Parameter("F".to_owned());
+    Some(Signature {
+        asynchronous: false,
+        type_params: vec!["F".to_owned()],
+        constraints: Vec::new(),
+        params: vec![crate::table::Param {
+            name: "map".to_owned(),
+            ty: Type::Function {
+                asynchronous: false,
+                sendable: false,
+                params: vec![error.clone()],
+                result: Box::new(mapped()),
+            },
+            optional: false,
+            variadic: false,
+        }],
+        result: Type::Builtin {
+            kind: Builtin::Result,
+            args: vec![value.clone(), mapped()],
+        },
+        takes_self: true,
+        visibility: None,
+        span,
+        inferred: false,
+        unsafe_: false,
+    })
+}
+
+/// Whether `ty` names any of `params`.
+fn mentions(ty: &Type, params: &[String]) -> bool {
+    match ty {
+        Type::Parameter(name) => params.iter().any(|param| param == name),
+        Type::Builtin { args, .. } | Type::Named { args, .. } => {
+            args.iter().any(|arg| mentions(arg, params))
+        }
+        Type::Optional(inner) | Type::Array(inner) | Type::SequenceLiteral(inner) => {
+            mentions(inner, params)
+        }
+        Type::Pointer { target, .. } => mentions(target, params),
+        Type::Union(members) | Type::Intersection(members) | Type::Tuple(members) => {
+            members.iter().any(|member| mentions(member, params))
+        }
+        Type::Function {
+            params: takes,
+            result,
+            ..
+        } => takes.iter().any(|take| mentions(take, params)) || mentions(result, params),
+        Type::Record(fields) => fields.iter().any(|(_, ty)| mentions(ty, params)),
+        Type::Primitive(_) | Type::IntegerLiteral(_) | Type::FloatLiteral | Type::Unresolved => {
+            false
+        }
+    }
+}
+
+/// What a parameter asks for is known before the type arguments of the call
+/// are, where it names none of them; a closure needs only the parameters of
+/// the function type.
+fn usable(ty: &Type, params: &[String]) -> bool {
+    match ty {
+        Type::Function { params: takes, .. } => !takes.iter().any(|take| mentions(take, params)),
+        other => !mentions(other, params),
+    }
 }
 
 fn collection_mutation_method(
