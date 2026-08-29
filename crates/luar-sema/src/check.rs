@@ -4706,7 +4706,7 @@ fn contains_method(receiver: &Type, name: &str, span: Span) -> Option<Signature>
     };
     let param = match kind {
         Builtin::Map | Builtin::FrozenMap => "key",
-        Builtin::Set | Builtin::FrozenSet => "value",
+        Builtin::List | Builtin::FrozenList | Builtin::Set | Builtin::FrozenSet => "value",
         _ => return None,
     };
     Some(Signature {
