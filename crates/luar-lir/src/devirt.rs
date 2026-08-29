@@ -1,6 +1,6 @@
 //! Devirtualization of single-implementation interface calls (LR18.1).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::inst::{Inst, InstKind};
 use crate::program::{FuncId, Implementation, Program, Shape};
@@ -17,6 +17,35 @@ pub fn run(program: &mut Program) {
     let functions: Vec<FuncId> = program.functions().map(|(id, _)| id).collect();
     for id in functions {
         devirtualize(program, id, &single);
+    }
+    erase_unused_tables(program, &single);
+}
+
+fn erase_unused_tables(program: &mut Program, single: &HashMap<TypeId, Implementation>) {
+    let unresolved: HashSet<TypeId> = program
+        .functions()
+        .flat_map(|(_, function)| function.blocks())
+        .flat_map(|(_, block)| &block.insts)
+        .filter_map(|inst| match inst.kind {
+            InstKind::CallVirtual { method, .. } => Some(method.interface),
+            _ => None,
+        })
+        .collect();
+
+    let functions: Vec<FuncId> = program.functions().map(|(id, _)| id).collect();
+    for id in functions {
+        let function = program.function_mut(id);
+        for block in function.blocks_mut() {
+            for inst in &mut block.insts {
+                let InstKind::MakeDyn { interface, .. } = &mut inst.kind else {
+                    continue;
+                };
+                if interface.is_some_and(|id| single.contains_key(&id) && !unresolved.contains(&id))
+                {
+                    *interface = None;
+                }
+            }
+        }
     }
 }
 
@@ -261,7 +290,7 @@ fn infer_each(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::inst::{MethodId, Terminator};
+    use crate::inst::{Const, MethodId, Terminator};
     use crate::program::{Function, Interface, Method, Nominal, Shape, Struct};
     use luar_diagnostics::{FileId, Span};
 
@@ -398,6 +427,61 @@ mod tests {
         let (mut program, measure, _) = program_with(0);
         run(&mut program);
         assert_eq!(kinds(&program, measure), ["virtual"]);
+    }
+
+    #[test]
+    fn a_resolved_interface_value_needs_no_method_table() {
+        let (mut program, _, interface) = program_with(1);
+        let Shape::Interface(held) = &program.nominal(interface).shape else {
+            unreachable!()
+        };
+        let concrete = Ty::Named {
+            id: held.implementors[0].ty,
+            args: Vec::new(),
+        };
+        let mut caller = Function::new("box".to_owned(), Vec::new(), Ty::Unit, SPAN);
+        let value = caller.add_value(concrete.clone());
+        caller.block_mut(caller.entry).insts.push(Inst {
+            result: Some(value),
+            kind: InstKind::MakeStruct {
+                ty: concrete,
+                fields: Vec::new(),
+            },
+            span: SPAN,
+        });
+        let boxed = caller.add_value(Ty::Named {
+            id: interface,
+            args: Vec::new(),
+        });
+        caller.block_mut(caller.entry).insts.push(Inst {
+            result: Some(boxed),
+            kind: InstKind::MakeDyn {
+                interface: Some(interface),
+                value,
+            },
+            span: SPAN,
+        });
+        let unit = caller.add_value(Ty::Unit);
+        caller.block_mut(caller.entry).insts.push(Inst {
+            result: Some(unit),
+            kind: InstKind::Const(Const::Unit),
+            span: SPAN,
+        });
+        caller.block_mut(caller.entry).term = Some(Terminator::Return(unit));
+        let caller = program.add_function(caller);
+
+        run(&mut program);
+
+        let interface = program
+            .function(caller)
+            .block(program.function(caller).entry)
+            .insts
+            .iter()
+            .find_map(|inst| match inst.kind {
+                InstKind::MakeDyn { interface, .. } => Some(interface),
+                _ => None,
+            });
+        assert_eq!(interface, Some(None));
     }
 
     #[test]
