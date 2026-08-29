@@ -16,8 +16,9 @@ use super::builtins::{
     index_of_method, intrinsic_signature, map_err_method, ok_or_method, overflow_method, plural,
     usable,
 };
+use super::expr::result_variant;
 use super::operators::{is_integer, is_numeric, opaque, settle};
-use super::{Callee, Checker, Fit, ThreadMarker, result_variant};
+use super::{Callee, Checker, Fit, ThreadMarker};
 
 /// Lines a call up with one signature, without reporting anything.
 fn fit(signature: &Signature, args: &[Argument]) -> Fit {
