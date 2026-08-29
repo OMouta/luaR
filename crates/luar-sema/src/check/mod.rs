@@ -24,8 +24,10 @@ use builtins::{
     index_of_method, intrinsic_signature, is_collection, is_frozen_collection, map_err_method,
     ok_or_method, overflow_method, plural, usable,
 };
+use unsafe_ops::{unavailable_unsafe_memory_method, unsafe_memory_method};
 
 mod builtins;
+mod unsafe_ops;
 
 /// Checks the types of every module in `graph`, and gives back what it worked
 /// out along the way.
@@ -4358,52 +4360,6 @@ impl Checker<'_> {
         self.constants.pop();
     }
 
-    /// LR72: an address is taken inside `unsafe`, and only of a binding that
-    /// stays put for the length of that context.
-    fn address_of(&mut self, mutable: bool, operand: &Expr, span: Span) {
-        let taking = if mutable { "`&mut`" } else { "`&`" };
-
-        if self.unsafely == 0 {
-            self.diagnostics.push(
-                Diagnostic::error(
-                    codes::UNSAFE_REQUIRED,
-                    span,
-                    format!("{taking} takes a raw pointer, which needs `unsafe`"),
-                )
-                .note("Write it inside an `unsafe` block, or in an `unsafe` function (LR29.2)."),
-            );
-        }
-
-        if !addressable(operand) {
-            self.diagnostics.push(
-                Diagnostic::error(
-                    codes::ADDRESS_OF_TEMPORARY,
-                    operand.span,
-                    "this is a value in flight, and has no address to take",
-                )
-                .note("An address is taken of a binding, a field of one, or an element (LR72)."),
-            );
-            return;
-        }
-
-        if let ExprKind::Name(name) = &operand.kind {
-            self.facts.record_addressed(name.clone());
-        }
-
-        if let (true, ExprKind::Name(name)) = (mutable, &operand.kind)
-            && self.is_constant(name)
-        {
-            self.diagnostics.push(
-                Diagnostic::error(
-                    codes::ADDRESS_OF_CONSTANT,
-                    operand.span,
-                    format!("`{name}` is bound by `const`, and `&mut` writes through"),
-                )
-                .note("Take `&` of a `const` binding, or bind it with `local` (LR72, LR5.2)."),
-            );
-        }
-    }
-
     /// LR24: a `const` is worked out while compiling, over a pure subset:
     /// literals, arithmetic and comparison, string operations, tuple, record
     /// and array construction, enum construction, and other `const` values.
@@ -4656,110 +4612,6 @@ impl Checker<'_> {
     }
 }
 
-/// The unchecked collection and raw-pointer operations (LR29.2, LR70, LR72).
-fn unsafe_memory_method(receiver: &Type, name: &str, span: Span) -> Option<Signature> {
-    let int = Type::Primitive(Primitive::I64);
-    let isize = Type::Primitive(Primitive::Isize);
-    let unit = Type::Tuple(Vec::new());
-
-    let (params, result) = match (receiver, name) {
-        (Type::Array(element), "unchecked") => {
-            (vec![memory_param("index", int)], element.as_ref().clone())
-        }
-        (
-            Type::Builtin {
-                kind: Builtin::List | Builtin::FrozenList,
-                args,
-            },
-            "unchecked",
-        ) => (
-            vec![memory_param("index", int)],
-            args.first().cloned().unwrap_or(Type::Unresolved),
-        ),
-        (Type::Array(element), "uncheckedSet") => (
-            vec![
-                memory_param("index", int),
-                memory_param("value", element.as_ref().clone()),
-            ],
-            unit,
-        ),
-        (
-            Type::Builtin {
-                kind: Builtin::List,
-                args,
-            },
-            "uncheckedSet",
-        ) => (
-            vec![
-                memory_param("index", int),
-                memory_param("value", args.first().cloned().unwrap_or(Type::Unresolved)),
-            ],
-            unit,
-        ),
-        (Type::Primitive(Primitive::Bytes), "unchecked") => (
-            vec![memory_param("index", int)],
-            Type::Primitive(Primitive::U8),
-        ),
-        (Type::Primitive(Primitive::Bytes), "uncheckedSet") => (
-            vec![
-                memory_param("index", int),
-                memory_param("value", Type::Primitive(Primitive::U8)),
-            ],
-            unit,
-        ),
-        (Type::Pointer { target, .. }, "read") => (Vec::new(), target.as_ref().clone()),
-        (
-            Type::Pointer {
-                mutable: true,
-                target,
-            },
-            "write",
-        ) => (vec![memory_param("value", target.as_ref().clone())], unit),
-        (Type::Pointer { .. }, "add") => (vec![memory_param("offset", isize)], receiver.clone()),
-        _ => return None,
-    };
-
-    Some(Signature {
-        asynchronous: false,
-        type_params: Vec::new(),
-        constraints: Vec::new(),
-        params,
-        result,
-        takes_self: true,
-        visibility: None,
-        span,
-        inferred: false,
-        unsafe_: true,
-    })
-}
-
-fn memory_param(name: &str, ty: Type) -> crate::table::Param {
-    crate::table::Param {
-        name: name.to_owned(),
-        ty,
-        optional: false,
-        variadic: false,
-    }
-}
-
-fn unavailable_unsafe_memory_method(receiver: &Type, name: &str) -> bool {
-    let memory_receiver = matches!(
-        receiver,
-        Type::Array(_)
-            | Type::Pointer { .. }
-            | Type::Primitive(Primitive::Bytes)
-            | Type::Builtin {
-                kind: Builtin::List | Builtin::FrozenList,
-                ..
-            }
-    );
-    memory_receiver
-        && matches!(
-            name,
-            "unchecked" | "uncheckedSet" | "read" | "write" | "add"
-        )
-}
-
 /// The name a `x == nil` or `x ~= nil` test is about, whichever side the
 /// `nil` is written on (LR57).
 fn tested_against_nil<'a>(left: &'a Expr, right: &'a Expr) -> Option<&'a str> {
@@ -4920,18 +4772,6 @@ fn instance_finalizer(function: &Function) -> bool {
             function.params.first().map(|param| &param.binding),
             Some(Binding::Name(name)) if name == "self"
         )
-}
-
-/// Whether `expr` names storage that stays put, which is what an address can
-/// be taken of (LR72).
-fn addressable(expr: &Expr) -> bool {
-    match &expr.kind {
-        ExprKind::Name(_) => true,
-        ExprKind::Field { receiver, .. } | ExprKind::Index { receiver, .. } => {
-            addressable(receiver)
-        }
-        _ => false,
-    }
 }
 
 /// Whether `as` counts this as a number to convert (LR39).
