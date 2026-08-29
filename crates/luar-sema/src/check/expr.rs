@@ -14,7 +14,8 @@ use super::builtins::{article, is_collection, ok_or_method};
 use super::calls::{against, infer};
 use super::interfaces::same_signature;
 use super::operators::{settle, unify};
-use super::{Checker, ClosureCaptures, ThreadMarker, assigned_function};
+use super::stmt::assigned_function;
+use super::{Checker, ClosureCaptures, ThreadMarker};
 
 impl Checker<'_> {
     /// The type of an expression, recorded for the stages after this one.
