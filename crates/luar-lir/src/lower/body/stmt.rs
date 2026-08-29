@@ -7,7 +7,8 @@ use luar_diagnostics::Span;
 use luar_sema::check::protocol_of;
 
 use crate::inst::{Const, InstKind, Target, Terminator, Trap, Value};
-use crate::lower::body::{Arrival, Body, Cleanup, Exit, Handler, Loop, binary_op};
+use crate::lower::body::expr::binary_op;
+use crate::lower::body::{Arrival, Body, Cleanup, Exit, Handler, Loop};
 use crate::ty::{Builtin, Ty};
 
 impl<'a> Body<'a> {
