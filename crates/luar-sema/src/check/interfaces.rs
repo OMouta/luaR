@@ -110,7 +110,7 @@ impl Checker<'_> {
             return self.has_thread_marker(held, marker);
         }
 
-        let Type::Named { module, name, .. } = wanted else {
+        let Type::Named { module, name, args } = wanted else {
             return false;
         };
         let Some(Decl::Interface(interface)) = self.table.get(*module, name) else {
@@ -127,7 +127,9 @@ impl Checker<'_> {
             return interface.methods.iter().all(|(member, required)| {
                 required.iter().all(|required| {
                     self.methods_of(held, member).is_some_and(|had| {
-                        let required = against(required, held);
+                        let required =
+                            filled(std::slice::from_ref(required), &interface.type_params, args);
+                        let required = against(&required[0], held);
                         had.iter().any(|had| same_signature(had, &required))
                     })
                 })

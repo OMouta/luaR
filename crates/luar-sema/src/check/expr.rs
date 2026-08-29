@@ -11,7 +11,7 @@ use crate::table::{Decl, Field, Variant};
 use crate::types::{Builtin, Primitive, Type};
 
 use super::builtins::{article, is_collection};
-use super::calls::{against, infer};
+use super::calls::{against, filled, infer};
 use super::interfaces::same_signature;
 use super::operators::{settle, unify};
 use super::stmt::assigned_function;
@@ -515,7 +515,7 @@ impl Checker<'_> {
     /// LR18: reports every member `claimed` is missing from what `wanted`
     /// requires, or has with a signature that does not match.
     pub(super) fn conforms(&mut self, claimed: &Type, wanted: &Type, span: Span) {
-        let Type::Named { module, name, .. } = wanted else {
+        let Type::Named { module, name, args } = wanted else {
             return;
         };
         let Some(Decl::Interface(interface)) = self.table.get(*module, name) else {
@@ -530,7 +530,9 @@ impl Checker<'_> {
         for (member, required) in &interface.methods {
             for required in required {
                 let held = self.methods_of(claimed, member).is_some_and(|had| {
-                    let required = against(required, claimed);
+                    let required =
+                        filled(std::slice::from_ref(required), &interface.type_params, args);
+                    let required = against(&required[0], claimed);
                     had.iter().any(|had| same_signature(had, &required))
                 });
                 if held {
@@ -555,9 +557,10 @@ impl Checker<'_> {
         }
 
         for property in &interface.properties {
+            let required = substitute(&property.ty, &interface.type_params, args);
             let held = self
                 .stored(claimed, &property.name)
-                .is_some_and(|found| found.ty == property.ty);
+                .is_some_and(|found| found.ty == required);
             if held {
                 continue;
             }
@@ -568,7 +571,7 @@ impl Checker<'_> {
                     span,
                     format!(
                         "`{owner}` does not have `{}: {}`, which `{name}` requires",
-                        property.name, property.ty
+                        property.name, required
                     ),
                 )
                 .note("Saying `implements` is a promise to have every member (LR18)."),

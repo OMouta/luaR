@@ -1,0 +1,19 @@
+--- expect: compile-ok
+--- spec: LR18
+--- spec: LR19
+interface Source<T>
+    function read(self): T
+    value: T
+end
+
+struct Number implements Source<int>
+    value: int
+
+    function read(self): int
+        return self.value
+    end
+end
+
+export function read(number: Number): int
+    return number:read()
+end
