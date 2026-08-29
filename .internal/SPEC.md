@@ -1636,19 +1636,20 @@ An extension block may be generic. Its type parameters follow its name, the targ
 
 ```lua
 export extend ListSearch<T> for List<T>
-    function contains(self, value: T): bool
+    function occurrences(self, value: T): int
     where T: Eq
+        local found = 0
         for i in 0..<self.length do
             if self[i] == value then
-                return true
+                found += 1
             end
         end
-        return false
+        return found
     end
 end
 ```
 
-The block extends every instance of its target, with the type parameters bound by the receiver: `ListSearch<T>` adds `contains` to `List<int>` and to `List<string>` alike.
+The block extends every instance of its target, with the type parameters bound by the receiver: `ListSearch<T>` adds `occurrences` to `List<int>` and to `List<string>` alike.
 
 A block that adds a method the type already has, from its declaration, from the language, or from the prelude (LR54.1), is rejected where the block is declared.
 
