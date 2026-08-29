@@ -1,6 +1,6 @@
 //! Interfaces, thread markers, extension blocks, and the method lookup through them (LR76).
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use luar_ast::{Semantics, Visibility};
 use luar_diagnostics::{Diagnostic, Span, codes};
@@ -14,7 +14,7 @@ use super::builtins::{
     checked_index_method, collection_mutation_method, contains_method, frozen_method,
     index_of_method, map_err_method, ok_or_method, overflow_method,
 };
-use super::calls::{against, filled, takes_self};
+use super::calls::{against, filled, infer, takes_self};
 use super::unsafe_ops::{unavailable_unsafe_memory_method, unsafe_memory_method};
 use super::{Checker, Found, ThreadMarker};
 
@@ -30,6 +30,26 @@ pub(super) fn same_signature(left: &Signature, right: &Signature) -> bool {
             .iter()
             .zip(&right.params)
             .all(|(left, right)| left.ty == right.ty)
+}
+
+/// A method that was found, and what the receiver filled the type parameters
+/// of the block offering it with (LR20).
+pub(super) type Reached = (Overloads, Vec<Type>);
+
+/// What `receiver` binds a block's type parameters to, where it is an instance
+/// of `target` (LR20).
+fn bound_by(params: &[String], target: &Type, receiver: &Type) -> Option<Vec<Type>> {
+    if params.is_empty() {
+        return (target == receiver).then(Vec::new);
+    }
+
+    let mut bound = BTreeMap::new();
+    infer(params, target, receiver, &mut bound);
+    let args: Vec<Type> = params
+        .iter()
+        .map(|param| bound.get(param).cloned())
+        .collect::<Option<_>>()?;
+    (substitute(target, params, &args) == *receiver).then_some(args)
 }
 
 impl Checker<'_> {
@@ -348,25 +368,26 @@ impl Checker<'_> {
     }
 
     /// The extension method `name` on `receiver`, from the blocks this
-    /// module has in scope (LR20).
-    fn extension(&mut self, receiver: &Type, name: &str, span: Span) -> Option<Overloads> {
-        let mut found: Vec<(&str, Overloads)> = self
+    /// module has in scope, and what the receiver binds the block's type
+    /// parameters to (LR20).
+    fn extension(&mut self, receiver: &Type, name: &str, span: Span) -> Option<Reached> {
+        let mut found: Vec<(&str, Overloads, Vec<Type>)> = self
             .extensions
             .iter()
-            .filter(|extension| extension.target == receiver)
             .filter_map(|extension| {
+                let args = bound_by(extension.type_params, extension.target, receiver)?;
                 let overloads = extension.methods.get(name)?;
-                Some((extension.name, overloads.clone()))
+                Some((extension.name, overloads.clone(), args))
             })
             .collect();
 
         if found.len() < 2 {
-            return found.pop().map(|(_, overloads)| overloads);
+            return found.pop().map(|(_, overloads, args)| (overloads, args));
         }
 
         let blocks: Vec<String> = found
             .iter()
-            .map(|(block, _)| format!("`{block}`"))
+            .map(|(block, ..)| format!("`{block}`"))
             .collect();
 
         self.diagnostics.push(
@@ -387,7 +408,7 @@ impl Checker<'_> {
     /// The method `name` on a value of type `receiver`, in the order LR76
     /// states: the type's own methods, then an interface context, then the
     /// extension blocks in scope.
-    pub(super) fn method(&mut self, receiver: &Type, name: &str, span: Span) -> Option<Overloads> {
+    pub(super) fn method(&mut self, receiver: &Type, name: &str, span: Span) -> Option<Reached> {
         if !self.settled(receiver, name, span) {
             return None;
         }
@@ -406,19 +427,16 @@ impl Checker<'_> {
         receiver: &Type,
         name: &str,
         span: Span,
-    ) -> Option<Overloads> {
-        let found = self.lookup_method(receiver, name, span)?;
+    ) -> Option<Reached> {
+        let (found, args) = self.lookup_method(receiver, name, span)?;
 
         // LR65: `Self` in what an interface requires is the type that reached
         // the method, which for a constrained parameter is the parameter.
-        Some(filled(
-            &found,
-            &[SELF.to_owned()],
-            std::slice::from_ref(receiver),
-        ))
+        let found = filled(&found, &[SELF.to_owned()], std::slice::from_ref(receiver));
+        Some((found, args))
     }
 
-    fn lookup_method(&mut self, receiver: &Type, name: &str, span: Span) -> Option<Overloads> {
+    fn lookup_method(&mut self, receiver: &Type, name: &str, span: Span) -> Option<Reached> {
         // LR19: inside the body, a type parameter has whatever `where` says it
         // has, and nothing else is known about it.
         if let Type::Parameter(parameter) = receiver {
@@ -438,31 +456,31 @@ impl Checker<'_> {
         }
 
         if let Some(signature) = unsafe_memory_method(receiver, name, span) {
-            return Some(vec![signature]);
+            return Some((vec![signature], Vec::new()));
         }
         if let Some(signature) = frozen_method(receiver, name, span) {
-            return Some(vec![signature]);
+            return Some((vec![signature], Vec::new()));
         }
         if let Some(signature) = checked_index_method(receiver, name, span) {
-            return Some(vec![signature]);
+            return Some((vec![signature], Vec::new()));
         }
         if let Some(signature) = contains_method(receiver, name, span) {
-            return Some(vec![signature]);
+            return Some((vec![signature], Vec::new()));
         }
         if let Some(signature) = index_of_method(receiver, name, span) {
-            return Some(vec![signature]);
+            return Some((vec![signature], Vec::new()));
         }
         if let Some(signature) = ok_or_method(receiver, name, span) {
-            return Some(vec![signature]);
+            return Some((vec![signature], Vec::new()));
         }
         if let Some(signature) = map_err_method(receiver, name, span) {
-            return Some(vec![signature]);
+            return Some((vec![signature], Vec::new()));
         }
         if let Some((_, signatures)) = collection_mutation_method(receiver, name, span) {
-            return Some(signatures);
+            return Some((signatures, Vec::new()));
         }
         if let Some((_, signature)) = overflow_method(receiver, name, span) {
-            return Some(vec![signature]);
+            return Some((vec![signature], Vec::new()));
         }
 
         if let Type::Named {
@@ -505,7 +523,7 @@ impl Checker<'_> {
                             );
                         }
 
-                        return Some(overloads);
+                        return Some((overloads, Vec::new()));
                     }
                 }
                 // LR75: an enum declares no members of its own, and what
@@ -516,7 +534,7 @@ impl Checker<'_> {
                         .get(name)
                         .map(|overloads| filled(overloads, &enumeration.type_params, args))
                     {
-                        return Some(overloads);
+                        return Some((overloads, Vec::new()));
                     }
                 }
                 // A value of interface type dispatches over what the interface
@@ -527,7 +545,7 @@ impl Checker<'_> {
                         .get(name)
                         .map(|overloads| filled(overloads, &interface.type_params, args))
                     {
-                        return Some(overloads);
+                        return Some((overloads, Vec::new()));
                     }
                 }
                 _ => {}
@@ -620,10 +638,13 @@ impl Checker<'_> {
         self.table
             .decls()
             .filter_map(|(module, block, decl)| match decl {
-                Decl::Extension { target, methods }
-                    if target == receiver
-                        && methods.contains_key(name)
-                        && self.names.scope(module).exports(block) =>
+                Decl::Extension {
+                    type_params,
+                    target,
+                    methods,
+                } if bound_by(type_params, target, receiver).is_some()
+                    && methods.contains_key(name)
+                    && self.names.scope(module).exports(block) =>
                 {
                     Some(block.to_owned())
                 }

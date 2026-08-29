@@ -488,7 +488,7 @@ impl Checker<'_> {
 
         let conversion = self
             .find_method(&error, "into", span)
-            .and_then(|overloads| {
+            .and_then(|(overloads, _)| {
                 overloads.into_iter().find(|signature| {
                     signature.takes_self
                         && signature.params.is_empty()

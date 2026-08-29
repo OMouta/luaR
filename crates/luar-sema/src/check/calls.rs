@@ -291,6 +291,14 @@ impl Checker<'_> {
             return Type::Unresolved;
         };
 
+        // LR20: what the receiver bound comes first, in the order the block
+        // declares it, and what the call writes fills the method's own.
+        let written: Vec<Type> = resolved
+            .type_args
+            .into_iter()
+            .chain(written.iter().cloned())
+            .collect();
+
         // LR12.2: naming the type writes the call out in full, so `self` is an
         // ordinary first argument and is counted and checked as one.
         let mut overloads = resolved.overloads;
@@ -364,7 +372,7 @@ impl Checker<'_> {
 
         // LR19: a generic call takes its type arguments from what it writes
         // down, and works out the rest from what it passes.
-        let signature = self.specialize(signature, written, &held, span);
+        let signature = self.specialize(signature, &written, &held, span);
 
         self.arguments(&signature, args, &held, span);
 
@@ -557,10 +565,12 @@ impl Checker<'_> {
         span: Span,
     ) -> Option<Callee> {
         if let Some(method) = method {
+            let (overloads, type_args) = self.method(receiver, method, span)?;
             return Some(Callee {
                 name: method.to_owned(),
-                overloads: self.method(receiver, method, span)?,
+                overloads,
                 receiver: None,
+                type_args,
             });
         }
 
@@ -569,6 +579,7 @@ impl Checker<'_> {
                 name: intrinsic.name().to_owned(),
                 overloads: vec![intrinsic_signature(intrinsic, span)],
                 receiver: None,
+                type_args: Vec::new(),
             });
         }
 
@@ -579,6 +590,7 @@ impl Checker<'_> {
                     name: name.clone(),
                     overloads,
                     receiver: None,
+                    type_args: Vec::new(),
                 })
             }
             // LR12.2, LR42, LR76: `Owner.name(...)` is a method call written
@@ -673,6 +685,7 @@ impl Checker<'_> {
                     unsafe_: false,
                 }],
                 receiver: None,
+                type_args: Vec::new(),
             });
         }
 
@@ -703,6 +716,7 @@ impl Checker<'_> {
                     unsafe_: false,
                 }],
                 receiver: None,
+                type_args: Vec::new(),
             });
         }
 
@@ -719,6 +733,7 @@ impl Checker<'_> {
                 name: name.to_owned(),
                 overloads,
                 receiver,
+                type_args: Vec::new(),
             });
         }
 
@@ -752,6 +767,7 @@ impl Checker<'_> {
             name: name.to_owned(),
             overloads,
             receiver,
+            type_args: Vec::new(),
         })
     }
 
@@ -851,6 +867,7 @@ impl Checker<'_> {
         let arity = usize::from(operand.is_some());
         let candidates: Vec<Signature> = self
             .find_method(receiver, method, span)
+            .map(|(overloads, _)| overloads)
             .unwrap_or_default()
             .into_iter()
             .filter(|signature| signature.takes_self && signature.params.len() == arity)

@@ -210,6 +210,9 @@ struct Callee {
     /// takes as the first argument (LR12.2). `point:length()` is
     /// `Vec2.length(point)` written out, and both are checked the same way.
     receiver: Option<Type>,
+    /// What the receiver bound the type parameters of an extension block to,
+    /// ahead of any the call writes (LR20).
+    type_args: Vec<Type>,
 }
 
 struct ClosureCaptures {
@@ -255,6 +258,7 @@ enum Covers {
 /// by, which `as` may have changed (LR20, LR21.1).
 struct Extension<'a> {
     name: &'a str,
+    type_params: &'a [String],
     target: &'a Type,
     methods: &'a BTreeMap<String, Overloads>,
 }
@@ -271,9 +275,15 @@ fn extensions<'a>(names: &'a Names, table: &'a Table, module: ModuleId) -> Vec<E
             Origin::Binding { .. } | Origin::Namespace(_) => continue,
         };
 
-        if let Some(Decl::Extension { target, methods }) = decl {
+        if let Some(Decl::Extension {
+            type_params,
+            target,
+            methods,
+        }) = decl
+        {
             found.push(Extension {
                 name: local,
+                type_params,
                 target,
                 methods,
             });
@@ -324,11 +334,14 @@ impl Checker<'_> {
                 }
 
                 let (target, methods) = match self.table.get(self.scope, &extend.name) {
-                    Some(Decl::Extension { target, methods }) => (target.clone(), methods.clone()),
+                    Some(Decl::Extension {
+                        target, methods, ..
+                    }) => (target.clone(), methods.clone()),
                     _ => (Type::Unresolved, BTreeMap::new()),
                 };
 
                 // LR65: `Self` in an extension block is the type it extends.
+                self.types.enter(&extend.type_params);
                 self.types.enter_enclosing(target.clone());
 
                 for function in &extend.functions {
@@ -345,6 +358,7 @@ impl Checker<'_> {
                 }
 
                 self.types.leave_enclosing();
+                self.types.leave();
             }
             // Nothing of these is written outside their own types, which the
             // table already read.

@@ -170,8 +170,10 @@ pub enum Decl {
         target: Type,
     },
     Function(Overloads),
-    /// The methods an extension adds, and what it adds them to (LR20).
+    /// The methods an extension adds, and what it adds them to (LR20). Each
+    /// method carries the block's type parameters ahead of its own.
     Extension {
+        type_params: Vec<String>,
         target: Type,
         methods: BTreeMap<String, Overloads>,
     },
@@ -462,7 +464,9 @@ fn expand(decl: &mut Decl, aliases: &Aliases) {
                 signature(held, aliases);
             }
         }
-        Decl::Extension { target, methods } => {
+        Decl::Extension {
+            target, methods, ..
+        } => {
             *target = aliases.expand(target);
             overloads(methods, aliases);
         }
@@ -765,16 +769,21 @@ fn declare(
                 )
             }
             Item::Extend(extend) => {
+                resolver.enter(&extend.type_params);
                 let target = resolver.resolve(&extend.target, diagnostics);
                 resolver.enter_enclosing(target.clone());
 
                 let mut methods: BTreeMap<String, Overloads> = BTreeMap::new();
                 for function in &extend.functions {
                     if let Some(name) = function.name.last() {
+                        let mut built = signature(function, None, resolver, diagnostics);
+                        built
+                            .type_params
+                            .splice(0..0, extend.type_params.iter().cloned());
                         overload(
                             methods.entry(name.clone()).or_default(),
                             name,
-                            signature(function, None, resolver, diagnostics),
+                            built,
                             false,
                             diagnostics,
                         );
@@ -782,8 +791,16 @@ fn declare(
                 }
 
                 resolver.leave_enclosing();
+                resolver.leave();
 
-                (extend.name.clone(), Decl::Extension { target, methods })
+                (
+                    extend.name.clone(),
+                    Decl::Extension {
+                        type_params: extend.type_params.clone(),
+                        target,
+                        methods,
+                    },
+                )
             }
             Item::Conditional(conditional) => {
                 for (_, items) in &conditional.branches {
