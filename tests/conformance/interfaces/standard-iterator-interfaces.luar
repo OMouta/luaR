@@ -1,0 +1,22 @@
+--- expect: compile-ok
+--- spec: LR35
+--- spec: LR54.1
+ref struct Counter implements Iterator<int>
+    current: int
+
+    function next(self): int?
+        return self.current
+    end
+end
+
+struct Count implements Iterable<int>
+    last: int
+
+    function iterator(self): Iterator<int>
+        return Counter { current = self.last }
+    end
+end
+
+export function iterator(values: Count): Iterator<int>
+    return values:iterator()
+end

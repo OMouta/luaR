@@ -17,6 +17,14 @@ export interface Comparable
     function compare(self, other: Self): int
 end
 
+export interface Iterator<T>
+    function next(self): T?
+end
+
+export interface Iterable<T>
+    function iterator(self): Iterator<T>
+end
+
 export interface Index<K, V>
     function index(self, key: K): V
 end
