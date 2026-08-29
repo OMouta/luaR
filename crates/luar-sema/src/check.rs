@@ -3246,24 +3246,30 @@ impl Checker<'_> {
             return;
         }
 
-        let Type::Named {
-            module,
-            name: declared,
-            ..
-        } = receiver
-        else {
-            return;
+        let declared = match receiver {
+            Type::Primitive(primitive)
+                if !matches!(primitive, Primitive::Any | Primitive::Unknown) =>
+            {
+                receiver.to_string()
+            }
+            Type::Named {
+                module,
+                name: declared,
+                ..
+            } => {
+                let known = match self.table.get(*module, declared) {
+                    Some(Decl::Struct(structure)) => !structure.expands,
+                    Some(Decl::Interface(interface)) => !interface.expands,
+                    Some(Decl::Enum(enumeration)) => !enumeration.expands,
+                    _ => false,
+                };
+                if !known {
+                    return;
+                }
+                declared.clone()
+            }
+            _ => return,
         };
-
-        let known = match self.table.get(*module, declared) {
-            Some(Decl::Struct(structure)) => !structure.expands,
-            Some(Decl::Interface(interface)) => !interface.expands,
-            Some(Decl::Enum(enumeration)) => !enumeration.expands,
-            _ => false,
-        };
-        if !known {
-            return;
-        }
 
         let mut reported = Diagnostic::error(
             codes::NO_SUCH_METHOD,
@@ -3273,7 +3279,12 @@ impl Checker<'_> {
 
         // LR89.1: `:` calls a method and `.` reaches everything else, so a
         // field or a property spelled with `:` is worth saying out loud.
-        if let Some(Decl::Struct(structure)) = self.table.get(*module, declared)
+        if let Type::Named {
+            module,
+            name: declared,
+            ..
+        } = receiver
+            && let Some(Decl::Struct(structure)) = self.table.get(*module, declared)
             && structure.has_member(name)
         {
             reported = reported.note(format!(

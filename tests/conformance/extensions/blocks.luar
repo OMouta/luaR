@@ -24,7 +24,7 @@ export type Pair<T> = (T, T)
 
 export extend StringSlug for string
     function slug(self): string
-        return self:lower()
+        return self .. "-slug"
     end
 end
 
