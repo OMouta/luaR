@@ -102,30 +102,94 @@ impl<'a> Body<'a> {
                     _ => (iterable, false),
                 };
                 let receiver = self.expr(iterable, None);
-                let source = match self.function.type_of(receiver) {
-                    Ty::Builtin {
-                        kind: Builtin::List | Builtin::FrozenList,
-                        ..
-                    } => Source::List { receiver, indexed },
-                    Ty::Builtin {
-                        kind: Builtin::Map | Builtin::FrozenMap | Builtin::Set | Builtin::FrozenSet,
-                        ..
-                    } => Source::Table(receiver),
-                    _ => {
-                        let (iterator_span, next_span) =
-                            luar_sema::facts::iteration_spans(iterable.span);
-                        let receiver_var = self.declare("\0iterable");
-                        self.defs.insert(receiver_var, receiver);
-                        let receiver =
-                            Expr::new(ExprKind::Name("\0iterable".to_owned()), iterator_span);
-                        let iterator = self.call(&receiver, Some("iterator"), &[], iterator_span);
-                        let iterator_var = self.declare("\0iterator");
-                        self.defs.insert(iterator_var, iterator);
-                        Source::Iterator { next_span }
+                let held = self.function.type_of(receiver).clone();
+                if let Ty::Builtin { kind, args } = held
+                    && matches!(
+                        kind,
+                        Builtin::RangeExclusive
+                            | Builtin::RangeInclusive
+                            | Builtin::ReversedRangeExclusive
+                            | Builtin::ReversedRangeInclusive
+                    )
+                {
+                    let element = args.first().cloned().unwrap_or(Ty::Never);
+                    let start = self.emit(
+                        InstKind::GetElement {
+                            tuple: receiver,
+                            index: 0,
+                        },
+                        element.clone(),
+                        span,
+                    );
+                    let end = self.emit(
+                        InstKind::GetElement {
+                            tuple: receiver,
+                            index: 1,
+                        },
+                        element.clone(),
+                        span,
+                    );
+                    let inclusive = matches!(
+                        kind,
+                        Builtin::RangeInclusive | Builtin::ReversedRangeInclusive
+                    );
+                    let reversed = matches!(
+                        kind,
+                        Builtin::ReversedRangeExclusive | Builtin::ReversedRangeInclusive
+                    );
+                    if reversed {
+                        (
+                            Source::Reversed {
+                                first: start,
+                                inclusive,
+                            },
+                            self.declare(""),
+                            end,
+                            element,
+                        )
+                    } else {
+                        let counter = match bindings {
+                            [Binding::Name(name)] => self.declare(name),
+                            _ => self.declare(""),
+                        };
+                        (
+                            Source::Range {
+                                last: end,
+                                inclusive,
+                            },
+                            counter,
+                            start,
+                            element,
+                        )
                     }
-                };
-                let zero = self.emit(InstKind::Const(Const::Int(0)), Ty::INT, span);
-                (source, self.declare(""), zero, Ty::INT)
+                } else {
+                    let source = match self.function.type_of(receiver) {
+                        Ty::Builtin {
+                            kind: Builtin::List | Builtin::FrozenList,
+                            ..
+                        } => Source::List { receiver, indexed },
+                        Ty::Builtin {
+                            kind:
+                                Builtin::Map | Builtin::FrozenMap | Builtin::Set | Builtin::FrozenSet,
+                            ..
+                        } => Source::Table(receiver),
+                        _ => {
+                            let (iterator_span, next_span) =
+                                luar_sema::facts::iteration_spans(iterable.span);
+                            let receiver_var = self.declare("\0iterable");
+                            self.defs.insert(receiver_var, receiver);
+                            let receiver =
+                                Expr::new(ExprKind::Name("\0iterable".to_owned()), iterator_span);
+                            let iterator =
+                                self.call(&receiver, Some("iterator"), &[], iterator_span);
+                            let iterator_var = self.declare("\0iterator");
+                            self.defs.insert(iterator_var, iterator);
+                            Source::Iterator { next_span }
+                        }
+                    };
+                    let zero = self.emit(InstKind::Const(Const::Int(0)), Ty::INT, span);
+                    (source, self.declare(""), zero, Ty::INT)
+                }
             }
         };
 

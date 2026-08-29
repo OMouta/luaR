@@ -1,0 +1,17 @@
+--- expect: run
+--- exit: 520
+--- spec: LR10.4
+export function main(): int
+    local ascending = 1..=3
+    local descending = (1..<4):reversed()
+    local total = 0
+
+    for value in ascending do
+        total = total * 3 + value
+    end
+    for value in descending do
+        total = total * 3 + value
+    end
+
+    return total
+end
