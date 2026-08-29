@@ -1632,6 +1632,26 @@ Two imported blocks that define the same method for the same type are a compile-
 StringSlug.slug(title)
 ```
 
+An extension block may be generic. Its type parameters follow its name, the target may use them, and a method may constrain them with `where` (LR19):
+
+```lua
+export extend ListSearch<T> for List<T>
+    function contains(self, value: T): bool
+    where T: Eq
+        for i in 0..<self.length do
+            if self[i] == value then
+                return true
+            end
+        end
+        return false
+    end
+end
+```
+
+The block extends every instance of its target, with the type parameters bound by the receiver: `ListSearch<T>` adds `contains` to `List<int>` and to `List<string>` alike.
+
+A block that adds a method the type already has, from its declaration, from the language, or from the prelude (LR54.1), is rejected where the block is declared.
+
 ---
 
 ## 21. Modules
@@ -2314,6 +2334,8 @@ Into<T>
 
 The exact standard protocol names are library specification concerns, but user-defined types must be able to participate in ordinary language constructs without compiler-specific hardcoding.
 
+The standard protocols are interfaces exported by `std/prelude` (LR54.1). A primitive type (LR6) and `string` satisfy `Eq`, `Hash`, and `Display` without declaring it, and the numeric types, `char`, and `string` satisfy `Comparable`, since the operators are built in for them (LR11.3). A user-defined type satisfies one by declaring it (LR18) or deriving it (LR75).
+
 For example, `for value in collection` should work with any conforming iterable.
 
 ---
@@ -2892,6 +2914,10 @@ local print = collect
 
 Predeclared names are not a module. They cannot be imported from, renamed, or re-exported. Everything else the standard library provides is imported like any other module (LR21.1, LR60).
 
+`std/prelude` is a standard library module (LR60) in scope in every module without an import, except in itself and in the modules it imports. Its exports occupy the same scope as the predeclared names: a declaration or an import of the same name shadows one, and its extension blocks (LR20) are in scope as if imported by name. It may also be imported by name, which is how a module that shadows one of its exports still reaches it.
+
+The prelude holds the standard protocols (LR35) and the methods of the collection and `Result` types (LR13, LR25.1) that are written in LuaR over the operations the language provides. Which of a type's methods come from the prelude and which from the language is not observable: an extension block adding a method of the same name to the same type is rejected either way (LR20).
+
 Type names work the same way. The primitive types (LR6) need no import, and neither do the collection types the language builds from its own literal syntax (LR13, LR59) or the `Task` every async call produces (LR27):
 
 ```text
@@ -2904,7 +2930,7 @@ FrozenSet
 Task
 ```
 
-Every other name in a type is declared by the module or imported (LR21.1). The standard protocols (LR35) are library names and are imported like any other.
+Every other name in a type is declared by the module or imported (LR21.1). The standard protocols (LR35) are exported by `std/prelude`.
 
 The set is closed. A name belongs in it only because it cannot be written as an ordinary declaration, or because every program needs it to state a signature. `assert` and `debugAssert` depend on compilation mode (LR49), `unreachable` has type `never` (LR50), and `panic` does not return (LR25.4). `Result` names the type of every fallible signature (LR25.1), `Error` is the common error type returned by standard-library APIs, and `Task` is the type every async call produces (LR27). `Error(message)` builds an `Error` with that string as its message. `print` is predeclared so that writing a line of output does not require an import.
 
@@ -3056,6 +3082,7 @@ std/crypto
 std/thread
 std/sync
 std/collections
+std/prelude
 std/mem
 std/math
 std/random
