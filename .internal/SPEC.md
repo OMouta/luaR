@@ -3068,48 +3068,13 @@ Fields hold whichever type their invariants require. A struct that must not have
 
 ## 60. Standard Library Expectations
 
-The LuaR standard environment should support general-purpose programming directly.
-
-Core areas include:
-
-```text
-std/fs
-std/io
-std/path
-std/process
-std/env
-std/net
-std/http
-std/time
-std/json
-std/encoding
-std/crypto
-std/thread
-std/sync
-std/collections
-std/prelude
-std/mem
-std/math
-std/random
-std/testing
-std/log
-```
-
-Not every high-level protocol must live in the minimal runtime, but ordinary application programming must not depend on Roblox-like host APIs.
-
-The standard library should prefer typed APIs over loosely structured map-based configuration.
+`.internal/STD-SPEC.md` defines the standard library. Its `STD` sections are normative independently of this language specification.
 
 A standard library module is a LuaR module. `std/name` names the source file `std/name.luar` that ships with the compiler, and it is compiled with the program that imports it like any other module (LR21.1).
 
 Native code enters the standard library through foreign declarations (LR46) and through nothing else.
 
 A bodiless function declaration marked `@intrinsic` names an operation the compiler implements and the language has no other spelling for, such as `identical` (LR32) and `reinterpret` (LR72) in `std/mem`. `@intrinsic` is accepted only in a standard library module. A call to one is checked against the declared signature like any other call.
-
-`std/fs.readText(path: string): Result<string, Error>` is the contents of the file at `path` as text. It is `Err` where the file cannot be opened or read, or where its bytes are not valid UTF-8.
-
-`std/fs.writeText(path: string, text: string): Result<(), Error>` replaces the file at `path` with `text` encoded as UTF-8. It is `Err` where the file cannot be opened or written.
-
-`std/env.get(name: string): string?` is the value of the environment variable named by `name`, or `nil` where it is not set.
 
 ---
 
