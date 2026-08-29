@@ -46,11 +46,11 @@ fn fit(signature: &Signature, args: &[Argument]) -> Fit {
     let missing = params
         .iter()
         .zip(&filled)
-        .any(|(param, filled)| !param.optional && !filled);
+        .any(|(param, filled)| !param.optional && !param.variadic && !filled);
 
     Fit {
         slots,
-        counted: variadic || (!missing && position <= params.len()),
+        counted: !missing && (variadic || position <= params.len()),
     }
 }
 
