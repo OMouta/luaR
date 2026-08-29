@@ -149,7 +149,7 @@ pub enum Ty {
     Char,
     /// An immutable UTF-8 string (LR4.5).
     Str,
-    /// An immutable byte string (LR4.7).
+    /// A byte string (LR4.7).
     Bytes,
     /// The common error type, holding its message (LR54.1).
     Error,

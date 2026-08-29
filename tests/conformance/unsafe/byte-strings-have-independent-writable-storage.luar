@@ -1,0 +1,12 @@
+--- expect: run
+--- exit: 195
+--- spec: LR29.2
+--- spec: LR70
+export function main(): int
+    local left = b"ab"
+    local right = b"ab"
+    unsafe
+        left:uncheckedSet(0, 98)
+        return left:unchecked(0) as int + right:unchecked(0) as int
+    end
+end

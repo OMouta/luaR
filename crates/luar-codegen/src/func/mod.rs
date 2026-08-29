@@ -631,7 +631,7 @@ impl Translator<'_, '_> {
                 self.builder.ins().iconst(types::I32, scalar)
             }
             Const::Str(text) => return self.text(text.as_bytes()),
-            Const::Bytes(bytes) => return self.text(bytes),
+            Const::Bytes(bytes) => return self.bytes(bytes),
             Const::Nil | Const::Float(_) => {
                 self.gap("a literal that is not an integer, a boolean, or a character");
                 return None;

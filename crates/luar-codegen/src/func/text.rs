@@ -4,7 +4,9 @@ use cranelift_codegen::ir::{self, InstBuilder, types};
 use luar_lir::inst::Value;
 use luar_lir::ty::Ty;
 
-use super::Translator;
+use crate::layout;
+
+use super::{OWNED, Translator};
 
 impl Translator<'_, '_> {
     /// The address of a literal's text, which lives in the object rather than
@@ -15,6 +17,19 @@ impl Translator<'_, '_> {
             return None;
         };
         Some(self.builder.ins().global_value(self.pointer, data))
+    }
+
+    pub(super) fn bytes(&mut self, bytes: &[u8]) -> Option<ir::Value> {
+        let length = i32::try_from(bytes.len()).unwrap_or(i32::MAX - layout::CELL);
+        let built = self.allocate_bytes(layout::CELL.saturating_add(length), &Ty::Bytes, 0)?;
+        let length = self.builder.ins().iconst(self.pointer, i64::from(length));
+        self.builder.ins().store(OWNED, length, built, 0);
+        for (index, byte) in bytes.iter().enumerate() {
+            let offset = layout::CELL.saturating_add(i32::try_from(index).unwrap_or(i32::MAX));
+            let value = self.builder.ins().iconst(types::I8, i64::from(*byte));
+            self.builder.ins().store(OWNED, value, built, offset);
+        }
+        Some(built)
     }
 
     pub(super) fn display_value(&mut self, value: Value) -> Option<ir::Value> {

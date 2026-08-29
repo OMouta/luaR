@@ -276,18 +276,19 @@ impl<'a> Body<'a> {
     ) -> Value {
         let receiver = self.expr(callee, None);
         let held = self.function.type_of(receiver).clone();
-        let Ty::Builtin {
-            kind: ty::Builtin::List | ty::Builtin::FrozenList,
-            args: type_args,
-        } = held
-        else {
-            return self.missing(span, "an unchecked element access on this type");
+        let element = match held {
+            Ty::Builtin {
+                kind: ty::Builtin::List | ty::Builtin::FrozenList,
+                args,
+            } => args.first().cloned(),
+            Ty::Bytes => Some(Ty::Int(IntTy::U8)),
+            _ => return self.missing(span, "an unchecked element access on this type"),
         };
-        let Some(element) = type_args.first() else {
-            return self.missing(span, "an unchecked list access without an element type");
+        let Some(element) = element else {
+            return self.missing(span, "an unchecked access without an element type");
         };
         let Some(index) = args.first() else {
-            return self.missing(span, "an unchecked list access without an index");
+            return self.missing(span, "an unchecked access without an index");
         };
         let index = self.expr(&index.value, Some(&Ty::INT));
 
@@ -298,7 +299,7 @@ impl<'a> Body<'a> {
                 span,
             ),
             (Builtin::UncheckedSet, [_, value]) => {
-                let value = self.stored(&value.value, Some(element));
+                let value = self.stored(&value.value, Some(&element));
                 self.emit_void(
                     InstKind::SetUncheckedIndex {
                         receiver,
@@ -309,7 +310,7 @@ impl<'a> Body<'a> {
                 );
                 self.emit(InstKind::Const(Const::Unit), Ty::Unit, span)
             }
-            _ => self.missing(span, "an unchecked list access of this shape"),
+            _ => self.missing(span, "an unchecked access of this shape"),
         }
     }
 

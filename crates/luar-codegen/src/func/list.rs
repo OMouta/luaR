@@ -100,6 +100,10 @@ impl Translator<'_, '_> {
                 self.builder.switch_to_block(carry_on);
                 Some(built)
             }
+            Ty::Bytes => {
+                let address = self.byte_address(receiver, index, checked);
+                Some(self.builder.ins().load(types::I8, OWNED, address, 0))
+            }
             _ => {
                 self.gap(format!("indexing a value of type `{held}`"));
                 None
@@ -375,8 +379,31 @@ impl Translator<'_, '_> {
                         .store(OWNED, written, bucket, layout::BUCKET_VALUE);
                 }
             }
+            Ty::Bytes => {
+                let address = self.byte_address(receiver, index, checked);
+                let written = self.value(value);
+                self.builder.ins().store(OWNED, written, address, 0);
+            }
             _ => self.gap(format!("indexing a value of type `{held}`")),
         }
+    }
+
+    fn byte_address(&mut self, receiver: Value, index: Value, checked: bool) -> ir::Value {
+        let bytes = self.value(receiver);
+        let index = self.value(index);
+        if checked {
+            let length = self
+                .builder
+                .ins()
+                .load(self.pointer, OWNED, bytes, layout::LENGTH);
+            let outside = self
+                .builder
+                .ins()
+                .icmp(IntCC::UnsignedGreaterThanOrEqual, index, length);
+            self.trap_if(outside, Trap::Bounds);
+        }
+        let start = self.builder.ins().iadd_imm(bytes, i64::from(layout::CELL));
+        self.builder.ins().iadd(start, index)
     }
 
     /// LR70: the cell of element `index`, with a bounds check when requested.

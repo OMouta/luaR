@@ -183,9 +183,8 @@ impl Emitter<'_> {
         Ok(())
     }
 
-    /// Writes every string and byte-string literal into the object. Two
-    /// literals spelling the same text share one, which they can because a
-    /// string is immutable (LR4.5).
+    /// Writes every string literal into the object. Two literals spelling the
+    /// same text share one because a string is immutable (LR4.5).
     fn constants(&mut self) -> Result<(), Error> {
         let mut texts = Vec::new();
         for (_, function) in self.program.functions() {
@@ -652,14 +651,13 @@ fn exit_code_type(result: &Ty, pointer: types::Type) -> Option<types::Type> {
     }
 }
 
-/// Every string and byte-string literal a body holds.
+/// Every string literal a body holds.
 fn literals(function: &Function) -> Vec<Vec<u8>> {
     let mut found = Vec::new();
     for (_, block) in function.blocks() {
         for inst in &block.insts {
             let bytes = match &inst.kind {
                 luar_lir::inst::InstKind::Const(Const::Str(text)) => text.clone().into_bytes(),
-                luar_lir::inst::InstKind::Const(Const::Bytes(bytes)) => bytes.clone(),
                 _ => continue,
             };
             if !found.contains(&bytes) {
