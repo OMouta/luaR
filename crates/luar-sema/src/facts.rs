@@ -72,6 +72,7 @@ pub struct Facts {
     checked_indexes: HashSet<Span>,
     contains: HashSet<Span>,
     index_of: HashSet<Span>,
+    ok_or: HashSet<Span>,
     collection_mutations: HashMap<Span, CollectionMutation>,
     overflow_methods: HashMap<Span, OverflowMethod>,
     /// The names something takes the address of (LR72).
@@ -171,6 +172,15 @@ impl Facts {
         self.index_of.contains(&span)
     }
 
+    pub fn record_ok_or(&mut self, span: Span) {
+        self.ok_or.insert(span);
+    }
+
+    #[must_use]
+    pub fn ok_or(&self, span: Span) -> bool {
+        self.ok_or.contains(&span)
+    }
+
     pub fn record_collection_mutation(&mut self, span: Span, mutation: CollectionMutation) {
         self.collection_mutations.insert(span, mutation);
     }
@@ -211,6 +221,7 @@ impl Facts {
         self.checked_indexes.extend(other.checked_indexes);
         self.contains.extend(other.contains);
         self.index_of.extend(other.index_of);
+        self.ok_or.extend(other.ok_or);
         self.collection_mutations.extend(other.collection_mutations);
         self.overflow_methods.extend(other.overflow_methods);
         self.addressed.extend(other.addressed);

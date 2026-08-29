@@ -2681,6 +2681,10 @@ impl Checker<'_> {
     /// Whether it is settled what `held` holds, which is what a member of it
     /// can be read from (LR8, LR17.2).
     fn settled(&mut self, held: &Type, name: &str, span: Span) -> bool {
+        // LR8: `okOr` is a method of the optional, not of what it holds.
+        if ok_or_method(held, name, span).is_some() {
+            return true;
+        }
         if held.is_optional() {
             self.diagnostics.push(
                 Diagnostic::error(
@@ -2738,6 +2742,7 @@ impl Checker<'_> {
             method.is_some_and(|name| checked_index_method(receiver, name, span).is_some());
         let contains = method.is_some_and(|name| contains_method(receiver, name, span).is_some());
         let index_of = method.is_some_and(|name| index_of_method(receiver, name, span).is_some());
+        let ok_or = method.is_some_and(|name| ok_or_method(receiver, name, span).is_some());
         let collection_mutation = method.and_then(|name| {
             collection_mutation_method(receiver, name, span).map(|(mutation, _)| mutation)
         });
@@ -2832,6 +2837,9 @@ impl Checker<'_> {
         }
         if index_of {
             self.facts.record_index_of(span);
+        }
+        if ok_or {
+            self.facts.record_ok_or(span);
         }
         if let Some(mutation) = collection_mutation {
             self.facts.record_collection_mutation(span, mutation);
@@ -3134,6 +3142,9 @@ impl Checker<'_> {
             return Some(vec![signature]);
         }
         if let Some(signature) = index_of_method(receiver, name, span) {
+            return Some(vec![signature]);
+        }
+        if let Some(signature) = ok_or_method(receiver, name, span) {
             return Some(vec![signature]);
         }
         if let Some((_, signatures)) = collection_mutation_method(receiver, name, span) {
@@ -4758,6 +4769,37 @@ fn index_of_method(receiver: &Type, name: &str, span: Span) -> Option<Signature>
             variadic: false,
         }],
         result: Type::Primitive(Primitive::I64).optional(),
+        takes_self: true,
+        visibility: None,
+        span,
+        inferred: false,
+        unsafe_: false,
+    })
+}
+
+/// `optional:okOr(error)` (LR8, LR25.1).
+fn ok_or_method(receiver: &Type, name: &str, span: Span) -> Option<Signature> {
+    if name != "okOr" {
+        return None;
+    }
+    let Type::Optional(inner) = receiver else {
+        return None;
+    };
+    let error = || Type::Parameter("E".to_owned());
+    Some(Signature {
+        asynchronous: false,
+        type_params: vec!["E".to_owned()],
+        constraints: Vec::new(),
+        params: vec![crate::table::Param {
+            name: "error".to_owned(),
+            ty: error(),
+            optional: false,
+            variadic: false,
+        }],
+        result: Type::Builtin {
+            kind: Builtin::Result,
+            args: vec![(**inner).clone(), error()],
+        },
         takes_self: true,
         visibility: None,
         span,

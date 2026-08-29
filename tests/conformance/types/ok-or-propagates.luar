@@ -1,0 +1,15 @@
+--- expect: compile-ok
+--- spec: LR8
+--- spec: LR25.1
+--- spec: LR25.2
+function find(id: int): int?
+    if id == 1 then
+        return 10
+    end
+    return nil
+end
+
+function load(id: int): Result<int, string>
+    local value = find(id):okOr("missing")?
+    return Result.Ok<int, string>(value + 1)
+end
