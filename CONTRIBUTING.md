@@ -1,6 +1,7 @@
 # Contributing
 
-LuaR is a compiler written in Rust. `.internal/SPEC.md` defines the language.
+LuaR is a compiler written in Rust. `.internal/SPEC.md` defines the language
+and `.internal/STD-SPEC.md` the standard library.
 When the spec and the compiler disagree, the spec is right until someone
 changes it, and changing it is its own commit.
 
@@ -83,7 +84,8 @@ matches on. Never match message text. LR80 makes wording non-normative, so
 messages get reworded without warning and a test that reads them breaks for no
 reason.
 
-`spec` may repeat. A test that cites nothing checks only that the compiler
+`spec` may repeat. Language sections are `LR…`, standard-library sections
+`STD…`. A test that cites nothing checks only that the compiler
 agrees with itself.
 
 `run` needs a backend, so it reports as skipped today. Write them anyway. When

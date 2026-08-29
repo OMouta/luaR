@@ -2,7 +2,7 @@
 
 LuaR is a compiled language and this repo is its compiler, written in Rust. The conformance suite under `tests/conformance/` decides whether the compiler matches the language.
 
-`.internal/SPEC.md` is the language. Every rule the compiler enforces cites the section that states it, and so does the test for that rule.
+`.internal/SPEC.md` is the language and `.internal/STD-SPEC.md` is the standard library. Every rule the compiler enforces cites the section that states it, and so does the test for that rule.
 
 `CONTRIBUTING.md` has the commands, the test file format, and what each crate holds. Read it first.
 
