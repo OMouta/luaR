@@ -1,0 +1,13 @@
+--- expect: run
+--- exit: 10
+--- spec: LR10.4
+--- spec: LR13.1
+--- spec: LR70
+export function main(): int
+    local values = [1, 2, 3, 4]
+    local total = 0
+    for index in 0..<values.length do
+        total += values[index]
+    end
+    return total
+end

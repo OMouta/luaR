@@ -1,5 +1,6 @@
 //! LIR: typed SSA with block parameters.
 
+pub mod bounds;
 pub mod devirt;
 pub mod inline;
 pub mod inst;
