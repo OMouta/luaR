@@ -2474,7 +2474,7 @@ impl<'a> Body<'a> {
             return self.contains(callee, args, span);
         }
         if self.context.facts.index_of(span) {
-            return self.missing(span, "a list index lookup");
+            return self.index_of(callee, args, span);
         }
         if let Some(mutation) = self.context.facts.collection_mutation(span) {
             return self.collection_mutation(mutation, callee, args, span);
@@ -2882,6 +2882,19 @@ impl<'a> Body<'a> {
         };
         let value = self.expr(&argument.value, Some(&element));
         self.emit(InstKind::Contains { receiver, value }, Ty::Bool, span)
+    }
+
+    fn index_of(&mut self, callee: &Expr, args: &[Argument], span: Span) -> Value {
+        let receiver = self.expr(callee, None);
+        let Some(element) = self.collection_args(receiver).first().cloned() else {
+            return self.missing(span, "a lookup without an element type");
+        };
+        let Some(argument) = args.first() else {
+            return self.missing(span, "a lookup without a value");
+        };
+        let value = self.expr(&argument.value, Some(&element));
+        let result = self.recorded(span);
+        self.emit(InstKind::IndexOf { receiver, value }, result, span)
     }
 
     /// LR4.3: `x:wrappingAdd(y)` and its kin apply the operator they name

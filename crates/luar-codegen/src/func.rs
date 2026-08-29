@@ -412,6 +412,7 @@ impl Translator<'_, '_> {
                 None
             }
             InstKind::Contains { receiver, value } => self.contains(*receiver, *value),
+            InstKind::IndexOf { receiver, value } => self.index_of(*receiver, *value, inst.result),
             InstKind::MapRemove { receiver, key } => self.map_remove(*receiver, *key, inst.result),
             InstKind::SetRemove { receiver, value } => self.set_remove(*receiver, *value),
             InstKind::Clear { receiver } => {
@@ -1852,6 +1853,54 @@ impl Translator<'_, '_> {
     }
 
     fn list_contains(&mut self, receiver: Value, value: Value, element: &Ty) -> Option<ir::Value> {
+        let (index, length) = self.list_find(receiver, value, element)?;
+        Some(
+            self.builder
+                .ins()
+                .icmp(IntCC::UnsignedLessThan, index, length),
+        )
+    }
+
+    fn index_of(
+        &mut self,
+        receiver: Value,
+        value: Value,
+        result: Option<Value>,
+    ) -> Option<ir::Value> {
+        let optional = self.function.type_of(result?).clone();
+        let held = self.function.type_of(receiver).clone();
+        let Ty::Builtin {
+            kind: Builtin::List | Builtin::FrozenList,
+            args,
+        } = &held
+        else {
+            self.gap(format!("an index lookup in `{held}`"));
+            return None;
+        };
+        let Some(element) = args.first() else {
+            self.gap("a list without an element type");
+            return None;
+        };
+        let (index, length) = self.list_find(receiver, value, element)?;
+        let present = self
+            .builder
+            .ins()
+            .icmp(IntCC::UnsignedLessThan, index, length);
+        let built = self.allocate(&optional, 0)?;
+        let tag = self.builder.ins().uextend(TAG_TYPE, present);
+        self.builder.ins().store(OWNED, tag, built, TAG);
+        self.builder.ins().store(OWNED, index, built, layout::CELL);
+        Some(built)
+    }
+
+    /// The index of the first element equal to `value`, and the length,
+    /// which the index equals where there is none.
+    fn list_find(
+        &mut self,
+        receiver: Value,
+        value: Value,
+        element: &Ty,
+    ) -> Option<(ir::Value, ir::Value)> {
         let text = self.compared_by_text(element)?;
         let Some(machine) = machine(element, self.pointer) else {
             self.gap(format!("a list holding `{element}`"));
@@ -1872,7 +1921,7 @@ impl Translator<'_, '_> {
         let done = self.builder.create_block();
         self.builder.append_block_param(scan, self.pointer);
         self.builder.append_block_param(compare, self.pointer);
-        self.builder.append_block_param(done, types::I8);
+        self.builder.append_block_param(done, self.pointer);
         let zero = self.builder.ins().iconst(self.pointer, 0);
         self.builder.ins().jump(scan, &[ir::BlockArg::Value(zero)]);
 
@@ -1882,13 +1931,12 @@ impl Translator<'_, '_> {
             .builder
             .ins()
             .icmp(IntCC::UnsignedLessThan, index, length);
-        let no = self.builder.ins().iconst(types::I8, 0);
         self.builder.ins().brif(
             more,
             compare,
             &[ir::BlockArg::Value(index)],
             done,
-            &[ir::BlockArg::Value(no)],
+            &[ir::BlockArg::Value(index)],
         );
 
         self.builder.switch_to_block(compare);
@@ -1903,17 +1951,16 @@ impl Translator<'_, '_> {
             self.builder.ins().icmp(IntCC::Equal, held, wanted)
         };
         let following = self.builder.ins().iadd_imm(index, 1);
-        let yes = self.builder.ins().iconst(types::I8, 1);
         self.builder.ins().brif(
             same,
             done,
-            &[ir::BlockArg::Value(yes)],
+            &[ir::BlockArg::Value(index)],
             scan,
             &[ir::BlockArg::Value(following)],
         );
 
         self.builder.switch_to_block(done);
-        Some(self.builder.block_params(done)[0])
+        Some((self.builder.block_params(done)[0], length))
     }
 
     fn map_remove(

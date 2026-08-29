@@ -344,6 +344,12 @@ pub enum InstKind {
         receiver: Value,
         value: Value,
     },
+    /// The index of the first element of a list that equals `value`, or
+    /// nothing (LR13.1).
+    IndexOf {
+        receiver: Value,
+        value: Value,
+    },
 
     /// `x:wrappingAdd(y)` and its kin (LR4.3). `Check` produces an optional
     /// of the operand type, and the other modes produce the operand type.
@@ -475,6 +481,7 @@ impl InstKind {
             | Self::MakeSet { .. }
             | Self::GetCheckedIndex { .. }
             | Self::Contains { .. }
+            | Self::IndexOf { .. }
             | Self::MakeSome { .. }
             | Self::IsSome { .. }
             | Self::Unwrap { .. }

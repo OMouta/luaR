@@ -287,6 +287,9 @@ fn instruction(inst: &Inst, function: &Function) -> String {
         InstKind::Contains { receiver, value } => {
             format!("contains {} {}", name(*receiver), name(*value))
         }
+        InstKind::IndexOf { receiver, value } => {
+            format!("indexOf {} {}", name(*receiver), name(*value))
+        }
         InstKind::Overflowing {
             mode,
             op,

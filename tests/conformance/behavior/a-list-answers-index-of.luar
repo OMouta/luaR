@@ -1,0 +1,35 @@
+--- expect: run
+--- exit: 33
+--- spec: LR13.1
+--- spec: LR57
+--- spec: LR59
+export function main(): int
+    local values = [3, 5, 7, 5]
+    local names = ["Alice", "Bob"]
+    local total = 0
+    local first = values:indexOf(5)
+    if first ~= nil then
+        total += first * 10
+    end
+    if values:indexOf(4) ~= nil then
+        total += 100
+    end
+    local bob = names:frozen():indexOf("Bob")
+    if bob ~= nil then
+        total += bob
+    end
+    local empty = List.new<int>()
+    if empty:indexOf(0) ~= nil then
+        total += 100
+    end
+    values:push(4)
+    local pushed = values:indexOf(4)
+    if pushed ~= nil then
+        total += pushed * 5
+    end
+    local head = values:indexOf(3)
+    if head ~= nil then
+        total += head + 2
+    end
+    return total
+end
