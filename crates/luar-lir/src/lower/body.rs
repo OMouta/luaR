@@ -2477,7 +2477,7 @@ impl<'a> Body<'a> {
             return self.index_of(callee, args, span);
         }
         if self.context.facts.ok_or(span) {
-            return self.missing(span, "an optional made a result");
+            return self.ok_or(callee, args, span);
         }
         if let Some(mutation) = self.context.facts.collection_mutation(span) {
             return self.collection_mutation(mutation, callee, args, span);
@@ -2906,6 +2906,68 @@ impl<'a> Body<'a> {
         let value = self.expr(&argument.value, Some(&element));
         let result = self.recorded(span);
         self.emit(InstKind::IndexOf { receiver, value }, result, span)
+    }
+
+    /// LR8: `optional:okOr(error)` is `Ok` of what it holds, or `Err` of
+    /// `error`.
+    fn ok_or(&mut self, callee: &Expr, args: &[Argument], span: Span) -> Value {
+        let optional = self.expr(callee, None);
+        let Ty::Optional(inner) = self.function.type_of(optional).clone() else {
+            return self.missing(span, "`okOr` on a value that is not optional");
+        };
+        let result = self.recorded(span);
+        let error_ty = match &result {
+            Ty::Builtin {
+                kind: Builtin::Result,
+                args,
+            } => args.get(1).cloned(),
+            _ => None,
+        };
+        let Some(error_ty) = error_ty else {
+            return self.missing(span, "an `okOr` whose result is not a `Result`");
+        };
+        let Some(argument) = args.first() else {
+            return self.missing(span, "an `okOr` without an error");
+        };
+        let error = self.stored(&argument.value, Some(&error_ty));
+
+        let present = self.function.add_block();
+        let absent = self.function.add_block();
+        let join = self.function.add_block();
+        let held = self.emit(InstKind::IsSome { value: optional }, Ty::Bool, span);
+        self.terminate(Terminator::Branch {
+            condition: held,
+            then: Target::to(present),
+            otherwise: Target::to(absent),
+        });
+
+        self.switch_to(present);
+        let inside = self.emit(InstKind::Unwrap { value: optional }, *inner, span);
+        let ok = self.emit(
+            InstKind::MakeEnum {
+                ty: result.clone(),
+                variant: 0,
+                payload: vec![inside],
+            },
+            result.clone(),
+            span,
+        );
+        self.terminate(Terminator::Jump(Target::new(join, vec![ok])));
+
+        self.switch_to(absent);
+        let err = self.emit(
+            InstKind::MakeEnum {
+                ty: result.clone(),
+                variant: 1,
+                payload: vec![error],
+            },
+            result.clone(),
+            span,
+        );
+        self.terminate(Terminator::Jump(Target::new(join, vec![err])));
+
+        self.switch_to(join);
+        self.function.add_block_param(join, result)
     }
 
     /// LR4.3: `x:wrappingAdd(y)` and its kin apply the operator they name

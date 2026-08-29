@@ -1,0 +1,47 @@
+--- expect: run
+--- exit: 13
+--- spec: LR8
+--- spec: LR25.1
+--- spec: LR25.2
+ref struct Tally
+    value: int
+end
+
+function find(id: int): int?
+    if id == 1 then
+        return 10
+    end
+    return nil
+end
+
+function name(id: int): string?
+    if id == 1 then
+        return "one"
+    end
+    return nil
+end
+
+function load(id: int, tally: Tally): Result<int, string>
+    local value = find(id):okOr("missing")?
+    tally.value += value
+    local found = name(id):okOr("unnamed")?
+    if found == "one" then
+        tally.value += 3
+    end
+    return Result.Ok<int, string>(value)
+end
+
+function fail(tally: Tally): Result<int, string>
+    local empty: int? = nil
+    local value = empty:okOr("empty")?
+    tally.value += 100
+    return Result.Ok<int, string>(value)
+end
+
+export function main(): int
+    local tally = Tally { value = 0 }
+    load(1, tally)
+    load(2, tally)
+    fail(tally)
+    return tally.value
+end
