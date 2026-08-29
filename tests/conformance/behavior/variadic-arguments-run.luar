@@ -1,0 +1,19 @@
+--- expect: run
+--- exit: 12
+--- spec: LR9.1
+--- spec: LR9.6
+function sum(first: int, ...rest: int): int
+    local total = first
+    for value in rest do
+        total += value
+    end
+    return total
+end
+
+function count<T>(...values: T): int
+    return values.length
+end
+
+export function main(): int
+    return sum(1, 2, 3) + sum(4) + count(8, 9)
+end

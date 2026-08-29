@@ -25,7 +25,7 @@ use crate::program::{
     Enum, Field, FuncId, Function, Implementation, Interface, Method, Nominal, Program, Shape,
     Struct,
 };
-use crate::ty::{Ty, TypeId};
+use crate::ty::{Builtin, Ty, TypeId};
 
 /// Something the program does and lowering does not handle yet.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -561,7 +561,14 @@ impl Lowering<'_> {
                 .params
                 .get(index + usize::from(signature.takes_self));
             let ty = self.convert(&param.ty, span);
-            params.push(ty.clone());
+            params.push(if param.variadic {
+                Ty::Builtin {
+                    kind: Builtin::FrozenList,
+                    args: vec![ty.clone()],
+                }
+            } else {
+                ty.clone()
+            });
             bindings.push(
                 written
                     .map(|param| param.binding.clone())

@@ -100,10 +100,6 @@ impl<'a> Body<'a> {
             return self.missing(span, "a call to an async function");
         }
 
-        if reached.params.iter().any(|param| param.variadic) {
-            return self.missing(span, "a call to a variadic function");
-        }
-
         // LR19: a generic call carries what fills each of the callee's type
         // parameters, which is what monomorphization substitutes.
         let declared = reached.type_params.clone();
@@ -137,8 +133,10 @@ impl<'a> Body<'a> {
             .iter()
             .map(|param| param.default.clone())
             .collect();
+        let variadic = reached.params.iter().position(|param| param.variadic);
 
         let mut filled: Vec<Option<Value>> = vec![None; wanted.len()];
+        let mut rest = Vec::new();
         let mut position = 0;
         for argument in args {
             let slot = match &argument.name {
@@ -147,17 +145,23 @@ impl<'a> Body<'a> {
                 None => {
                     let slot = position;
                     position += 1;
-                    Some(slot).filter(|slot| *slot < wanted.len())
+                    variadic
+                        .filter(|variadic| slot >= *variadic)
+                        .or_else(|| Some(slot).filter(|slot| *slot < wanted.len()))
                 }
             };
             let value = self.stored(&argument.value, slot.map(|slot| &wanted[slot]));
             if let Some(slot) = slot {
-                filled[slot] = Some(value);
+                if Some(slot) == variadic {
+                    rest.push(value);
+                } else {
+                    filled[slot] = Some(value);
+                }
             }
         }
 
         for (slot, default) in defaults.iter().enumerate() {
-            if filled[slot].is_some() {
+            if filled[slot].is_some() || Some(slot) == variadic {
                 continue;
             }
             let Some(default) = default else {
@@ -173,10 +177,26 @@ impl<'a> Body<'a> {
                 None => return self.missing(span, "a method call with no receiver"),
             }
         }
-        for value in filled {
-            match value {
-                Some(value) => passed.push(value),
-                None => return self.missing(span, "a call with no argument for a parameter"),
+        for (slot, value) in filled.into_iter().enumerate() {
+            if Some(slot) == variadic {
+                let element = wanted[slot].clone();
+                let ty = Ty::Builtin {
+                    kind: Builtin::FrozenList,
+                    args: vec![element.clone()],
+                };
+                passed.push(self.emit(
+                    InstKind::MakeList {
+                        element,
+                        values: std::mem::take(&mut rest),
+                    },
+                    ty,
+                    span,
+                ));
+            } else {
+                match value {
+                    Some(value) => passed.push(value),
+                    None => return self.missing(span, "a call with no argument for a parameter"),
+                }
             }
         }
 
