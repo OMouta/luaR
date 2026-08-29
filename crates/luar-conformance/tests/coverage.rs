@@ -87,6 +87,31 @@ fn sections_sort_by_number_not_by_text() {
 }
 
 #[test]
+fn standard_library_sections_keep_their_namespace() {
+    let spec = "<!-- normative: STD1-STD2 -->\n## 1. Contract\n## 2. Files";
+    let found: Vec<String> = normative_sections(spec)
+        .unwrap()
+        .iter()
+        .map(Section::to_string)
+        .collect();
+
+    assert_eq!(found, ["STD1", "STD2"]);
+    assert_eq!(Section::parse("STD5.1").unwrap().to_string(), "STD5.1");
+}
+
+#[test]
+fn language_and_library_sections_share_one_coverage_report() {
+    let spec = [
+        Section::parse("LR60").unwrap(),
+        Section::parse("STD5").unwrap(),
+    ];
+    let report = coverage(&spec, &cite(&["LR60", "STD5"]));
+
+    assert_eq!(report.tested, spec);
+    assert!(report.unknown.is_empty());
+}
+
+#[test]
 fn a_citation_without_a_number_is_not_a_section() {
     assert!(Section::parse("LR").is_none());
     assert!(Section::parse("arithmetic").is_none());

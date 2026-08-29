@@ -8,16 +8,31 @@ use std::path::Path;
 
 use crate::{directives, discover};
 
-/// A section number such as `11.1`, without the `LR`.
+/// A language or standard-library section such as `LR11.1` or `STD5`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Section(String);
+pub struct Section {
+    prefix: String,
+    number: String,
+}
 
 impl Section {
-    /// Reads a section number from a heading or a citation, accepting `LR11.1`,
-    /// `11.1` and `11.` alike. `None` if there is no number to read.
+    /// Reads a section from a citation. A bare number belongs to the language
+    /// specification.
     #[must_use]
     pub fn parse(text: &str) -> Option<Self> {
-        let text = text.trim().trim_start_matches("LR").trim();
+        let text = text.trim();
+        let (prefix, text) = if let Some(text) = text.strip_prefix("STD") {
+            ("STD", text)
+        } else if let Some(text) = text.strip_prefix("LR") {
+            ("LR", text)
+        } else {
+            ("LR", text)
+        };
+        Self::with_prefix(prefix, text)
+    }
+
+    fn with_prefix(prefix: &str, text: &str) -> Option<Self> {
+        let text = text.trim();
         let number: String = text
             .chars()
             .take_while(|c| c.is_ascii_digit() || *c == '.')
@@ -30,30 +45,37 @@ impl Section {
         if number.split('.').any(|part| part.is_empty()) {
             return None;
         }
-        Some(Self(number.to_owned()))
+        Some(Self {
+            prefix: prefix.to_owned(),
+            number: number.to_owned(),
+        })
     }
 
     #[must_use]
     pub fn as_str(&self) -> &str {
-        &self.0
+        &self.number
     }
 
     /// The sections this one sits inside: `11.1.2` yields `11.1` and `11`.
     fn ancestors(&self) -> impl Iterator<Item = Self> + '_ {
-        self.0
-            .match_indices('.')
-            .map(|(i, _)| Self(self.0[..i].to_owned()))
+        self.number.match_indices('.').map(|(i, _)| Self {
+            prefix: self.prefix.clone(),
+            number: self.number[..i].to_owned(),
+        })
     }
 
     /// Orders `11.2` before `11.10`, which string order gets wrong.
     fn key(&self) -> Vec<u32> {
-        self.0.split('.').map(|p| p.parse().unwrap_or(0)).collect()
+        self.number
+            .split('.')
+            .map(|p| p.parse().unwrap_or(0))
+            .collect()
     }
 }
 
 impl fmt::Display for Section {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "LR{}", self.0)
+        write!(f, "{}{}", self.prefix, self.number)
     }
 }
 
@@ -65,13 +87,19 @@ impl PartialOrd for Section {
 
 impl Ord for Section {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.key().cmp(&other.key())
+        self.prefix
+            .cmp(&other.prefix)
+            .then_with(|| self.key().cmp(&other.key()))
     }
 }
 
 /// Every numbered heading in a Markdown specification, in document order.
 #[must_use]
 pub fn sections(markdown: &str) -> Vec<Section> {
+    sections_with_prefix(markdown, spec_prefix(markdown))
+}
+
+fn sections_with_prefix(markdown: &str, prefix: &str) -> Vec<Section> {
     let mut sections = Vec::new();
     let mut fenced = false;
 
@@ -90,12 +118,19 @@ pub fn sections(markdown: &str) -> Vec<Section> {
         if !heading.starts_with(' ') {
             continue;
         }
-        if let Some(section) = Section::parse(heading) {
+        if let Some(section) = Section::with_prefix(prefix, heading) {
             sections.push(section);
         }
     }
 
     sections
+}
+
+fn spec_prefix(markdown: &str) -> &str {
+    markdown
+        .lines()
+        .find(|line| line.trim().starts_with("<!-- normative: STD"))
+        .map_or("LR", |_| "STD")
 }
 
 /// The numbered headings selected by the spec's `normative` directive.
@@ -122,7 +157,16 @@ pub fn normative_sections(markdown: &str) -> io::Result<Vec<Section>> {
         .map(str::trim)
         .map(selector)
         .collect::<io::Result<Vec<_>>>()?;
-    let defined = sections(markdown);
+    let prefix = selectors
+        .first()
+        .map_or("LR", |selector| selector.first.prefix.as_str());
+    if selectors
+        .iter()
+        .any(|selector| selector.first.prefix != prefix || selector.last.prefix != prefix)
+    {
+        return Err(invalid("a spec cannot mix section namespaces"));
+    }
+    let defined = sections_with_prefix(markdown, prefix);
 
     for selected in &selectors {
         if !defined.iter().any(|section| selected.contains(section)) {
@@ -260,9 +304,9 @@ fn covered_by_children(
     if !has_children.contains(section) {
         return false;
     }
-    let prefix = format!("{}.", section.0);
+    let prefix = format!("{}.", section.number);
     spec.iter()
-        .filter(|other| other.0.starts_with(&prefix))
+        .filter(|other| other.prefix == section.prefix && other.number.starts_with(&prefix))
         .all(|child| cited.contains(child))
 }
 
