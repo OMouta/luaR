@@ -1868,6 +1868,8 @@ function readConfig(path: string): Result<Config, IoError>
 end
 ```
 
+`Result.Ok(value)` and `Result.Err(error)` take their type arguments from what the value is asked for: the result of the enclosing function at a `return`, the annotation of the binding they initialize, or the parameter they are passed to. Where nothing asks for one, they are written: `Result.Ok<T, E>(value)`.
+
 ### 25.2 Propagation Operator
 
 `?` propagates the error branch of a `Result`, and nothing else.
