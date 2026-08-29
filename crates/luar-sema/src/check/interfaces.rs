@@ -32,6 +32,28 @@ pub(super) fn same_signature(left: &Signature, right: &Signature) -> bool {
             .all(|(left, right)| left.ty == right.ty)
 }
 
+/// LR35: a primitive type and `string` satisfy `Eq`, `Hash`, and `Display`
+/// without declaring them, and the numeric types, `char`, and `string` satisfy
+/// `Comparable`. Matched by name until `std/prelude` declares them (LR54.1).
+fn builtin_protocol(protocol: &str, held: &Type) -> bool {
+    match held {
+        Type::Primitive(Primitive::Any | Primitive::Unknown | Primitive::Never) => false,
+        Type::Primitive(primitive) => match protocol {
+            "Eq" | "Hash" | "Display" => true,
+            "Comparable" => {
+                primitive.is_integer()
+                    || primitive.is_float()
+                    || matches!(primitive, Primitive::Char | Primitive::String)
+            }
+            _ => false,
+        },
+        Type::IntegerLiteral(_) | Type::FloatLiteral => {
+            matches!(protocol, "Eq" | "Hash" | "Display" | "Comparable")
+        }
+        _ => false,
+    }
+}
+
 /// A method that was found, and what the receiver filled the type parameters
 /// of the block offering it with (LR20).
 pub(super) type Reached = (Overloads, Vec<Type>);
@@ -97,6 +119,10 @@ impl Checker<'_> {
         let Some(Decl::Interface(interface)) = self.table.get(*module, name) else {
             return false;
         };
+
+        if builtin_protocol(name, held) {
+            return true;
+        }
 
         // A structural interface is satisfied by any type with the members,
         // declared or not.
