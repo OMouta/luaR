@@ -3313,6 +3313,11 @@ impl<'a> Body<'a> {
                 return self.emit(InstKind::Length { receiver: object }, Ty::INT, span);
             }
 
+            // LR37: strings store their byte length in the same header slot.
+            if name == "byteLength" && matches!(held, Ty::Str) {
+                return self.emit(InstKind::Length { receiver: object }, Ty::INT, span);
+            }
+
             let Some(index) = self.field_index(&held, name) else {
                 return self.missing(span, "a member that is not a stored field");
             };

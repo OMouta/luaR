@@ -1942,6 +1942,11 @@ impl Checker<'_> {
             return Type::Primitive(Primitive::I64);
         }
 
+        // LR37: a string exposes its storage size in bytes.
+        if matches!(held, Type::Primitive(Primitive::String)) && name == "byteLength" {
+            return Type::Primitive(Primitive::I64);
+        }
+
         let Some(owner) = self.known(held) else {
             return Type::Unresolved;
         };

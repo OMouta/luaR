@@ -1,0 +1,6 @@
+--- expect: run
+--- exit: 8
+--- spec: LR37
+export function main(): int
+    return "LuaR €".byteLength
+end
