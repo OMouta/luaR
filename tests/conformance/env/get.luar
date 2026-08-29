@@ -1,6 +1,6 @@
 --- expect: run
 --- exit: 0
---- spec: LR60
+--- spec: STD9
 import { get } from "std/env"
 
 export function main(): int

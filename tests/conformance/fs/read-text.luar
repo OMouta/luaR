@@ -1,7 +1,7 @@
 --- expect: run
 --- exit: 0
 --- stdout: "hello\n"
---- spec: LR60
+--- spec: STD5
 import { readText } from "std/fs"
 
 export function main()

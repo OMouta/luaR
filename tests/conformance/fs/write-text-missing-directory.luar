@@ -1,6 +1,6 @@
 --- expect: run
 --- exit: 0
---- spec: LR60
+--- spec: STD5
 import { writeText } from "std/fs"
 
 export function main(): int
