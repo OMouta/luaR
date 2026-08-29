@@ -12,7 +12,7 @@ use crate::types::{Builtin, Primitive, Type};
 
 use super::builtins::{
     checked_index_method, collection_mutation_method, contains_method, frozen_method,
-    index_of_method, map_err_method, ok_or_method, overflow_method,
+    map_err_method, ok_or_method, overflow_method,
 };
 use super::calls::{against, filled, infer, takes_self};
 use super::unsafe_ops::{unavailable_unsafe_memory_method, unsafe_memory_method};
@@ -62,7 +62,6 @@ fn language_method(receiver: &Type, name: &str, span: Span) -> Option<Overloads>
         frozen_method,
         checked_index_method,
         contains_method,
-        index_of_method,
         ok_or_method,
         map_err_method,
     ]
@@ -404,7 +403,11 @@ impl Checker<'_> {
                 }
                 declared.clone()
             }
-            _ if language_method(target, name, span).is_some() => target.to_string(),
+            _ if language_method(target, name, span).is_some()
+                || self.prelude_adds(target, name) =>
+            {
+                target.to_string()
+            }
             _ => return,
         };
 
@@ -416,6 +419,23 @@ impl Checker<'_> {
             )
             .note("An extension adds members to a type and never replaces one (LR20)."),
         );
+    }
+
+    /// Whether a block of the prelude adds `name` to `receiver` (LR54.1).
+    fn prelude_adds(&self, receiver: &Type, name: &str) -> bool {
+        let Some(prelude) = self.graph.prelude() else {
+            return false;
+        };
+        prelude != self.scope
+            && self.table.decls().any(|(module, _, decl)| {
+                module == prelude
+                    && matches!(
+                        decl,
+                        Decl::Extension { type_params, target, methods }
+                            if methods.contains_key(name)
+                                && bound_by(type_params, target, receiver).is_some()
+                    )
+            })
     }
 
     /// The extension method `name` on `receiver`, from the blocks this

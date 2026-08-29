@@ -78,7 +78,6 @@ pub struct Facts {
     freezes: HashSet<Span>,
     checked_indexes: HashSet<Span>,
     contains: HashSet<Span>,
-    index_of: HashSet<Span>,
     ok_or: HashSet<Span>,
     map_err: HashSet<Span>,
     collection_mutations: HashMap<Span, CollectionMutation>,
@@ -171,15 +170,6 @@ impl Facts {
         self.contains.contains(&span)
     }
 
-    pub fn record_index_of(&mut self, span: Span) {
-        self.index_of.insert(span);
-    }
-
-    #[must_use]
-    pub fn index_of(&self, span: Span) -> bool {
-        self.index_of.contains(&span)
-    }
-
     pub fn record_ok_or(&mut self, span: Span) {
         self.ok_or.insert(span);
     }
@@ -237,7 +227,6 @@ impl Facts {
         self.freezes.extend(other.freezes);
         self.checked_indexes.extend(other.checked_indexes);
         self.contains.extend(other.contains);
-        self.index_of.extend(other.index_of);
         self.ok_or.extend(other.ok_or);
         self.map_err.extend(other.map_err);
         self.collection_mutations.extend(other.collection_mutations);

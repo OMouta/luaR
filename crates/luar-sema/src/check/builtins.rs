@@ -178,7 +178,8 @@ pub(super) fn checked_index_method(receiver: &Type, name: &str, span: Span) -> O
 }
 
 /// `scores:contains(key)` on a map (LR13.2) and `ids:contains(value)` on a
-/// set (LR13.3), frozen or not.
+/// set (LR13.3), frozen or not. A list reaches `contains` through the prelude
+/// (LR54.1).
 pub(super) fn contains_method(receiver: &Type, name: &str, span: Span) -> Option<Signature> {
     if name != "contains" {
         return None;
@@ -188,7 +189,7 @@ pub(super) fn contains_method(receiver: &Type, name: &str, span: Span) -> Option
     };
     let param = match kind {
         Builtin::Map | Builtin::FrozenMap => "key",
-        Builtin::List | Builtin::FrozenList | Builtin::Set | Builtin::FrozenSet => "value",
+        Builtin::Set | Builtin::FrozenSet => "value",
         _ => return None,
     };
     Some(Signature {
@@ -202,37 +203,6 @@ pub(super) fn contains_method(receiver: &Type, name: &str, span: Span) -> Option
             variadic: false,
         }],
         result: Type::BOOL,
-        takes_self: true,
-        visibility: None,
-        span,
-        inferred: false,
-        unsafe_: false,
-    })
-}
-
-/// `values:indexOf(value)` on a list (LR13.1), frozen or not.
-pub(super) fn index_of_method(receiver: &Type, name: &str, span: Span) -> Option<Signature> {
-    if name != "indexOf" {
-        return None;
-    }
-    let Type::Builtin {
-        kind: Builtin::List | Builtin::FrozenList,
-        args,
-    } = receiver
-    else {
-        return None;
-    };
-    Some(Signature {
-        asynchronous: false,
-        type_params: Vec::new(),
-        constraints: Vec::new(),
-        params: vec![crate::table::Param {
-            name: "value".to_owned(),
-            ty: args.first().cloned().unwrap_or(Type::Unresolved),
-            optional: false,
-            variadic: false,
-        }],
-        result: Type::Primitive(Primitive::I64).optional(),
         takes_self: true,
         visibility: None,
         span,

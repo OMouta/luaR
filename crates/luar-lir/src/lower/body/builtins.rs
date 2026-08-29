@@ -307,19 +307,6 @@ impl<'a> Body<'a> {
         self.emit(InstKind::Contains { receiver, value }, Ty::Bool, span)
     }
 
-    pub(super) fn index_of(&mut self, callee: &Expr, args: &[Argument], span: Span) -> Value {
-        let receiver = self.expr(callee, None);
-        let Some(element) = self.collection_args(receiver).first().cloned() else {
-            return self.missing(span, "a lookup without an element type");
-        };
-        let Some(argument) = args.first() else {
-            return self.missing(span, "a lookup without a value");
-        };
-        let value = self.expr(&argument.value, Some(&element));
-        let result = self.recorded(span);
-        self.emit(InstKind::IndexOf { receiver, value }, result, span)
-    }
-
     /// LR8: `optional:okOr(error)` is `Ok` of what it holds, or `Err` of
     /// `error`.
     pub(super) fn ok_or(&mut self, callee: &Expr, args: &[Argument], span: Span) -> Value {

@@ -16,3 +16,47 @@ end
 export interface Comparable
     function compare(self, other: Self): int
 end
+
+export extend ListSearch<T> for List<T>
+    function contains(self, value: T): bool
+    where T: Eq
+        for i in 0..<self.length do
+            if self[i] == value then
+                return true
+            end
+        end
+        return false
+    end
+
+    function indexOf(self, value: T): int?
+    where T: Eq
+        for i in 0..<self.length do
+            if self[i] == value then
+                return i
+            end
+        end
+        return nil
+    end
+end
+
+export extend FrozenListSearch<T> for FrozenList<T>
+    function contains(self, value: T): bool
+    where T: Eq
+        for i in 0..<self.length do
+            if self[i] == value then
+                return true
+            end
+        end
+        return false
+    end
+
+    function indexOf(self, value: T): int?
+    where T: Eq
+        for i in 0..<self.length do
+            if self[i] == value then
+                return i
+            end
+        end
+        return nil
+    end
+end

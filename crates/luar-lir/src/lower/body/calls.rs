@@ -33,9 +33,6 @@ impl<'a> Body<'a> {
         if self.context.facts.contains(span) {
             return self.contains(callee, args, span);
         }
-        if self.context.facts.index_of(span) {
-            return self.index_of(callee, args, span);
-        }
         if self.context.facts.ok_or(span) {
             return self.ok_or(callee, args, span);
         }

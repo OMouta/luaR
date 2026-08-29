@@ -13,8 +13,7 @@ use crate::types::{Builtin, Primitive, Type};
 
 use super::builtins::{
     article, checked_index_method, collection_mutation_method, contains_method, frozen_method,
-    index_of_method, intrinsic_signature, map_err_method, ok_or_method, overflow_method, plural,
-    usable,
+    intrinsic_signature, map_err_method, ok_or_method, overflow_method, plural, usable,
 };
 use super::expr::result_variant;
 use super::operators::{is_integer, is_numeric, opaque, settle};
@@ -225,7 +224,6 @@ impl Checker<'_> {
         let checked_index =
             method.is_some_and(|name| checked_index_method(receiver, name, span).is_some());
         let contains = method.is_some_and(|name| contains_method(receiver, name, span).is_some());
-        let index_of = method.is_some_and(|name| index_of_method(receiver, name, span).is_some());
         let ok_or = method.is_some_and(|name| ok_or_method(receiver, name, span).is_some());
         let map_err = method.is_some_and(|name| map_err_method(receiver, name, span).is_some());
         let collection_mutation = method.and_then(|name| {
@@ -353,9 +351,6 @@ impl Checker<'_> {
         }
         if contains {
             self.facts.record_contains(span);
-        }
-        if index_of {
-            self.facts.record_index_of(span);
         }
         if ok_or {
             self.facts.record_ok_or(span);
