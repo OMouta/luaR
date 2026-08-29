@@ -1,0 +1,30 @@
+--- expect: run
+--- exit: 57
+--- spec: LR13.1
+--- spec: LR57
+export function main(): int
+    local values = [1, 2, 3, 4]
+    values:reverse()
+    local total = values[0] * 10 + values[3]
+    local odd = [5, 6, 7]
+    odd:reverse()
+    total += odd[0] - odd[2]
+    local empty = List.new<int>()
+    empty:reverse()
+    total += empty.length
+    local one = [9]
+    one:reverse()
+    total += one[0]
+    local names = ["a", "b"]
+    names:reverse()
+    local a = names:indexOf("a")
+    if a ~= nil then
+        total += a
+    end
+    values:push(8)
+    local pushed = values:indexOf(8)
+    if pushed ~= nil then
+        total += pushed
+    end
+    return total
+end

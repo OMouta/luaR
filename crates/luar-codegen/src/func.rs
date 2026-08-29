@@ -415,6 +415,10 @@ impl Translator<'_, '_> {
             InstKind::IndexOf { receiver, value } => self.index_of(*receiver, *value, inst.result),
             InstKind::MapRemove { receiver, key } => self.map_remove(*receiver, *key, inst.result),
             InstKind::SetRemove { receiver, value } => self.set_remove(*receiver, *value),
+            InstKind::ListReverse { receiver } => {
+                self.list_reverse(*receiver);
+                None
+            }
             InstKind::Clear { receiver } => {
                 self.clear(*receiver);
                 None
@@ -1709,6 +1713,63 @@ impl Translator<'_, '_> {
 
     /// Room for one more element past `length`: a full buffer is doubled
     /// first. Continues in a block where `BUFFER` has to be read again.
+    fn list_reverse(&mut self, receiver: Value) {
+        let Some(machine) = self.mutable_list_element(receiver) else {
+            return;
+        };
+        let list = self.value(receiver);
+        let length = self
+            .builder
+            .ins()
+            .load(self.pointer, OWNED, list, layout::LENGTH);
+        let buffer = self
+            .builder
+            .ins()
+            .load(self.pointer, OWNED, list, layout::BUFFER);
+        let scan = self.builder.create_block();
+        let swap = self.builder.create_block();
+        let done = self.builder.create_block();
+        self.builder.append_block_param(scan, self.pointer);
+        self.builder.append_block_param(scan, self.pointer);
+        self.builder.append_block_param(swap, self.pointer);
+        self.builder.append_block_param(swap, self.pointer);
+        let zero = self.builder.ins().iconst(self.pointer, 0);
+        let last = self.builder.ins().iadd_imm(length, -1);
+        self.builder.ins().jump(
+            scan,
+            &[ir::BlockArg::Value(zero), ir::BlockArg::Value(last)],
+        );
+
+        self.builder.switch_to_block(scan);
+        let low = self.builder.block_params(scan)[0];
+        let high = self.builder.block_params(scan)[1];
+        let more = self.builder.ins().icmp(IntCC::SignedLessThan, low, high);
+        self.builder.ins().brif(
+            more,
+            swap,
+            &[ir::BlockArg::Value(low), ir::BlockArg::Value(high)],
+            done,
+            &[],
+        );
+
+        self.builder.switch_to_block(swap);
+        let low = self.builder.block_params(swap)[0];
+        let high = self.builder.block_params(swap)[1];
+        let front = self.list_cell(buffer, low);
+        let back = self.list_cell(buffer, high);
+        let first = self.builder.ins().load(machine, OWNED, front, 0);
+        let second = self.builder.ins().load(machine, OWNED, back, 0);
+        self.builder.ins().store(OWNED, second, front, 0);
+        self.builder.ins().store(OWNED, first, back, 0);
+        let low = self.builder.ins().iadd_imm(low, 1);
+        let high = self.builder.ins().iadd_imm(high, -1);
+        self.builder
+            .ins()
+            .jump(scan, &[ir::BlockArg::Value(low), ir::BlockArg::Value(high)]);
+
+        self.builder.switch_to_block(done);
+    }
+
     fn list_reserve(&mut self, list: ir::Value, length: ir::Value, machine: Type) {
         let capacity = self
             .builder

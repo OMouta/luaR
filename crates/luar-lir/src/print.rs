@@ -278,6 +278,7 @@ fn instruction(inst: &Inst, function: &Function) -> String {
             format!("insert {} <- {}", name(*receiver), name(*value))
         }
         InstKind::Clear { receiver } => format!("clear {}", name(*receiver)),
+        InstKind::ListReverse { receiver } => format!("reverse {}", name(*receiver)),
         InstKind::MapRemove { receiver, key } => {
             format!("remove {} {}", name(*receiver), name(*key))
         }
