@@ -100,6 +100,7 @@ pub fn size(program: &Program, ty: &Ty, pointer: Type) -> Option<i32> {
         } => COLLECTION_CELLS,
         Ty::Tuple(members) => u32::try_from(members.len()).ok()?,
         Ty::Record(fields) => u32::try_from(fields.len()).ok()?,
+        Ty::Array(_, length) => u32::try_from(*length).ok()?,
         // Whether it holds anything, and what it holds.
         Ty::Optional(_) => 2,
         // What it is, and then what it holds (LR18.1, LR25.3).
@@ -188,7 +189,7 @@ fn align_to(offset: i32, align: i32) -> i32 {
 }
 
 /// The type of each cell of an aggregate whose parts are known without
-/// reading it: a struct, a tuple, or a record. An enum holds whichever
+/// reading it: a struct, tuple, record, or array. An enum holds whichever
 /// variant its tag says, so it is not one of these.
 #[must_use]
 pub fn parts(program: &Program, ty: &Ty) -> Option<Vec<Ty>> {
@@ -208,6 +209,10 @@ pub fn parts(program: &Program, ty: &Ty) -> Option<Vec<Ty>> {
         }
         Ty::Tuple(members) => Some(members.clone()),
         Ty::Record(fields) => Some(fields.iter().map(|(_, ty)| ty.clone()).collect()),
+        Ty::Array(element, length) => Some(vec![
+            element.as_ref().clone();
+            usize::try_from(*length).ok()?
+        ]),
         _ => None,
     }
 }
@@ -240,6 +245,7 @@ pub fn holds_value_parts(program: &Program, ty: &Ty, depth: u32) -> bool {
         }
         Ty::Tuple(members) => members.clone(),
         Ty::Record(fields) => fields.iter().map(|(_, ty)| ty.clone()).collect(),
+        Ty::Array(..) => return true,
         Ty::Optional(held) => vec![held.as_ref().clone()],
         Ty::Builtin { args, .. } => args.clone(),
         _ => return false,
@@ -265,6 +271,7 @@ pub fn is_aggregate(ty: &Ty) -> bool {
             | Ty::Named { .. }
             | Ty::Tuple(_)
             | Ty::Record(_)
+            | Ty::Array(..)
             | Ty::Optional(_)
             | Ty::Builtin {
                 kind: Builtin::Result

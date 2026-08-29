@@ -242,9 +242,8 @@ fn infer(
             }
             Some(())
         }
-        (Ty::Optional(a), Ty::Optional(b)) | (Ty::Array(a), Ty::Array(b)) => {
-            infer(params, a, b, inferred)
-        }
+        (Ty::Optional(a), Ty::Optional(b)) => infer(params, a, b, inferred),
+        (Ty::Array(a, left), Ty::Array(b, right)) if left == right => infer(params, a, b, inferred),
         (
             Ty::Pointer {
                 mutable: left_mutable,

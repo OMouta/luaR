@@ -281,6 +281,7 @@ impl<'a> Body<'a> {
                 kind: ty::Builtin::List | ty::Builtin::FrozenList,
                 args,
             } => args.first().cloned(),
+            Ty::Array(element, _) => Some(*element),
             Ty::Bytes => Some(Ty::Int(IntTy::U8)),
             _ => return self.missing(span, "an unchecked element access on this type"),
         };

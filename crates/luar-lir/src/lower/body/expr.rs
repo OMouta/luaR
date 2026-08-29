@@ -32,9 +32,12 @@ impl<'a> Body<'a> {
         self.emit(InstKind::CopyValue { value }, ty, expr.span)
     }
 
-    /// Whether `ty` is a struct with value semantics. A `ref struct` is one
-    /// object every holder observes, so it is never copied (LR31).
+    /// Whether `ty` has value semantics. A `ref struct` is one object every
+    /// holder observes, so it is never copied (LR31, LR71).
     fn is_value_struct(&self, ty: &Ty) -> bool {
+        if matches!(ty, Ty::Array(..)) {
+            return true;
+        }
         let Ty::Named { id, .. } = ty else {
             return false;
         };

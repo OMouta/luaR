@@ -1,0 +1,13 @@
+--- expect: run
+--- exit: 30
+--- spec: LR29.2
+--- spec: LR70
+--- spec: LR71
+export function main(): int
+    local values: [int; 2] = [30, 40]
+    unsafe
+        local first = values:unchecked(0)
+        values:uncheckedSet(1, first)
+        return values:unchecked(1)
+    end
+end

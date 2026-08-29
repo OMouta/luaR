@@ -19,6 +19,14 @@ impl Translator<'_, '_> {
         values: &[Value],
     ) -> Option<ir::Value> {
         let ty = self.function.type_of(result?).clone();
+        if matches!(ty, Ty::Array(..)) {
+            let built = self.allocate(&ty, 0)?;
+            for (index, value) in values.iter().enumerate() {
+                let index = u32::try_from(index).unwrap_or(u32::MAX);
+                self.write_at(built, &ty, index, *value);
+            }
+            return Some(built);
+        }
         let header = self.allocate(&ty, 0)?;
         let cells = i32::try_from(values.len()).unwrap_or(i32::MAX / layout::CELL);
         let buffer = self.allocate_bytes((layout::CELL * cells).max(layout::CELL), &ty, 1)?;
@@ -99,6 +107,11 @@ impl Translator<'_, '_> {
                 self.builder.ins().jump(carry_on, &[]);
                 self.builder.switch_to_block(carry_on);
                 Some(built)
+            }
+            Ty::Array(_, length) => {
+                let address = self.array_address(receiver, index, *length, checked);
+                let ty = result.map_or(types::I8, |value| self.machine_or_gap(value));
+                Some(self.builder.ins().load(ty, OWNED, address, 0))
             }
             Ty::Bytes => {
                 let address = self.byte_address(receiver, index, checked);
@@ -379,6 +392,11 @@ impl Translator<'_, '_> {
                         .store(OWNED, written, bucket, layout::BUCKET_VALUE);
                 }
             }
+            Ty::Array(_, length) => {
+                let address = self.array_address(receiver, index, *length, checked);
+                let written = self.value(value);
+                self.builder.ins().store(OWNED, written, address, 0);
+            }
             Ty::Bytes => {
                 let address = self.byte_address(receiver, index, checked);
                 let written = self.value(value);
@@ -404,6 +422,27 @@ impl Translator<'_, '_> {
         }
         let start = self.builder.ins().iadd_imm(bytes, i64::from(layout::CELL));
         self.builder.ins().iadd(start, index)
+    }
+
+    fn array_address(
+        &mut self,
+        receiver: Value,
+        index: Value,
+        length: u64,
+        checked: bool,
+    ) -> ir::Value {
+        let array = self.value(receiver);
+        let index = self.value(index);
+        if checked {
+            let length = self.builder.ins().iconst(self.pointer, length as i64);
+            let outside = self
+                .builder
+                .ins()
+                .icmp(IntCC::UnsignedGreaterThanOrEqual, index, length);
+            self.trap_if(outside, Trap::Bounds);
+        }
+        let offset = self.builder.ins().imul_imm(index, i64::from(layout::CELL));
+        self.builder.ins().iadd(array, offset)
     }
 
     /// LR70: the cell of element `index`, with a bounds check when requested.

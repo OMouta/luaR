@@ -171,9 +171,8 @@ pub enum Ty {
     Optional(Box<Ty>),
     /// A value that is one of several types, and carries which (LR17.2).
     Union(Vec<Ty>),
-    /// `[T; N]` (LR71). The length is a constant expression, so it waits for
-    /// `const` evaluation to reach array sizes (LR24).
-    Array(Box<Ty>),
+    /// `[T; N]` (LR71).
+    Array(Box<Ty>, u64),
     /// `*const T` or `*mut T` (LR72).
     Pointer {
         mutable: bool,
@@ -242,7 +241,9 @@ impl Ty {
             Self::Tuple(members) => Self::Tuple(each(members)),
             Self::Union(members) => Self::Union(each(members)),
             Self::Optional(inner) => Self::Optional(Box::new(inner.substitute(params, args))),
-            Self::Array(element) => Self::Array(Box::new(element.substitute(params, args))),
+            Self::Array(element, length) => {
+                Self::Array(Box::new(element.substitute(params, args)), *length)
+            }
             Self::Pointer { mutable, target } => Self::Pointer {
                 mutable: *mutable,
                 target: Box::new(target.substitute(params, args)),
@@ -269,7 +270,7 @@ impl Ty {
             }
             Self::Tuple(members) => members.iter().any(Self::is_generic),
             Self::Record(fields) => fields.iter().any(|(_, ty)| ty.is_generic()),
-            Self::Optional(inner) | Self::Array(inner) => inner.is_generic(),
+            Self::Optional(inner) | Self::Array(inner, _) => inner.is_generic(),
             Self::Pointer { target, .. } => target.is_generic(),
             Self::Function { params, result } => {
                 params.iter().any(Self::is_generic) || result.is_generic()
@@ -318,7 +319,7 @@ impl fmt::Display for Ty {
             }
             Self::Optional(inner) => write!(f, "{inner}?"),
             Self::Union(members) => join(f, members, " | "),
-            Self::Array(element) => write!(f, "[{element}; N]"),
+            Self::Array(element, length) => write!(f, "[{element}; {length}]"),
             Self::Pointer { mutable, target } => {
                 let qualifier = if *mutable { "mut" } else { "const" };
                 write!(f, "*{qualifier} {target}")

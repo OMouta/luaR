@@ -1,0 +1,10 @@
+--- expect: run
+--- exit: 15
+--- spec: LR70
+--- spec: LR71
+export function main(): int
+    local original: [int; 2] = [3, 5]
+    local copy = original
+    copy[0] = 7
+    return original[0] + copy[0] + copy[1]
+end

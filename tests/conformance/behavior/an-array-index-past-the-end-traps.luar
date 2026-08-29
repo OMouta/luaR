@@ -1,0 +1,9 @@
+--- expect: run
+--- exit: 101
+--- trap: bounds
+--- spec: LR70
+--- spec: LR71
+export function main(): int
+    local values: [int; 2] = [3, 5]
+    return values[2]
+end

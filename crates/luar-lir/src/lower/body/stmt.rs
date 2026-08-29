@@ -449,19 +449,20 @@ impl<'a> Body<'a> {
                 let container = self.expr(receiver, None);
                 let container = self.settled(container, span);
                 let held = self.function.type_of(container).clone();
-                let Ty::Builtin { args, .. } = &held else {
-                    self.gap(
-                        span,
-                        "an assignment into something the compiler cannot index",
-                    );
-                    return;
-                };
                 let (key, element) = match &held {
                     Ty::Builtin {
                         kind: Builtin::Map | Builtin::FrozenMap,
-                        ..
+                        args,
                     } => (args.first().cloned(), args.get(1).cloned()),
-                    _ => (Some(Ty::INT), args.first().cloned()),
+                    Ty::Builtin { args, .. } => (Some(Ty::INT), args.first().cloned()),
+                    Ty::Array(element, _) => (Some(Ty::INT), Some(element.as_ref().clone())),
+                    _ => {
+                        self.gap(
+                            span,
+                            "an assignment into something the compiler cannot index",
+                        );
+                        return;
+                    }
                 };
                 let Some(element) = element else {
                     self.gap(span, "an assignment into a container with no element type");

@@ -243,7 +243,7 @@ impl<'a> Body<'a> {
         let ty = self.settled_type(wanted, span);
         let element = match &ty {
             Ty::Builtin { args, .. } => args.first().cloned(),
-            Ty::Array(element) => Some((**element).clone()),
+            Ty::Array(element, _) => Some((**element).clone()),
             _ => None,
         };
         let Some(element) = element else {
@@ -336,13 +336,14 @@ impl<'a> Body<'a> {
         let container = self.expr(receiver, None);
         let container = self.settled(container, span);
         let held = self.function.type_of(container).clone();
-        let Ty::Builtin { args, .. } = &held else {
-            return self.missing(span, "indexing something the compiler cannot index");
+        let key = match &held {
+            Ty::Builtin { args, .. } => args.first().cloned(),
+            Ty::Array(..) => Some(Ty::INT),
+            _ => return self.missing(span, "indexing something the compiler cannot index"),
         };
-        let key = args.first().cloned();
 
-        // LR37: a list and an array are keyed by position, and only a map
-        // states what it is keyed by.
+        // LR37, LR71: a list and an array are keyed by position, and only a
+        // map states what it is keyed by.
         let wanted = match &held {
             Ty::Builtin {
                 kind: Builtin::Map | Builtin::FrozenMap,

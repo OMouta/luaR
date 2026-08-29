@@ -251,7 +251,7 @@ fn concrete(ty: &Ty) -> bool {
             args.iter().all(concrete)
         }
         Ty::Record(fields) => fields.iter().all(|(_, ty)| concrete(ty)),
-        Ty::Optional(held) | Ty::Array(held) => concrete(held),
+        Ty::Optional(held) | Ty::Array(held, _) => concrete(held),
         Ty::Pointer { target, .. } => concrete(target),
         Ty::Function { params, result } => params.iter().all(concrete) && concrete(result),
         _ => true,
