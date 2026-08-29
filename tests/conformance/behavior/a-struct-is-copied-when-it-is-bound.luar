@@ -2,6 +2,7 @@
 --- exit: 1
 --- spec: LR31
 --- spec: LR12
+--- spec: LR58
 struct Point
     x: int
 end

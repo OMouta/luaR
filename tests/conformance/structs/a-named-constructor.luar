@@ -1,6 +1,7 @@
 --- expect: run
 --- exit: 0
 --- stdout: "Jon Doe\n"
+--- spec: LR41
 --- spec: LR66
 struct User
     id: u64

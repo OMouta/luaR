@@ -1,0 +1,9 @@
+--- expect: compile-ok
+--- spec: LR6.4
+--- spec: LR67
+function read(value: any, key: any): any
+    return value[key].anything
+end
+
+export function main()
+end
