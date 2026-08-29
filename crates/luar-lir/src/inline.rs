@@ -5,11 +5,13 @@ use std::collections::HashMap;
 use crate::inst::{InstKind, Target, Terminator, Value};
 use crate::program::{BlockId, FuncId, Inline, Program, SlotId};
 
+type CallSite = (BlockId, usize, FuncId, Vec<Value>, Option<Value>);
+
 pub fn run(program: &mut Program) {
     let callers: Vec<FuncId> = program.functions().map(|(id, _)| id).collect();
 
     for caller in callers {
-        let mut calls: Vec<(BlockId, usize, FuncId, Vec<Value>, Option<Value>)> = program
+        let mut calls: Vec<CallSite> = program
             .function(caller)
             .blocks()
             .flat_map(|(block, held)| {
@@ -166,6 +168,10 @@ fn remap_inst(inst: &mut InstKind, map: &HashMap<Value, Value>, slots: &HashMap<
             receiver: left,
             index: right,
         }
+        | InstKind::GetUncheckedIndex {
+            receiver: left,
+            index: right,
+        }
         | InstKind::GetCheckedIndex {
             receiver: left,
             index: right,
@@ -246,6 +252,15 @@ fn remap_inst(inst: &mut InstKind, map: &HashMap<Value, Value>, slots: &HashMap<
             value(map, held);
         }
         InstKind::SetIndex {
+            receiver,
+            index,
+            value: held,
+        } => {
+            value(map, receiver);
+            value(map, index);
+            value(map, held);
+        }
+        InstKind::SetUncheckedIndex {
             receiver,
             index,
             value: held,

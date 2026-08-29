@@ -380,12 +380,22 @@ pub enum InstKind {
         receiver: Value,
         index: Value,
     },
+    /// An index whose bounds a whole-function pass proved (LR70).
+    GetUncheckedIndex {
+        receiver: Value,
+        index: Value,
+    },
     /// A non-trapping collection lookup returning an optional (LR69, LR70).
     GetCheckedIndex {
         receiver: Value,
         index: Value,
     },
     SetIndex {
+        receiver: Value,
+        index: Value,
+        value: Value,
+    },
+    SetUncheckedIndex {
         receiver: Value,
         index: Value,
         value: Value,
@@ -497,6 +507,8 @@ impl InstKind {
             | Self::CallVirtual { .. }
             | Self::SetField { .. }
             | Self::SetIndex { .. }
+            | Self::SetUncheckedIndex { .. }
+            | Self::GetUncheckedIndex { .. }
             | Self::ListPush { .. }
             | Self::ListPop { .. }
             | Self::SetInsert { .. }

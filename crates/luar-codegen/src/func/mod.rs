@@ -478,7 +478,10 @@ impl Translator<'_, '_> {
                 )
             }
             InstKind::GetIndex { receiver, index } => {
-                self.get_index(*receiver, *index, inst.result)
+                self.get_index(*receiver, *index, inst.result, true)
+            }
+            InstKind::GetUncheckedIndex { receiver, index } => {
+                self.get_index(*receiver, *index, inst.result, false)
             }
             InstKind::GetCheckedIndex { receiver, index } => {
                 self.get_checked_index(*receiver, *index, inst.result)
@@ -488,7 +491,15 @@ impl Translator<'_, '_> {
                 index,
                 value,
             } => {
-                self.set_index(*receiver, *index, *value);
+                self.set_index(*receiver, *index, *value, true);
+                None
+            }
+            InstKind::SetUncheckedIndex {
+                receiver,
+                index,
+                value,
+            } => {
+                self.set_index(*receiver, *index, *value, false);
                 None
             }
 

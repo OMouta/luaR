@@ -296,6 +296,9 @@ fn instruction(inst: &Inst, function: &Function) -> String {
         InstKind::GetIndex { receiver, index } => {
             format!("index {}[{}]", name(*receiver), name(*index))
         }
+        InstKind::GetUncheckedIndex { receiver, index } => {
+            format!("index unchecked {}[{}]", name(*receiver), name(*index))
+        }
         InstKind::GetCheckedIndex { receiver, index } => {
             format!("get {}[{}]", name(*receiver), name(*index))
         }
@@ -305,6 +308,16 @@ fn instruction(inst: &Inst, function: &Function) -> String {
             value,
         } => format!(
             "set {}[{}] = {}",
+            name(*receiver),
+            name(*index),
+            name(*value)
+        ),
+        InstKind::SetUncheckedIndex {
+            receiver,
+            index,
+            value,
+        } => format!(
+            "set unchecked {}[{}] = {}",
             name(*receiver),
             name(*index),
             name(*value)

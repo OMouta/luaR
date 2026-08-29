@@ -45,6 +45,7 @@ impl Translator<'_, '_> {
         receiver: Value,
         index: Value,
         result: Option<Value>,
+        checked: bool,
     ) -> Option<ir::Value> {
         let held = self.function.type_of(receiver).clone();
         match &held {
@@ -52,7 +53,7 @@ impl Translator<'_, '_> {
                 kind: Builtin::List | Builtin::FrozenList,
                 ..
             } => {
-                let address = self.element_address(receiver, index);
+                let address = self.element_address(receiver, index, checked);
                 let ty = result.map_or(types::I8, |value| self.machine_or_gap(value));
                 Some(self.builder.ins().load(ty, OWNED, address, 0))
             }
@@ -120,7 +121,7 @@ impl Translator<'_, '_> {
                 ..
             }
         ) {
-            return self.get_index(receiver, index, result);
+            return self.get_index(receiver, index, result, true);
         }
         if !matches!(
             held,
@@ -348,14 +349,14 @@ impl Translator<'_, '_> {
         Some(self.builder.ins().icmp_imm(IntCC::NotEqual, bucket, 0))
     }
 
-    pub(super) fn set_index(&mut self, receiver: Value, index: Value, value: Value) {
+    pub(super) fn set_index(&mut self, receiver: Value, index: Value, value: Value, checked: bool) {
         let held = self.function.type_of(receiver).clone();
         match &held {
             Ty::Builtin {
                 kind: Builtin::List,
                 ..
             } => {
-                let address = self.element_address(receiver, index);
+                let address = self.element_address(receiver, index, checked);
                 let written = self.value(value);
                 self.builder.ins().store(OWNED, written, address, 0);
             }
@@ -378,20 +379,21 @@ impl Translator<'_, '_> {
         }
     }
 
-    /// LR70: the cell of element `index`, after trapping where the list has
-    /// no such element.
-    fn element_address(&mut self, receiver: Value, index: Value) -> ir::Value {
+    /// LR70: the cell of element `index`, with a bounds check when requested.
+    fn element_address(&mut self, receiver: Value, index: Value, checked: bool) -> ir::Value {
         let list = self.value(receiver);
         let index = self.value(index);
-        let length = self
-            .builder
-            .ins()
-            .load(self.pointer, OWNED, list, layout::LENGTH);
-        let outside = self
-            .builder
-            .ins()
-            .icmp(IntCC::UnsignedGreaterThanOrEqual, index, length);
-        self.trap_if(outside, Trap::Bounds);
+        if checked {
+            let length = self
+                .builder
+                .ins()
+                .load(self.pointer, OWNED, list, layout::LENGTH);
+            let outside = self
+                .builder
+                .ins()
+                .icmp(IntCC::UnsignedGreaterThanOrEqual, index, length);
+            self.trap_if(outside, Trap::Bounds);
+        }
         let buffer = self
             .builder
             .ins()
