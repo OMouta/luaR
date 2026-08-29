@@ -13,6 +13,7 @@ use crate::types::{Builtin, Primitive, Type};
 use super::builtins::{article, is_collection};
 use super::calls::{against, filled, infer};
 use super::interfaces::same_signature;
+use super::narrow::Place;
 use super::operators::{settle, unify};
 use super::stmt::assigned_function;
 use super::{Checker, ClosureCaptures, ThreadMarker};
@@ -220,14 +221,18 @@ impl Checker<'_> {
             } => {
                 let written: Vec<Type> = type_args.iter().map(|ty| self.resolve(ty)).collect();
                 let receiver = self.expr(callee);
-                self.call(
+                let produced = self.call(
                     callee,
                     method.as_deref(),
                     &receiver,
                     &written,
                     args,
                     expr.span,
-                )
+                );
+                // LR57: what was called may have written through another
+                // holder of any object in scope.
+                self.forget_nested();
+                produced
             }
             ExprKind::Field {
                 receiver,
@@ -243,6 +248,12 @@ impl Checker<'_> {
                 }
 
                 let held = self.expr(receiver);
+
+                // LR57: what a condition proved about this field wins over
+                // what it is declared as, for as long as the branch lasts.
+                if !*optional && let Some(proved) = self.proved_at(expr) {
+                    return proved;
+                }
 
                 // LR8: `?.` is what reaches through an optional, so it reads
                 // the member off what the optional holds.
@@ -262,6 +273,12 @@ impl Checker<'_> {
                 let held = self.expr(receiver);
                 let key = self.expr(index);
 
+                // LR57: what a condition proved about this element wins over
+                // what the container gives back.
+                if !*optional && let Some(proved) = self.proved_at(expr) {
+                    return proved;
+                }
+
                 // LR8: `?[` reaches through an optional the way `?.` does.
                 let container = if *optional { held.without_nil() } else { held };
 
@@ -278,6 +295,8 @@ impl Checker<'_> {
             }
             ExprKind::Await(inner) => {
                 let held = self.expr(inner);
+                // LR27.2, LR57: another task runs while this one waits.
+                self.forget_nested();
                 self.awaited(&held, expr.span)
             }
             ExprKind::Cast { value, ty } => {
@@ -368,7 +387,7 @@ impl Checker<'_> {
             ExprKind::Match { scrutinee, arms } => {
                 let held = self.expr(scrutinee);
                 for arm in arms {
-                    self.arm(arm);
+                    self.arm(arm, &held, scrutinee);
                 }
                 self.exhaustive(&held, arms, scrutinee.span);
                 Type::Unresolved
@@ -909,13 +928,7 @@ impl Checker<'_> {
 
         // What a condition proved wins over what the declaration said, for as
         // long as the branch that proved it lasts (LR57).
-        for scope in self.narrowed.iter().rev() {
-            if let Some(ty) = scope.get(name) {
-                return ty.clone();
-            }
-        }
-
-        declared
+        self.proved(&Place::name(name)).unwrap_or(declared)
     }
 
     /// The type `name` was declared with, with nothing a condition proved

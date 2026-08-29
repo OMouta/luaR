@@ -18,6 +18,7 @@ use crate::types::{Builtin, Type};
 
 use calls::written;
 use expr::field_type;
+use narrow::Place;
 use operators::{settle, unify};
 use stmt::{assigned, assigned_items};
 
@@ -158,10 +159,10 @@ struct Checker<'a> {
     /// Whether each of those bodies is async, which is where `await` may be
     /// written (LR27).
     asynchronously: Vec<bool>,
-    /// What conditions have proved about names in scope, innermost last
+    /// What conditions have proved about places in scope, innermost last
     /// (LR57). Kept apart from `values` so that a name declared again inside
     /// a branch is a new name rather than the narrowed one.
-    narrowed: Vec<HashMap<String, Type>>,
+    narrowed: Vec<HashMap<Place, Type>>,
     /// Names assigned anywhere in each enclosing function body (LR9.8).
     mutations: Vec<HashSet<String>>,
     /// Anonymous functions currently being checked, outermost first.
@@ -180,10 +181,10 @@ struct Found {
     ty: Type,
 }
 
-/// What a condition proves about one name where it holds, and where it does
+/// What a condition proves about one place where it holds, and where it does
 /// not (LR57).
 struct Narrowing {
-    name: String,
+    place: Place,
     when_true: Type,
     when_false: Type,
 }

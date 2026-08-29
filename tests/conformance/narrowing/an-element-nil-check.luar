@@ -1,0 +1,11 @@
+--- expect: run
+--- exit: 0
+--- stdout: "10\n"
+--- spec: LR57
+--- spec: LR69
+export function main()
+    local scores = Map { ann = 10 }
+    if scores["ann"] ~= nil then
+        print(scores["ann"])
+    end
+end

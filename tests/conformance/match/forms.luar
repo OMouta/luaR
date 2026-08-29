@@ -11,11 +11,16 @@ end
 enum Direction
     North
     South
+    East
 end
 
 export function main()
     local message = Message.Quit
     local result = Result.Ok<int, string>(1)
+    local args: List<string> = ["run"]
+    local count = 5
+    local direction = Direction.North
+    local id: string | int = "x"
 
     match message
         case Message.Move { x, y }
@@ -24,25 +29,45 @@ export function main()
         case Message.Write(text) if text ~= ""
             print(text)
 
-        case [command, ...rest]
-            print(command, rest)
-
-        case 0..<10
-            print("small")
-
-        case Direction.North | Direction.South
-            print("vertical")
-
-        case value is string
-            print(value)
-
         case _
             print("other")
     end
 
+    match args
+        case [command, ...rest]
+            print(command, rest)
+
+        case _
+            print("none")
+    end
+
+    match count
+        case 0..<10
+            print("small")
+
+        case _
+            print("large")
+    end
+
+    match direction
+        case Direction.North | Direction.South
+            print("vertical")
+
+        case _
+            print("horizontal")
+    end
+
+    match id
+        case value is string
+            print(value)
+
+        case _
+            print("a number")
+    end
+
     local text = match result
         case Result.Ok(value) => value
-        case Result.Err(error) => "failed"
+        case Result.Err(error) => 0
     end
 
     print(text)

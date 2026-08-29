@@ -1,0 +1,17 @@
+--- expect: compile-ok
+--- spec: LR57
+--- spec: LR16.2
+struct User
+    name: string
+end
+
+export function label(id: string | User): string
+    local name = "an id"
+    match id
+        case _ is User
+            name = id.name
+        case _
+            name = "a string"
+    end
+    return name
+end

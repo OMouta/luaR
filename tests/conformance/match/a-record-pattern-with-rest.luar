@@ -1,0 +1,18 @@
+--- expect: run
+--- exit: 0
+--- stdout: "ann\n"
+--- spec: LR16.2
+struct User
+    id: int
+    name: string
+end
+
+export function main()
+    local user = User { id = 1, name = "ann" }
+    match user
+        case User { id = 1, name, ... }
+            print(name)
+        case _
+            print("nobody")
+    end
+end

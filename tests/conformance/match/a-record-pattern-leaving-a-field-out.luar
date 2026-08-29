@@ -1,0 +1,18 @@
+--- expect: compile-error
+--- code: LR0209
+--- span: 12:14
+--- spec: LR16.2
+struct User
+    id: int
+    name: string
+end
+
+function label(user: User): string
+    match user
+        case User { id = 1 }
+            return "first"
+        case _
+            return "?"
+    end
+    return "?"
+end

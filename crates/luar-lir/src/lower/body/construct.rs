@@ -156,6 +156,26 @@ impl<'a> Body<'a> {
             let Some(index) = self.field_index(&held, name) else {
                 return self.missing(span, "a member that is not a stored field");
             };
+
+            // LR57: a field the checker proved holds something reads as what
+            // it holds.
+            let declared = self
+                .fields_of(&held)
+                .and_then(|fields| fields.get(index as usize).map(|(_, ty)| ty.clone()));
+            if let Some(Ty::Optional(inner)) = declared
+                && *inner == result
+            {
+                let stored = self.emit(
+                    InstKind::GetField {
+                        object,
+                        field: index,
+                    },
+                    Ty::Optional(inner),
+                    span,
+                );
+                return self.emit(InstKind::Unwrap { value: stored }, result, span);
+            }
+
             return self.emit(
                 InstKind::GetField {
                     object,
@@ -354,6 +374,27 @@ impl<'a> Body<'a> {
 
         let index = self.expr(index, wanted.as_ref());
         let result = self.recorded(span);
+
+        // LR69: a map gives back `V?`. LR57: an element the checker proved
+        // holds something reads as what it holds.
+        if let Ty::Builtin {
+            kind: Builtin::Map | Builtin::FrozenMap,
+            args,
+        } = &held
+            && let Some(value) = args.get(1)
+            && *value == result
+        {
+            let stored = self.emit(
+                InstKind::GetIndex {
+                    receiver: container,
+                    index,
+                },
+                Ty::Optional(Box::new(value.clone())),
+                span,
+            );
+            return self.emit(InstKind::Unwrap { value: stored }, result, span);
+        }
+
         self.emit(
             InstKind::GetIndex {
                 receiver: container,

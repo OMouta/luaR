@@ -1,0 +1,19 @@
+--- expect: run
+--- exit: 0
+--- stdout: "ann\n"
+--- spec: LR57
+--- spec: LR8
+struct Profile
+    name: string
+end
+
+struct User
+    profile: Profile?
+end
+
+export function main()
+    local user = User { profile = Profile { name = "ann" } }
+    if user.profile ~= nil then
+        print(user.profile.name)
+    end
+end

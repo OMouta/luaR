@@ -274,6 +274,10 @@ registry! {
         "`Iterator.next` returns an optional item.";
     active 208 => ARRAY_LENGTH, "LR71",
         "A bracket literal filling an array has the array's declared length.";
+    active 209 => PATTERN_TYPE, "LR16.2",
+        "A pattern matches a value of the type it is checked against.";
+    active 210 => OR_PATTERN_BINDINGS, "LR16.2",
+        "The alternatives of an or-pattern bind the same names at the same types.";
 }
 
 #[cfg(test)]

@@ -154,6 +154,10 @@ impl Checker<'_> {
                     // LR57: what was proved held for the value that was there,
                     // and the value that is there now was never checked.
                     self.forget(name);
+                } else {
+                    // LR57: a write through a field or an element lands in an
+                    // object anything else may hold too.
+                    self.forget_nested();
                 }
             }
             StmtKind::If {
@@ -202,6 +206,7 @@ impl Checker<'_> {
                 condition,
                 body,
             } => {
+                self.forget_in_loop(body);
                 self.condition(condition);
                 let facts = self.facts(condition);
 
@@ -215,6 +220,7 @@ impl Checker<'_> {
                 // `until` reads the body's bindings, so it is checked inside
                 // the body's scope (LR10.3).
                 let outer_unwritten = self.unwritten.clone();
+                self.forget_in_loop(body);
                 self.push();
                 let repeat_scope = self.values.len() - 1;
                 self.enter_loop(label.clone(), Some(repeat_scope));
@@ -358,6 +364,7 @@ impl Checker<'_> {
                     stmt.span,
                     yielded.first().cloned().unwrap_or(Type::Unresolved),
                 );
+                self.forget_in_loop(body);
                 self.push();
                 for (binding, held) in bindings.iter().zip(yielded) {
                     self.declare(binding, held, stmt.span);
@@ -392,7 +399,7 @@ impl Checker<'_> {
             StmtKind::Match { scrutinee, arms } => {
                 let held = self.expr(scrutinee);
                 for arm in arms {
-                    self.arm(arm);
+                    self.arm(arm, &held, scrutinee);
                 }
                 self.exhaustive(&held, arms, scrutinee.span);
             }
