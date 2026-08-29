@@ -260,6 +260,9 @@ fn instruction(inst: &Inst, function: &Function) -> String {
         InstKind::ListPush { receiver, value } => {
             format!("push {} <- {}", name(*receiver), name(*value))
         }
+        InstKind::ListPushAll { receiver, other } => {
+            format!("pushAll {} {}", name(*receiver), name(*other))
+        }
         InstKind::ListPop { receiver } => format!("pop {}", name(*receiver)),
         InstKind::ListInsert {
             receiver,

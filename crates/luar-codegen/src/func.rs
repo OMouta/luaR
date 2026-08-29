@@ -393,6 +393,10 @@ impl Translator<'_, '_> {
             InstKind::MakeList { values, .. } => self.make_list(inst.result, values),
             InstKind::MakeMap { entries, .. } => self.make_map(inst.result, entries),
             InstKind::MakeSet { values, .. } => self.make_set(inst.result, values),
+            InstKind::ListPushAll { receiver, other } => {
+                self.list_push_all(*receiver, *other);
+                None
+            }
             InstKind::ListPush { receiver, value } => {
                 self.list_push(*receiver, *value);
                 None
@@ -1591,7 +1595,8 @@ impl Translator<'_, '_> {
             .builder
             .ins()
             .load(self.pointer, OWNED, list, layout::LENGTH);
-        self.list_reserve(list, length, machine);
+        let needed = self.builder.ins().iadd_imm(length, 1);
+        self.list_reserve(list, length, needed, machine);
         let buffer = self
             .builder
             .ins()
@@ -1603,6 +1608,66 @@ impl Translator<'_, '_> {
         self.builder
             .ins()
             .store(OWNED, length, list, layout::LENGTH);
+    }
+
+    fn list_push_all(&mut self, receiver: Value, other: Value) {
+        let Some(machine) = self.mutable_list_element(receiver) else {
+            return;
+        };
+        let list = self.value(receiver);
+        let source = self.value(other);
+        let length = self
+            .builder
+            .ins()
+            .load(self.pointer, OWNED, list, layout::LENGTH);
+        let added = self
+            .builder
+            .ins()
+            .load(self.pointer, OWNED, source, layout::LENGTH);
+        let total = self.builder.ins().iadd(length, added);
+        self.list_reserve(list, length, total, machine);
+        // Loaded after reserving, so a list pushed onto itself reads the
+        // buffer it now holds.
+        let buffer = self
+            .builder
+            .ins()
+            .load(self.pointer, OWNED, list, layout::BUFFER);
+        let from = self
+            .builder
+            .ins()
+            .load(self.pointer, OWNED, source, layout::BUFFER);
+        let copy = self.builder.create_block();
+        let copy_one = self.builder.create_block();
+        let done = self.builder.create_block();
+        self.builder.append_block_param(copy, self.pointer);
+        self.builder.append_block_param(copy_one, self.pointer);
+        let zero = self.builder.ins().iconst(self.pointer, 0);
+        self.builder.ins().jump(copy, &[ir::BlockArg::Value(zero)]);
+
+        self.builder.switch_to_block(copy);
+        let index = self.builder.block_params(copy)[0];
+        let more = self
+            .builder
+            .ins()
+            .icmp(IntCC::UnsignedLessThan, index, added);
+        self.builder
+            .ins()
+            .brif(more, copy_one, &[ir::BlockArg::Value(index)], done, &[]);
+
+        self.builder.switch_to_block(copy_one);
+        let index = self.builder.block_params(copy_one)[0];
+        let at = self.builder.ins().iadd(length, index);
+        let source_cell = self.list_cell(from, index);
+        let cell = self.list_cell(buffer, at);
+        let copied = self.builder.ins().load(machine, OWNED, source_cell, 0);
+        self.builder.ins().store(OWNED, copied, cell, 0);
+        let following = self.builder.ins().iadd_imm(index, 1);
+        self.builder
+            .ins()
+            .jump(copy, &[ir::BlockArg::Value(following)]);
+
+        self.builder.switch_to_block(done);
+        self.builder.ins().store(OWNED, total, list, layout::LENGTH);
     }
 
     fn list_insert(&mut self, receiver: Value, index: Value, value: Value) {
@@ -1620,7 +1685,8 @@ impl Translator<'_, '_> {
             .ins()
             .icmp(IntCC::UnsignedGreaterThan, index, length);
         self.trap_if(past, Trap::Bounds);
-        self.list_reserve(list, length, machine);
+        let needed = self.builder.ins().iadd_imm(length, 1);
+        self.list_reserve(list, length, needed, machine);
         let buffer = self
             .builder
             .ins()
@@ -1770,7 +1836,13 @@ impl Translator<'_, '_> {
         self.builder.switch_to_block(done);
     }
 
-    fn list_reserve(&mut self, list: ir::Value, length: ir::Value, machine: Type) {
+    fn list_reserve(
+        &mut self,
+        list: ir::Value,
+        length: ir::Value,
+        needed: ir::Value,
+        machine: Type,
+    ) {
         let capacity = self
             .builder
             .ins()
@@ -1778,7 +1850,7 @@ impl Translator<'_, '_> {
         let full = self
             .builder
             .ins()
-            .icmp(IntCC::UnsignedGreaterThanOrEqual, length, capacity);
+            .icmp(IntCC::UnsignedLessThan, capacity, needed);
         let grow = self.builder.create_block();
         let copy = self.builder.create_block();
         let copy_one = self.builder.create_block();
@@ -1795,6 +1867,11 @@ impl Translator<'_, '_> {
             .ins()
             .icmp(IntCC::UnsignedLessThan, doubled, least);
         let grown = self.builder.ins().select(small, least, doubled);
+        let short = self
+            .builder
+            .ins()
+            .icmp(IntCC::UnsignedLessThan, grown, needed);
+        let grown = self.builder.ins().select(short, needed, grown);
         let bytes = self.builder.ins().imul_imm(grown, i64::from(layout::CELL));
         let no_finalizer = self.builder.ins().iconst(self.pointer, 0);
         let call = self

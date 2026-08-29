@@ -1,0 +1,26 @@
+--- expect: run
+--- exit: 136
+--- spec: LR13.1
+--- spec: LR57
+--- spec: LR59
+export function main(): int
+    local values = [1, 2]
+    values:pushAll([3, 4])
+    local more = [5, 6]
+    local frozen = more:frozen()
+    values:pushAll(frozen)
+    values:pushAll(values)
+    values:pushAll(List.new<int>())
+    local empty = List.new<int>()
+    empty:pushAll([7])
+    local total = values.length * 10
+    total += values[6] + values[11]
+    total += empty[0]
+    local names = ["a"]
+    names:pushAll(["b", "c"])
+    local c = names:indexOf("c")
+    if c ~= nil then
+        total += c
+    end
+    return total
+end

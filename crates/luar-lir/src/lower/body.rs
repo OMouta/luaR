@@ -2824,7 +2824,13 @@ impl<'a> Body<'a> {
             }
             CollectionMutation::Clear => InstKind::Clear { receiver },
             CollectionMutation::ListReverse => InstKind::ListReverse { receiver },
-            CollectionMutation::ListPushAll => return self.missing(span, "a list pushing another"),
+            CollectionMutation::ListPushAll => {
+                let Some(argument) = args.first() else {
+                    return self.missing(span, "a push without a list");
+                };
+                let other = self.expr(&argument.value, None);
+                InstKind::ListPushAll { receiver, other }
+            }
             CollectionMutation::ListInsert | CollectionMutation::ListRemoveAt => {
                 let Some(argument) = args.first() else {
                     return self.missing(span, "a list mutation without an index");
