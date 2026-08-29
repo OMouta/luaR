@@ -210,7 +210,7 @@ fn execute(
     let mut wrong = Vec::new();
     if let Some(wanted) = directives.exit {
         let got = produced.status.code();
-        if got != Some(wanted) {
+        if got != Some(platform_exit_code(wanted)) {
             wrong.push(match got {
                 Some(code) => format!("expected exit {wanted}, got {code}"),
                 None => format!("expected exit {wanted}, and a signal ended it"),
@@ -248,6 +248,18 @@ fn normalized(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).replace("\r\n", "\n")
 }
 
+fn platform_exit_code(code: i32) -> i32 {
+    if cfg!(unix) {
+        unix_exit_code(code)
+    } else {
+        code
+    }
+}
+
+fn unix_exit_code(code: i32) -> i32 {
+    code & 0xff
+}
+
 /// Where a test's program is built. One process runs the suite, and each test
 /// is built and removed before the next, so the name only has to be unique
 /// against another suite running beside it.
@@ -271,4 +283,15 @@ fn describe(sources: &SourceMap, errors: &[&Diagnostic]) -> String {
         .map(|d| format!("{} at {}", d.code, sources.start(d.primary)))
         .collect();
     listed.join(", ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::unix_exit_code;
+
+    #[test]
+    fn unix_exit_codes_keep_the_low_byte() {
+        assert_eq!(unix_exit_code(520), 8);
+        assert_eq!(unix_exit_code(-1), 255);
+    }
 }
