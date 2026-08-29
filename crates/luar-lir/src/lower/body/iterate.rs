@@ -300,9 +300,27 @@ impl<'a> Body<'a> {
                     self.gap(next_span, "an iterator whose `next` result is not optional");
                     return;
                 };
-                let value = self.emit(InstKind::Unwrap { value: next }, *item, next_span);
-                if let Some(binding) = bindings.first() {
-                    self.bind_value(binding, value, span);
+                let item = *item;
+                let value = self.emit(InstKind::Unwrap { value: next }, item.clone(), next_span);
+                match item {
+                    Ty::Tuple(items) => {
+                        for (index, (binding, ty)) in bindings.iter().zip(items).enumerate() {
+                            let member = self.emit(
+                                InstKind::GetField {
+                                    object: value,
+                                    field: index as u32,
+                                },
+                                ty,
+                                next_span,
+                            );
+                            self.bind_value(binding, member, span);
+                        }
+                    }
+                    _ => {
+                        if let Some(binding) = bindings.first() {
+                            self.bind_value(binding, value, span);
+                        }
+                    }
                 }
             }
         }

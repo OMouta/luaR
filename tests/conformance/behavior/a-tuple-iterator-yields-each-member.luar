@@ -1,0 +1,29 @@
+--- expect: run
+--- exit: 9
+--- spec: LR10.5
+--- spec: LR35
+ref struct PairIterator implements Iterator<(int, int)>
+    ready: bool
+
+    function next(self): (int, int)?
+        if not self.ready then
+            return nil
+        end
+        self.ready = false
+        return (4, 5)
+    end
+end
+
+struct Pairs implements Iterable<(int, int)>
+    function iterator(self): Iterator<(int, int)>
+        return PairIterator { ready = true }
+    end
+end
+
+export function main(): int
+    local total = 0
+    for left, right in Pairs {} do
+        total = left + right
+    end
+    return total
+end

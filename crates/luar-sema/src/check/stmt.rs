@@ -461,7 +461,10 @@ impl Checker<'_> {
         let yielded = settle(self.call(iterable, Some("next"), &iterator, &[], &[], next_span));
         self.facts.record_type(next_span, yielded.clone());
         match yielded {
-            Type::Optional(item) => Some(vec![*item]),
+            Type::Optional(item) => match *item {
+                Type::Tuple(items) => Some(items),
+                item => Some(vec![item]),
+            },
             Type::Unresolved => None,
             other => {
                 self.diagnostics.push(
