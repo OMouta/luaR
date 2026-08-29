@@ -532,6 +532,13 @@ fn declare(
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     for item in items {
+        if let Item::Stmt(stmt) = item
+            && let luar_ast::StmtKind::Const { binding, value, .. } = &stmt.kind
+        {
+            resolver.bind_constant(binding, value);
+            continue;
+        }
+
         // LR40: a name may have several signatures, so a function adds to the
         // set the name already has rather than replacing it.
         if let Item::Function(function) = item
@@ -918,6 +925,13 @@ fn attach(
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     for item in items {
+        if let Item::Stmt(stmt) = item
+            && let luar_ast::StmtKind::Const { binding, value, .. } = &stmt.kind
+        {
+            resolver.bind_constant(binding, value);
+            continue;
+        }
+
         let function = match item {
             Item::Function(function) if function.name.len() == 2 => function,
             Item::Conditional(conditional) => {

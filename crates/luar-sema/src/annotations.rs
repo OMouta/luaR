@@ -1,8 +1,8 @@
 //! Types as written, resolved to types as held (LR54).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
-use luar_ast::{ExprKind, TypeKind};
+use luar_ast::{BinaryOp, Binding, Expr, ExprKind, TypeKind, UnaryOp};
 use luar_diagnostics::{Diagnostic, Span, codes};
 
 use crate::aliases::Aliases;
@@ -25,6 +25,8 @@ pub struct Resolver<'a> {
     /// What `Self` names in the declarations being walked, innermost last
     /// (LR65).
     enclosing: Vec<Type>,
+    /// Integer `const` values in lexical scope (LR24).
+    constants: Vec<HashMap<String, u64>>,
 }
 
 impl<'a> Resolver<'a> {
@@ -37,7 +39,29 @@ impl<'a> Resolver<'a> {
             module,
             parameters: Vec::new(),
             enclosing: Vec::new(),
+            constants: vec![HashMap::new()],
         }
+    }
+
+    pub fn push_constants(&mut self) {
+        self.constants.push(HashMap::new());
+    }
+
+    pub fn pop_constants(&mut self) {
+        self.constants.pop();
+    }
+
+    pub fn bind_constant(&mut self, binding: &Binding, value: &Expr) {
+        let Binding::Name(name) = binding else {
+            return;
+        };
+        let Some(value) = self.integer(value) else {
+            return;
+        };
+        self.constants
+            .last_mut()
+            .expect("a constant scope is open")
+            .insert(name.clone(), value);
     }
 
     /// Makes `Self` name `ty` until the matching [`Self::leave_enclosing`]
@@ -85,10 +109,7 @@ impl<'a> Resolver<'a> {
             },
             TypeKind::Array { element, length } => Type::Array(
                 Box::new(self.resolve(element, diagnostics)),
-                match length.kind {
-                    ExprKind::Integer(value) => Some(value),
-                    _ => None,
-                },
+                self.integer(length),
             ),
             TypeKind::Pointer { mutable, target } => Type::Pointer {
                 mutable: *mutable,
@@ -101,6 +122,47 @@ impl<'a> Resolver<'a> {
                     .collect(),
             ),
             TypeKind::Error => Type::Unresolved,
+        }
+    }
+
+    fn integer(&self, expr: &Expr) -> Option<u64> {
+        match &expr.kind {
+            ExprKind::Integer(value) => Some(*value),
+            ExprKind::Name(name) => self
+                .constants
+                .iter()
+                .rev()
+                .find_map(|scope| scope.get(name).copied()),
+            ExprKind::Unary {
+                op: UnaryOp::Negate,
+                operand,
+            } => (self.integer(operand)? == 0).then_some(0),
+            ExprKind::Unary {
+                op: UnaryOp::BitNot,
+                operand,
+            } => Some(!self.integer(operand)?),
+            ExprKind::Unary { .. } => None,
+            ExprKind::Binary {
+                op, left, right, ..
+            } => {
+                let left = self.integer(left)?;
+                let right = self.integer(right)?;
+                match op {
+                    BinaryOp::Add => left.checked_add(right),
+                    BinaryOp::Subtract => left.checked_sub(right),
+                    BinaryOp::Multiply => left.checked_mul(right),
+                    BinaryOp::IntegerDivide => left.checked_div(right),
+                    BinaryOp::Remainder => left.checked_rem(right),
+                    BinaryOp::Power => left.checked_pow(u32::try_from(right).ok()?),
+                    BinaryOp::BitAnd => Some(left & right),
+                    BinaryOp::BitOr => Some(left | right),
+                    BinaryOp::BitXor => Some(left ^ right),
+                    BinaryOp::ShiftLeft => left.checked_shl(u32::try_from(right).ok()?),
+                    BinaryOp::ShiftRight => left.checked_shr(u32::try_from(right).ok()?),
+                    _ => None,
+                }
+            }
+            _ => None,
         }
     }
 

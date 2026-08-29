@@ -1,0 +1,15 @@
+--- expect: run
+--- exit: 9
+--- spec: LR24
+--- spec: LR71
+const pair = 1 + 1
+
+function last(values: [int; pair]): int
+    return values[1]
+end
+
+export function main(): int
+    const length = pair * 2
+    local values: [int; length] = [1, 2, 3, 4]
+    return values[3] + last([3, 5])
+end

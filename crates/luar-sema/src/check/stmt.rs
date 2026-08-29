@@ -69,6 +69,7 @@ impl Checker<'_> {
                 self.facts.record_binding(stmt.span, held.clone());
                 self.declare(binding, held, stmt.span);
                 self.bind_constant(binding);
+                self.types.bind_constant(binding, value);
                 self.evaluable(value);
             }
             StmtKind::Assign { target, op, value } => {

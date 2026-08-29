@@ -813,11 +813,13 @@ impl Checker<'_> {
     fn push(&mut self) {
         self.values.push(HashMap::new());
         self.constants.push(HashSet::new());
+        self.types.push_constants();
     }
 
     fn pop(&mut self) {
         self.values.pop();
         self.constants.pop();
+        self.types.pop_constants();
     }
 }
 
