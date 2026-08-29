@@ -1,0 +1,30 @@
+--- expect: run
+--- exit: 0
+--- stdout: "true\nfalse\ntrue\nfalse\n"
+--- spec: LR20
+--- spec: LR19
+--- spec: LR35
+interface Eq
+    function eq(self, other: Self): bool
+end
+
+extend Search<T> for List<T>
+    function includes(self, value: T): bool
+    where T: Eq
+        for i in 0..<self.length do
+            if self[i] == value then
+                return true
+            end
+        end
+        return false
+    end
+end
+
+export function main()
+    local numbers: List<int> = [1, 2, 3]
+    local words: List<string> = ["ada", "grace"]
+    print(numbers:includes(2))
+    print(numbers:includes(9))
+    print(words:includes("grace"))
+    print(words:includes("linus"))
+end

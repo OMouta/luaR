@@ -1,0 +1,15 @@
+--- expect: run
+--- exit: 0
+--- stdout: "36\n0\n"
+--- spec: LR20
+extend Lookup<K, V> for Map<K, V>
+    function valueOr(self, key: K, fallback: V): V
+        return self[key] ?? fallback
+    end
+end
+
+export function main()
+    local ages: Map<string, int> = Map { ["ada"] = 36 }
+    print(ages:valueOr("ada", 0))
+    print(ages:valueOr("grace", 0))
+end

@@ -1,0 +1,36 @@
+--- expect: run
+--- exit: 0
+--- stdout: "true\nfalse\n"
+--- spec: LR20
+--- spec: LR19
+--- spec: LR36
+interface Eq
+    function eq(self, other: Self): bool
+end
+
+struct Point implements Eq
+    x: int
+    y: int
+
+    function eq(self, other: Point): bool
+        return self.x == other.x and self.y == other.y
+    end
+end
+
+extend Search<T> for List<T>
+    function includes(self, value: T): bool
+    where T: Eq
+        for i in 0..<self.length do
+            if self[i] == value then
+                return true
+            end
+        end
+        return false
+    end
+end
+
+export function main()
+    local points: List<Point> = [Point { x = 1, y = 2 }, Point { x = 3, y = 4 }]
+    print(points:includes(Point { x = 3, y = 4 }))
+    print(points:includes(Point { x = 4, y = 3 }))
+end
