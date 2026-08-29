@@ -27,6 +27,7 @@ impl<'a> Body<'a> {
             Reversed { first: Value, inclusive: bool },
             List { receiver: Value, indexed: bool },
             Table(Value),
+            Iterator { next_span: Span },
         }
 
         let carried = self.carried(body);
@@ -111,11 +112,16 @@ impl<'a> Body<'a> {
                         ..
                     } => Source::Table(receiver),
                     _ => {
-                        self.gap(
-                            span,
-                            "a `for` over something that is not a range or a collection",
-                        );
-                        return;
+                        let (iterator_span, next_span) =
+                            luar_sema::facts::iteration_spans(iterable.span);
+                        let receiver_var = self.declare("\0iterable");
+                        self.defs.insert(receiver_var, receiver);
+                        let receiver =
+                            Expr::new(ExprKind::Name("\0iterable".to_owned()), iterator_span);
+                        let iterator = self.call(&receiver, Some("iterator"), &[], iterator_span);
+                        let iterator_var = self.declare("\0iterator");
+                        self.defs.insert(iterator_var, iterator);
+                        Source::Iterator { next_span }
                     }
                 };
                 let zero = self.emit(InstKind::Const(Const::Int(0)), Ty::INT, span);
@@ -135,14 +141,23 @@ impl<'a> Body<'a> {
 
         let current = self.defs[&counter];
         let descending = matches!(source, Source::Reversed { .. });
-        let (op, bound) = match source {
+        let mut iterated = None;
+        let condition = match source {
             Source::Range { last, inclusive } => {
                 let op = if inclusive {
                     BinaryOp::LessEqual
                 } else {
                     BinaryOp::Less
                 };
-                (op, last)
+                self.emit(
+                    InstKind::Binary {
+                        op,
+                        left: current,
+                        right: last,
+                    },
+                    Ty::Bool,
+                    span,
+                )
             }
             Source::Reversed { first, inclusive } => {
                 let op = if inclusive {
@@ -150,26 +165,48 @@ impl<'a> Body<'a> {
                 } else {
                     BinaryOp::Greater
                 };
-                (op, first)
+                self.emit(
+                    InstKind::Binary {
+                        op,
+                        left: current,
+                        right: first,
+                    },
+                    Ty::Bool,
+                    span,
+                )
             }
-            Source::List { receiver, .. } => (
-                BinaryOp::Less,
-                self.emit(InstKind::Length { receiver }, Ty::INT, span),
-            ),
-            Source::Table(receiver) => (
-                BinaryOp::Less,
-                self.emit(InstKind::Buckets { receiver }, Ty::INT, span),
-            ),
+            Source::List { receiver, .. } => {
+                let bound = self.emit(InstKind::Length { receiver }, Ty::INT, span);
+                self.emit(
+                    InstKind::Binary {
+                        op: BinaryOp::Less,
+                        left: current,
+                        right: bound,
+                    },
+                    Ty::Bool,
+                    span,
+                )
+            }
+            Source::Table(receiver) => {
+                let bound = self.emit(InstKind::Buckets { receiver }, Ty::INT, span);
+                self.emit(
+                    InstKind::Binary {
+                        op: BinaryOp::Less,
+                        left: current,
+                        right: bound,
+                    },
+                    Ty::Bool,
+                    span,
+                )
+            }
+            Source::Iterator { next_span } => {
+                let receiver = Expr::new(ExprKind::Name("\0iterator".to_owned()), next_span);
+                let next = self.call(&receiver, Some("next"), &[], next_span);
+                let condition = self.emit(InstKind::IsSome { value: next }, Ty::Bool, next_span);
+                iterated = Some(next);
+                condition
+            }
         };
-        let condition = self.emit(
-            InstKind::Binary {
-                op,
-                left: current,
-                right: bound,
-            },
-            Ty::Bool,
-            span,
-        );
         let inside = self.function.add_block();
         let step = self.function.add_block();
         let exit = self.function.add_block();
@@ -257,6 +294,17 @@ impl<'a> Body<'a> {
                     self.bind_value(binding, value, span);
                 }
             }
+            Source::Iterator { next_span } => {
+                let next = iterated.expect("the iterator produced its next item");
+                let Ty::Optional(item) = self.function.type_of(next).clone() else {
+                    self.gap(next_span, "an iterator whose `next` result is not optional");
+                    return;
+                };
+                let value = self.emit(InstKind::Unwrap { value: next }, *item, next_span);
+                if let Some(binding) = bindings.first() {
+                    self.bind_value(binding, value, span);
+                }
+            }
         }
         self.loops.push(Loop {
             label: label.map(ToOwned::to_owned),
@@ -274,20 +322,24 @@ impl<'a> Body<'a> {
         self.switch_to(step);
         self.defs = entering.clone();
         self.bind_params(step, &carried);
-        let one = self.emit(InstKind::Const(Const::Int(1)), element.clone(), span);
-        let next = self.emit(
-            InstKind::Binary {
-                op: if descending {
-                    BinaryOp::Subtract
-                } else {
-                    BinaryOp::Add
+        let next = if matches!(source, Source::Iterator { .. }) {
+            current
+        } else {
+            let one = self.emit(InstKind::Const(Const::Int(1)), element.clone(), span);
+            self.emit(
+                InstKind::Binary {
+                    op: if descending {
+                        BinaryOp::Subtract
+                    } else {
+                        BinaryOp::Add
+                    },
+                    left: current,
+                    right: one,
                 },
-                left: current,
-                right: one,
-            },
-            element,
-            span,
-        );
+                element,
+                span,
+            )
+        };
         self.defs.insert(counter, next);
         self.jump_to(header, &passing);
         self.close();

@@ -1,0 +1,36 @@
+--- expect: run
+--- exit: 11
+--- spec: LR10.5
+--- spec: LR35
+ref struct Counter implements Iterator<int>
+    current: int
+    last: int
+
+    function next(self): int?
+        if self.current >= self.last then
+            return nil
+        end
+        local value = self.current
+        self.current += 1
+        return value
+    end
+end
+
+ref struct Count implements Iterable<int>
+    last: int
+    iterators: int
+
+    function iterator(self): Iterator<int>
+        self.iterators += 1
+        return Counter { current = 0, last = self.last }
+    end
+end
+
+export function main(): int
+    local values = Count { last = 5, iterators = 0 }
+    local total = 0
+    for value in values do
+        total += value
+    end
+    return total + values.iterators
+end
