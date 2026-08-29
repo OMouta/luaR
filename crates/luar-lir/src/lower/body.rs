@@ -2823,6 +2823,7 @@ impl<'a> Body<'a> {
                 return self.emit(InstKind::ListPop { receiver }, result, span);
             }
             CollectionMutation::Clear => InstKind::Clear { receiver },
+            CollectionMutation::ListReverse => return self.missing(span, "a list reversal"),
             CollectionMutation::ListInsert | CollectionMutation::ListRemoveAt => {
                 let Some(argument) = args.first() else {
                     return self.missing(span, "a list mutation without an index");

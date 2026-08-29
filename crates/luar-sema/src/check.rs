@@ -4780,6 +4780,7 @@ fn collection_mutation_method(
         (Builtin::List, "pop") => CollectionMutation::ListPop,
         (Builtin::List, "insert") => CollectionMutation::ListInsert,
         (Builtin::List, "removeAt") => CollectionMutation::ListRemoveAt,
+        (Builtin::List, "reverse") => CollectionMutation::ListReverse,
         (Builtin::Set, "insert") => CollectionMutation::SetInsert,
         (Builtin::Map, "remove") => CollectionMutation::MapRemove,
         (Builtin::Set, "remove") => CollectionMutation::SetRemove,
@@ -4808,7 +4809,9 @@ fn collection_mutation_method(
             args.get(1).cloned().unwrap_or(Type::Unresolved).optional(),
         ),
         CollectionMutation::SetRemove => (vec![param("value", &element)], Type::BOOL),
-        CollectionMutation::Clear => (Vec::new(), Type::Tuple(Vec::new())),
+        CollectionMutation::Clear | CollectionMutation::ListReverse => {
+            (Vec::new(), Type::Tuple(Vec::new()))
+        }
     };
     Some((
         mutation,
