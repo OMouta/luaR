@@ -20,6 +20,7 @@ pub static PREDECLARED: &[&str] = &[
     "panic",
     "unreachable",
     "Result",
+    "Error",
     "List",
     "Map",
     "Set",

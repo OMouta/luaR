@@ -1,0 +1,7 @@
+--- expect: run
+--- exit: 1
+--- spec: LR54.1
+export function main(): int
+    local error: Error = Error("failed")
+    return 1
+end

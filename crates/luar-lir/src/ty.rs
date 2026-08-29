@@ -143,6 +143,8 @@ pub enum Ty {
     Str,
     /// An immutable byte string (LR4.7).
     Bytes,
+    /// The common error type, holding its message (LR54.1).
+    Error,
     /// A struct, enum, or interface, with its type arguments in the order
     /// they were declared (LR19).
     Named {
@@ -282,6 +284,7 @@ impl fmt::Display for Ty {
             Self::Char => f.write_str("char"),
             Self::Str => f.write_str("string"),
             Self::Bytes => f.write_str("bytes"),
+            Self::Error => f.write_str("Error"),
             Self::Named { id, args } => {
                 write!(f, "type{}", id.0)?;
                 arguments(f, args)

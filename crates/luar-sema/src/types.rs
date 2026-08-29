@@ -142,6 +142,8 @@ impl Primitive {
 pub enum Builtin {
     /// `Result<T, E>`, the type of every fallible signature (LR25.1).
     Result,
+    /// The common error type used by standard-library APIs (LR54.1).
+    Error,
     /// The collections `[...]` and `Map { ... }` build (LR13).
     List,
     Map,
@@ -159,6 +161,7 @@ impl Builtin {
     pub fn from_name(name: &str) -> Option<Self> {
         let builtin = match name {
             "Result" => Self::Result,
+            "Error" => Self::Error,
             "List" => Self::List,
             "Map" => Self::Map,
             "Set" => Self::Set,
@@ -175,6 +178,7 @@ impl Builtin {
     pub fn spelling(self) -> &'static str {
         match self {
             Self::Result => "Result",
+            Self::Error => "Error",
             Self::List => "List",
             Self::Map => "Map",
             Self::Set => "Set",

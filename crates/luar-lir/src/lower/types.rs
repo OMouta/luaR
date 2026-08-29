@@ -19,6 +19,10 @@ pub type Ids = HashMap<(ModuleId, String), TypeId>;
 pub fn convert(ty: &Type, ids: &Ids) -> Result<Ty, Refused> {
     let converted = match ty {
         Type::Primitive(primitive) => primitive_type(*primitive),
+        Type::Builtin {
+            kind: SemaBuiltin::Error,
+            ..
+        } => Ty::Error,
         Type::Builtin { kind, args } => Ty::Builtin {
             kind: builtin(*kind),
             args: each(args, ids)?,
@@ -118,6 +122,7 @@ fn primitive_type(primitive: Primitive) -> Ty {
 fn builtin(kind: SemaBuiltin) -> Builtin {
     match kind {
         SemaBuiltin::Result => Builtin::Result,
+        SemaBuiltin::Error => unreachable!("Error has its own LIR type"),
         SemaBuiltin::List => Builtin::List,
         SemaBuiltin::Map => Builtin::Map,
         SemaBuiltin::Set => Builtin::Set,

@@ -180,6 +180,10 @@ pub enum InstKind {
     Print {
         value: Value,
     },
+    /// The common error value holding `message` (LR54.1).
+    MakeError {
+        message: Value,
+    },
     /// `assert` or an included `debugAssert` (LR49).
     Assert {
         condition: Value,
@@ -477,6 +481,7 @@ impl InstKind {
             | Self::HashValue { .. }
             | Self::HashCombine { .. }
             | Self::DisplayValue { .. }
+            | Self::MakeError { .. }
             | Self::Convert { .. }
             | Self::IsType { .. }
             | Self::MakeClosure { .. }

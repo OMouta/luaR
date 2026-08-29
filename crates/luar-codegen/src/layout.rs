@@ -251,6 +251,7 @@ pub fn is_aggregate(ty: &Ty) -> bool {
         ty,
         Ty::Str
             | Ty::Bytes
+            | Ty::Error
             | Ty::Function { .. }
             | Ty::Dynamic
             | Ty::Named { .. }

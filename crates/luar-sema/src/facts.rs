@@ -10,6 +10,7 @@ use crate::types::Type;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Intrinsic {
     Print,
+    Error,
     Assert,
     DebugAssert,
     Panic,
@@ -52,6 +53,7 @@ impl Intrinsic {
     pub fn name(self) -> &'static str {
         match self {
             Self::Print => "print",
+            Self::Error => "Error",
             Self::Assert => "assert",
             Self::DebugAssert => "debugAssert",
             Self::Panic => "panic",

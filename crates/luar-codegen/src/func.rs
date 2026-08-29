@@ -263,6 +263,7 @@ impl Translator<'_, '_> {
                 self.builder.ins().call(self.print, &[value]);
                 None
             }
+            InstKind::MakeError { message } => Some(self.value(*message)),
             InstKind::Assert { condition, message } => {
                 self.assert(*condition, *message);
                 None

@@ -3459,6 +3459,7 @@ impl Checker<'_> {
             ExprKind::Name(name) if !self.shadowed(name) && self.declared(name).is_none() => {
                 match name.as_str() {
                     "print" => Some(Intrinsic::Print),
+                    "Error" => Some(Intrinsic::Error),
                     "assert" => Some(Intrinsic::Assert),
                     "debugAssert" => Some(Intrinsic::DebugAssert),
                     "panic" => Some(Intrinsic::Panic),
@@ -5178,6 +5179,14 @@ fn intrinsic_signature(intrinsic: Intrinsic, span: Span) -> Signature {
                 variadic: true,
             }],
             Type::Tuple(Vec::new()),
+        ),
+        Intrinsic::Error => (
+            Vec::new(),
+            vec![intrinsic_param("message", Type::STRING, false)],
+            Type::Builtin {
+                kind: Builtin::Error,
+                args: Vec::new(),
+            },
         ),
         Intrinsic::Assert => (
             Vec::new(),
