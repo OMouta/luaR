@@ -1,0 +1,40 @@
+--- expect: run
+--- exit: 42
+--- spec: LR25.1
+--- spec: LR25.2
+--- spec: LR9.2
+ref struct Tally
+    value: int
+end
+
+function bump(tally: Tally, by: int): int
+    tally.value += by
+    return by
+end
+
+function parse(text: string): Result<int, string>
+    if text == "1" then
+        return Result.Ok(1)
+    end
+    return Result.Err("bad")
+end
+
+function load(text: string, tally: Tally): Result<int, int>
+    local value = parse(text):mapErr((message) => bump(tally, 40))?
+    tally.value += value
+    return Result.Ok(value)
+end
+
+function run(tally: Tally): Result<int, int>
+    local a = load("1", tally)?
+    tally.value += a
+    local b = load("2", tally)?
+    tally.value += 100
+    return Result.Ok(b)
+end
+
+export function main(): int
+    local tally = Tally { value = 0 }
+    run(tally)
+    return tally.value
+end
