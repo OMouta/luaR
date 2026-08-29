@@ -3107,6 +3107,8 @@ A bodiless function declaration marked `@intrinsic` names an operation the compi
 
 `std/fs.readText(path: string): Result<string, Error>` is the contents of the file at `path` as text. It is `Err` where the file cannot be opened or read, or where its bytes are not valid UTF-8.
 
+`std/fs.writeText(path: string, text: string): Result<(), Error>` replaces the file at `path` with `text` encoded as UTF-8. It is `Err` where the file cannot be opened or written.
+
 ---
 
 ## 61. Testing
