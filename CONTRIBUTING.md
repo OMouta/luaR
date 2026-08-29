@@ -118,5 +118,7 @@ to them.
 | `luar-conformance` | The suite runner and the coverage report |
 | `luarc` | The command line |
 
+`std/` is the standard library: LuaR source, one module per file, compiled into `luarc`.
+
 `luar-codegen` is empty. `luar-lir` lowers a checked program and lists what it
 could not lower. `luarc lir file.luar` prints both.

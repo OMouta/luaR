@@ -51,6 +51,12 @@ Finding a compiler bug while working on something else does not change this. Fix
 4. Write a test that produces the code, and one that stays accepted where the rule does not apply.
 5. Run the whole suite. Work each failure through the three branches above.
 
+## The standard library
+
+`std/` holds it, one LuaR module per file, compiled into `luarc`. `std/mem` is `std/mem.luar`.
+
+Native code enters through `@extern("c")` to libc (LR46). An operation with no LuaR spelling is a bodiless `@intrinsic` declaration in `std/` and its lowering in `luar-lir` (LR60). Predeclared names (LR54.1) are the compiler's. The compiler recognizes no standard library function by name, and no module lives in Rust.
+
 ## Before committing
 
 ```sh
