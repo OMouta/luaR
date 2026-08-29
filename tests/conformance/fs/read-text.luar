@@ -1,0 +1,15 @@
+--- expect: run
+--- exit: 0
+--- stdout: "hello\n"
+--- spec: LR60
+import { readText } from "std/fs"
+
+export function main()
+    local result = readText("hello.txt")
+    match result
+        case Result.Ok(text)
+            print(text)
+        case Result.Err(_)
+            print("error")
+    end
+end

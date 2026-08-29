@@ -1,0 +1,15 @@
+--- expect: run
+--- exit: 0
+--- stdout: "error\n"
+--- spec: LR60
+import { readText } from "std/fs"
+
+export function main()
+    local result = readText("invalid.bin")
+    match result
+        case Result.Ok(_)
+            print("text")
+        case Result.Err(_)
+            print("error")
+    end
+end

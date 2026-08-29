@@ -10,6 +10,7 @@ use luar_sema::modules::{Edge, Graph, Missing, ModuleId, Target};
 
 /// The standard library, one module per source file under `std/` (LR60).
 const STD: &[(&str, &str)] = &[
+    ("std/fs", include_str!("../../../std/fs.luar")),
     ("std/mem", include_str!("../../../std/mem.luar")),
     ("std/thread", include_str!("../../../std/thread.luar")),
 ];
