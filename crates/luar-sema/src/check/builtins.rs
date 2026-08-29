@@ -8,7 +8,8 @@ use crate::names::Origin;
 use crate::table::Signature;
 use crate::types::{Builtin, Primitive, Type};
 
-use super::{Checker, is_integer, settle};
+use super::Checker;
+use super::operators::{is_integer, settle};
 
 impl Checker<'_> {
     pub(super) fn predeclared_intrinsic(&self, callee: &Expr) -> Option<Intrinsic> {
