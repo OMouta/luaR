@@ -25,6 +25,7 @@ pub enum Builtin {
     Assert,
     DebugAssert,
     Panic,
+    Unreachable,
     ListNew,
     MapNew,
     SetNew,

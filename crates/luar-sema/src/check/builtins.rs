@@ -342,6 +342,12 @@ fn builtin_function(name: &str, span: Span) -> Option<(Builtin, Signature)> {
             vec![param("message", Type::STRING)],
             Type::Primitive(Primitive::Never),
         ),
+        "unreachable" => (
+            Builtin::Unreachable,
+            Vec::new(),
+            Vec::new(),
+            Type::Primitive(Primitive::Never),
+        ),
         "List.new" => constructor(Builtin::ListNew, Kind::List, &["T"]),
         "Map.new" => constructor(Builtin::MapNew, Kind::Map, &["K", "V"]),
         "Set.new" => constructor(Builtin::SetNew, Kind::Set, &["T"]),

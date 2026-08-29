@@ -4,7 +4,7 @@ use luar_ast::{Argument, Expr};
 use luar_diagnostics::Span;
 use luar_sema::facts::{self, Builtin};
 
-use crate::inst::{BinaryOp, Const, InstKind, Overflow, Value};
+use crate::inst::{BinaryOp, Const, InstKind, Overflow, Terminator, Trap, Value};
 use crate::lower::CompilationMode;
 use crate::lower::body::Body;
 use crate::lower::body::expr::binary_op;
@@ -27,6 +27,10 @@ impl<'a> Body<'a> {
             }
             Builtin::DebugAssert => self.assertion(args, span),
             Builtin::Panic => self.panic(args, span),
+            Builtin::Unreachable => {
+                self.terminate(Terminator::Trap(Trap::Unreachable));
+                self.emit(InstKind::Const(Const::Unit), Ty::Never, span)
+            }
             Builtin::ListNew | Builtin::MapNew | Builtin::SetNew => self.empty_collection(span),
             Builtin::Identical => self.identical(args, span),
             Builtin::Freeze => {
