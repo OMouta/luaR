@@ -211,37 +211,6 @@ pub(super) fn contains_method(receiver: &Type, name: &str, span: Span) -> Option
     })
 }
 
-/// `optional:okOr(error)` (LR8, LR25.1).
-pub(super) fn ok_or_method(receiver: &Type, name: &str, span: Span) -> Option<Signature> {
-    if name != "okOr" {
-        return None;
-    }
-    let Type::Optional(inner) = receiver else {
-        return None;
-    };
-    let error = || Type::Parameter("E".to_owned());
-    Some(Signature {
-        asynchronous: false,
-        type_params: vec!["E".to_owned()],
-        constraints: Vec::new(),
-        params: vec![crate::table::Param {
-            name: "error".to_owned(),
-            ty: error(),
-            optional: false,
-            variadic: false,
-        }],
-        result: Type::Builtin {
-            kind: Builtin::Result,
-            args: vec![(**inner).clone(), error()],
-        },
-        takes_self: true,
-        visibility: None,
-        span,
-        inferred: false,
-        unsafe_: false,
-    })
-}
-
 /// `result:mapErr(f)` (LR25.1).
 pub(super) fn map_err_method(receiver: &Type, name: &str, span: Span) -> Option<Signature> {
     if name != "mapErr" {

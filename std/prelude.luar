@@ -106,3 +106,12 @@ export extend ListMutation<T> for List<T>
         end
     end
 end
+
+export extend OptionalOr<T> for T?
+    function okOr<E>(self, error: E): Result<T, E>
+        if self ~= nil then
+            return Result.Ok(self)
+        end
+        return Result.Err(error)
+    end
+end

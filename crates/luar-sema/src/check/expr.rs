@@ -10,7 +10,7 @@ use crate::modules::ModuleId;
 use crate::table::{Decl, Field, Variant};
 use crate::types::{Builtin, Primitive, Type};
 
-use super::builtins::{article, is_collection, ok_or_method};
+use super::builtins::{article, is_collection};
 use super::calls::{against, infer};
 use super::interfaces::same_signature;
 use super::operators::{settle, unify};
@@ -838,8 +838,9 @@ impl Checker<'_> {
     /// Whether it is settled what `held` holds, which is what a member of it
     /// can be read from (LR8, LR17.2).
     pub(super) fn settled(&mut self, held: &Type, name: &str, span: Span) -> bool {
-        // LR8: `okOr` is a method of the optional, not of what it holds.
-        if ok_or_method(held, name, span).is_some() {
+        // LR8, LR20: a method a block adds to the optional is a method of the
+        // optional, not of what it holds.
+        if held.is_optional() && self.extension_adds(held, name) {
             return true;
         }
         if held.is_optional() {

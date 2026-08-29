@@ -12,7 +12,7 @@ use crate::types::{Builtin, Primitive, Type};
 
 use super::builtins::{
     checked_index_method, collection_mutation_method, contains_method, frozen_method,
-    map_err_method, ok_or_method, overflow_method,
+    map_err_method, overflow_method,
 };
 use super::calls::{against, filled, infer, takes_self};
 use super::unsafe_ops::{unavailable_unsafe_memory_method, unsafe_memory_method};
@@ -62,7 +62,6 @@ fn language_method(receiver: &Type, name: &str, span: Span) -> Option<Overloads>
         frozen_method,
         checked_index_method,
         contains_method,
-        ok_or_method,
         map_err_method,
     ]
     .iter()
@@ -436,6 +435,15 @@ impl Checker<'_> {
                                 && bound_by(type_params, target, receiver).is_some()
                     )
             })
+    }
+
+    /// Whether a block this module has in scope adds `name` to `receiver`
+    /// (LR20).
+    pub(super) fn extension_adds(&self, receiver: &Type, name: &str) -> bool {
+        self.extensions.iter().any(|extension| {
+            extension.methods.contains_key(name)
+                && bound_by(extension.type_params, extension.target, receiver).is_some()
+        })
     }
 
     /// The extension method `name` on `receiver`, from the blocks this

@@ -74,7 +74,6 @@ pub struct Facts {
     freezes: HashSet<Span>,
     checked_indexes: HashSet<Span>,
     contains: HashSet<Span>,
-    ok_or: HashSet<Span>,
     map_err: HashSet<Span>,
     collection_mutations: HashMap<Span, CollectionMutation>,
     overflow_methods: HashMap<Span, OverflowMethod>,
@@ -166,15 +165,6 @@ impl Facts {
         self.contains.contains(&span)
     }
 
-    pub fn record_ok_or(&mut self, span: Span) {
-        self.ok_or.insert(span);
-    }
-
-    #[must_use]
-    pub fn ok_or(&self, span: Span) -> bool {
-        self.ok_or.contains(&span)
-    }
-
     pub fn record_map_err(&mut self, span: Span) {
         self.map_err.insert(span);
     }
@@ -223,7 +213,6 @@ impl Facts {
         self.freezes.extend(other.freezes);
         self.checked_indexes.extend(other.checked_indexes);
         self.contains.extend(other.contains);
-        self.ok_or.extend(other.ok_or);
         self.map_err.extend(other.map_err);
         self.collection_mutations.extend(other.collection_mutations);
         self.overflow_methods.extend(other.overflow_methods);
