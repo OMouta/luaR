@@ -1115,7 +1115,7 @@ The inferred type is `List<string>`. `[...]` always produces a sequence and neve
 
 `values:reverse()` puts the elements in the opposite order, in place, and returns `()`.
 
-`values:extend(other)` appends every element of `other`, a `List<T>` or a `FrozenList<T>`, in order, and returns `()`. `other` may be `values` itself.
+`values:pushAll(other)` appends every element of `other`, a `List<T>` or a `FrozenList<T>`, in order, and returns `()`. `other` may be `values` itself.
 
 `values.length` is the number of elements the list holds, an `int`. It is not a field, so it cannot be assigned (LR89.2).
 
