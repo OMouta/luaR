@@ -514,6 +514,8 @@ local name = user.name ?? "Anonymous"
 
 `??` does not treat `false`, `0`, or an empty string as absent.
 
+`optional:okOr(error)` is `Result.Ok(value)` where `optional` holds `value`, and `Result.Err(error)` where it is `nil`: a `Result<T, E>`, with `E` the type of `error` (LR25.1).
+
 Optional values must be narrowed before ordinary member access.
 
 ```lua
