@@ -270,6 +270,8 @@ registry! {
         "A `Result` variant with nothing asking for its type has its arguments written.";
     active 206 => INTRINSIC_DECLARATION, "LR60",
         "`@intrinsic` names an operation the compiler implements, in a standard library module.";
+    active 207 => ITERATOR_RESULT, "LR35",
+        "`Iterator.next` returns an optional item.";
 }
 
 #[cfg(test)]

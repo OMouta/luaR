@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use luar_ast::{ArmBody, Block, ExprKind, FunctionBody, Item, Stmt, StmtKind};
+use luar_ast::{ArmBody, Block, Expr, ExprKind, FunctionBody, Item, Stmt, StmtKind};
 use luar_diagnostics::{Diagnostic, codes};
 
 use crate::names::bound;
@@ -242,8 +242,7 @@ impl Checker<'_> {
             } => {
                 // LR10.4: a range written in place yields its bounds' type.
                 // LR10.5: a collection yields what it holds. Anything else
-                // yields what the iterator protocol says (LR35), which is
-                // not resolved here.
+                // yields what the iterator protocol says (LR35).
                 let yielded = match &iterable.kind {
                     ExprKind::Range {
                         start: Some(start),
@@ -322,7 +321,7 @@ impl Checker<'_> {
                             args.first().cloned().unwrap_or(Type::Unresolved),
                             args.get(1).cloned().unwrap_or(Type::Unresolved),
                         ]),
-                        _ => None,
+                        receiver => self.iteration_yield(iterable, &receiver),
                     },
                 };
                 let yielded = match yielded {
@@ -440,6 +439,41 @@ impl Checker<'_> {
             }
             StmtKind::Continue(label) => self.record_continue(label.as_deref()),
             StmtKind::Break(_) | StmtKind::Error => {}
+        }
+    }
+
+    /// LR35: a `for` calls `iterator` once, then takes each item from `next`.
+    fn iteration_yield(&mut self, iterable: &Expr, receiver: &Type) -> Option<Vec<Type>> {
+        let (iterator_span, next_span) = crate::facts::iteration_spans(iterable.span);
+        let iterator = settle(self.call(
+            iterable,
+            Some("iterator"),
+            receiver,
+            &[],
+            &[],
+            iterator_span,
+        ));
+        self.facts.record_type(iterator_span, iterator.clone());
+        if matches!(iterator, Type::Unresolved) {
+            return None;
+        }
+
+        let yielded = settle(self.call(iterable, Some("next"), &iterator, &[], &[], next_span));
+        self.facts.record_type(next_span, yielded.clone());
+        match yielded {
+            Type::Optional(item) => Some(vec![*item]),
+            Type::Unresolved => None,
+            other => {
+                self.diagnostics.push(
+                    Diagnostic::error(
+                        codes::ITERATOR_RESULT,
+                        next_span,
+                        format!("`next` returns `{other}`, not an optional item"),
+                    )
+                    .note("`Iterator.next` returns `T?`, with `nil` ending iteration (LR35)."),
+                );
+                None
+            }
         }
     }
 

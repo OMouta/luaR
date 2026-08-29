@@ -1,0 +1,24 @@
+--- expect: compile-ok
+--- spec: LR10.5
+--- spec: LR35
+ref struct Counter implements Iterator<int>
+    current: int
+
+    function next(self): int?
+        return self.current
+    end
+end
+
+struct Count implements Iterable<int>
+    function iterator(self): Iterator<int>
+        return Counter { current = 0 }
+    end
+end
+
+export function sum(values: Count): int
+    local total = 0
+    for value in values do
+        total += value
+    end
+    return total
+end

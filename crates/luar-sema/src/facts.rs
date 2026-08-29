@@ -6,6 +6,15 @@ use luar_diagnostics::Span;
 
 use crate::types::Type;
 
+/// The implicit `iterator` and `next` call positions of a `for` (LR35).
+#[must_use]
+pub fn iteration_spans(iterable: Span) -> (Span, Span) {
+    (
+        Span::at(iterable.file, iterable.start),
+        Span::at(iterable.file, iterable.end),
+    )
+}
+
 /// An operation the compiler implements: a predeclared name (LR54.1), an
 /// `@intrinsic` of the standard library (LR60), or a method of a builtin type
 /// (LR4.3, LR13, LR59, LR70, LR72).
