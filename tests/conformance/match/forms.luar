@@ -15,7 +15,7 @@ end
 
 export function main()
     local message = Message.Quit
-    local result = Result.Ok(1)
+    local result = Result.Ok<int, string>(1)
 
     match message
         case Message.Move { x, y }

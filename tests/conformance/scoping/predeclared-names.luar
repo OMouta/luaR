@@ -3,7 +3,7 @@
 export function main()
     assert(1 + 1 == 2)
     debugAssert(true)
-    print(Result.Ok(1))
+    print(Result.Ok<int, string>(1))
 end
 
 function stop(): never

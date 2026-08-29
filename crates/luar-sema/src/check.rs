@@ -914,17 +914,22 @@ impl Checker<'_> {
     fn stmt(&mut self, stmt: &Stmt) {
         match &stmt.kind {
             StmtKind::Local { binding, ty, value } => {
-                let value_type = value.as_ref().map(|value| (self.expr(value), value.span));
+                let declared = ty.as_ref().map(|ty| self.resolve(ty));
+                let value_type = value.as_ref().map(|value| {
+                    let held = match &declared {
+                        Some(declared) => self.expr_wanting(value, declared),
+                        None => self.expr(value),
+                    };
+                    (held, value.span)
+                });
 
-                let held = match ty {
-                    Some(ty) => {
-                        let declared = self.resolve(ty);
+                let held = match declared {
+                    Some(declared) => {
                         if let Some((value, span)) = &value_type {
                             self.expect(&declared, value, *span);
                         }
                         declared
                     }
-                    // LR5.1, LR7: with no annotation the initializer decides.
                     None => value_type
                         .as_ref()
                         .map_or(Type::Unresolved, |(value, _)| settle(value.clone())),
@@ -945,10 +950,13 @@ impl Checker<'_> {
             StmtKind::Const {
                 binding, ty, value, ..
             } => {
-                let initialized = self.expr(value);
-                let held = match ty {
-                    Some(ty) => {
-                        let declared = self.resolve(ty);
+                let declared = ty.as_ref().map(|ty| self.resolve(ty));
+                let initialized = match &declared {
+                    Some(declared) => self.expr_wanting(value, declared),
+                    None => self.expr(value),
+                };
+                let held = match declared {
+                    Some(declared) => {
                         self.expect(&declared, &initialized, value.span);
                         declared
                     }
@@ -1281,7 +1289,10 @@ impl Checker<'_> {
             StmtKind::Return(value) => {
                 // LR9.1: a bare `return` leaves nothing behind.
                 let held = match value {
-                    Some(value) => self.expr(value),
+                    Some(value) => match self.returns.last().cloned().flatten() {
+                        Some(wanted) => self.expr_wanting(value, &wanted),
+                        None => self.expr(value),
+                    },
                     None => Type::Tuple(Vec::new()),
                 };
 
@@ -1447,6 +1458,15 @@ impl Checker<'_> {
 
     /// Every case a closed type has, spelled as a pattern writes it (LR16.4).
     fn closed(&self, scrutinee: &Type) -> Option<Vec<String>> {
+        // LR25.1: `Result` is an enum the language declares for itself.
+        if let Type::Builtin {
+            kind: Builtin::Result,
+            ..
+        } = scrutinee
+        {
+            return Some(vec!["Result.Ok".to_owned(), "Result.Err".to_owned()]);
+        }
+
         if *scrutinee == Type::BOOL {
             return Some(vec!["true".to_owned(), "false".to_owned()]);
         }
@@ -1568,6 +1588,33 @@ impl Checker<'_> {
         let ty = self.expr_type(expr);
         self.facts.record_type(expr.span, ty.clone());
         ty
+    }
+
+    /// LR25.1: `Result.Ok(value)` and `Result.Err(error)` take the type
+    /// arguments of the `Result` the value is asked for.
+    fn expr_wanting(&mut self, expr: &Expr, wanted: &Type) -> Type {
+        if let ExprKind::Call {
+            callee,
+            method: None,
+            type_args,
+            args,
+        } = &expr.kind
+            && type_args.is_empty()
+            && result_variant(callee).is_some()
+            && !self.shadowed("Result")
+            && let Type::Builtin {
+                kind: Builtin::Result,
+                args: written,
+            } = wanted
+            && written.len() == 2
+        {
+            let written = written.clone();
+            let receiver = self.expr(callee);
+            let ty = self.call(callee, None, &receiver, &written, args, expr.span);
+            self.facts.record_type(expr.span, ty.clone());
+            return ty;
+        }
+        self.expr(expr)
     }
 
     fn expr_type(&mut self, expr: &Expr) -> Type {
@@ -2726,10 +2773,21 @@ impl Checker<'_> {
         args: &[Argument],
         span: Span,
     ) -> Type {
-        if result_variant(callee).is_some() && !self.shadowed("Result") && written.len() != 2 {
+        if let Some(variant) = result_variant(callee)
+            && !self.shadowed("Result")
+            && written.len() != 2
+        {
             for argument in args {
                 self.expr(&argument.value);
             }
+            self.diagnostics.push(
+                Diagnostic::error(
+                    codes::RESULT_ARGUMENTS_NEEDED,
+                    span,
+                    format!("`Result.{variant}` has nothing here to take its type arguments from"),
+                )
+                .note("Write them, as in `Result.Ok<T, E>(value)` (LR25.1)."),
+            );
             return Type::Unresolved;
         }
 
@@ -2752,9 +2810,38 @@ impl Checker<'_> {
 
         // The arguments are expressions whoever is being called, and whatever
         // is wrong inside one is wrong before any overload is picked.
+        // LR25.1: with one signature, what each parameter asks for is known
+        // before its argument is read.
+        let expected: Vec<Option<Type>> = match &resolved {
+            Some(resolved)
+                if resolved.overloads.len() == 1
+                    && resolved.receiver.is_none()
+                    && resolved.overloads[0].type_params.is_empty() =>
+            {
+                let signature = &resolved.overloads[0];
+                args.iter()
+                    .enumerate()
+                    .map(|(i, argument)| {
+                        if argument.name.is_some() {
+                            return None;
+                        }
+                        signature
+                            .params
+                            .get(i)
+                            .filter(|param| !param.variadic)
+                            .map(|param| param.ty.clone())
+                    })
+                    .collect()
+            }
+            _ => vec![None; args.len()],
+        };
         let held: Vec<Type> = args
             .iter()
-            .map(|argument| self.expr(&argument.value))
+            .zip(&expected)
+            .map(|(argument, wanted)| match wanted {
+                Some(wanted) => self.expr_wanting(&argument.value, wanted),
+                None => self.expr(&argument.value),
+            })
             .collect();
 
         // LR32: `identical` takes only values with observable identity.

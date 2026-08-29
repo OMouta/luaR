@@ -266,6 +266,8 @@ registry! {
         "A frozen collection cannot be mutated.";
     active 204 => ITERATION_BINDINGS, "LR10.5",
         "A `for` names one binding for each value an iteration yields.";
+    active 205 => RESULT_ARGUMENTS_NEEDED, "LR25.1",
+        "A `Result` variant with nothing asking for its type has its arguments written.";
 }
 
 #[cfg(test)]

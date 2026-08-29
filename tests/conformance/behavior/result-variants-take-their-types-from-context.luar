@@ -1,0 +1,38 @@
+--- expect: run
+--- exit: 15
+--- spec: LR25.1
+--- spec: LR25.2
+ref struct Tally
+    value: int
+end
+
+function even(value: int): Result<int, string>
+    if value == 8 then
+        return Result.Ok(value)
+    end
+    return Result.Err("odd")
+end
+
+function twice(result: Result<int, string>): Result<int, string>
+    local value = result?
+    return Result.Ok(value * 2)
+end
+
+function count(tally: Tally): Result<int, string>
+    local a = even(8)?
+    tally.value += a
+    local b = twice(Result.Ok(3))?
+    tally.value += b
+    local c: Result<int, string> = Result.Ok(1)
+    local one = c?
+    tally.value += one
+    local d = even(3)?
+    tally.value += 100
+    return Result.Ok(d)
+end
+
+export function main(): int
+    local tally = Tally { value = 0 }
+    count(tally)
+    return tally.value
+end
