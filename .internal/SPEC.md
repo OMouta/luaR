@@ -1695,6 +1695,12 @@ Package imports:
 import { Router } from "some-package/router"
 ```
 
+Standard library imports:
+
+```lua
+import { identical } from "std/mem"
+```
+
 ### 21.2 Import Semantics
 
 Imports are statically resolved.
@@ -1825,6 +1831,7 @@ Examples:
 @repr("C")
 @test
 @finalizer
+@intrinsic
 ```
 
 Compiler-specific decorators must use a namespaced form rather than polluting ordinary source syntax.
@@ -3059,6 +3066,12 @@ std/log
 Not every high-level protocol must live in the minimal runtime, but ordinary application programming must not depend on Roblox-like host APIs.
 
 The standard library should prefer typed APIs over loosely structured map-based configuration.
+
+A standard library module is a LuaR module. `std/name` names the source file `std/name.luar` that ships with the compiler, and it is compiled with the program that imports it like any other module (LR21.1).
+
+Native code enters the standard library through foreign declarations (LR46) and through nothing else.
+
+A bodiless function declaration marked `@intrinsic` names an operation the compiler implements and the language has no other spelling for, such as `identical` (LR32) and `reinterpret` (LR72) in `std/mem`. `@intrinsic` is accepted only in a standard library module. A call to one is checked against the declared signature like any other call.
 
 ---
 
