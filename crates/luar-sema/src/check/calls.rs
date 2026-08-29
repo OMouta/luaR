@@ -6,15 +6,12 @@ use luar_ast::{Argument, Expr, ExprKind, Semantics, Visibility};
 use luar_diagnostics::{Diagnostic, Span, codes};
 
 use crate::aliases::substitute;
-use crate::facts::Intrinsic;
+use crate::facts::Builtin;
 use crate::names::Origin;
 use crate::table::{Decl, Overloads, SELF, Signature, Variant};
-use crate::types::{Builtin, Primitive, Type};
+use crate::types::{Builtin as Kind, Primitive, Type};
 
-use super::builtins::{
-    article, checked_index_method, collection_mutation_method, contains_method, frozen_method,
-    intrinsic_signature, overflow_method, plural, usable,
-};
+use super::builtins::{article, builtin_method, plural, usable};
 use super::expr::result_variant;
 use super::operators::{is_integer, is_numeric, opaque, settle};
 use super::{Callee, Checker, Fit, ThreadMarker};
@@ -213,22 +210,13 @@ impl Checker<'_> {
             return Type::Unresolved;
         }
 
-        let intrinsic = method
-            .is_none()
-            .then(|| {
-                self.predeclared_intrinsic(callee)
-                    .or_else(|| self.std_intrinsic(callee))
-            })
-            .flatten();
-        let freezes = method.is_some_and(|name| frozen_method(receiver, name, span).is_some());
-        let checked_index =
-            method.is_some_and(|name| checked_index_method(receiver, name, span).is_some());
-        let contains = method.is_some_and(|name| contains_method(receiver, name, span).is_some());
-        let collection_mutation = method.and_then(|name| {
-            collection_mutation_method(receiver, name, span).map(|(mutation, _)| mutation)
-        });
-        let overflow =
-            method.and_then(|name| overflow_method(receiver, name, span).map(|(method, _)| method));
+        let builtin = match method {
+            Some(name) => builtin_method(receiver, name, span).map(|(kind, _)| kind),
+            None => self
+                .predeclared(callee, span)
+                .map(|(kind, _)| kind)
+                .or_else(|| self.std_intrinsic(callee)),
+        };
         let resolved = self.signature_of(callee, method, receiver, span);
 
         // The arguments are expressions whoever is being called, and whatever
@@ -265,7 +253,7 @@ impl Checker<'_> {
             .collect();
 
         // LR32: `identical` takes only values with observable identity.
-        if intrinsic == Some(Intrinsic::Identical) {
+        if builtin == Some(Builtin::Identical) {
             for (argument, held) in args.iter().zip(&held) {
                 let held = settle(held.clone());
                 if !self.has_identity(&held) {
@@ -338,23 +326,8 @@ impl Checker<'_> {
         }
 
         self.facts.record_call(span, signature.span);
-        if let Some(intrinsic) = intrinsic {
-            self.facts.record_intrinsic(span, intrinsic);
-        }
-        if freezes {
-            self.facts.record_freeze(span);
-        }
-        if checked_index {
-            self.facts.record_checked_index(span);
-        }
-        if contains {
-            self.facts.record_contains(span);
-        }
-        if let Some(mutation) = collection_mutation {
-            self.facts.record_collection_mutation(span, mutation);
-        }
-        if let Some(overflow) = overflow {
-            self.facts.record_overflow_method(span, overflow);
+        if let Some(builtin) = builtin {
+            self.facts.record_builtin(span, builtin);
         }
 
         // LR19: a generic call takes its type arguments from what it writes
@@ -367,7 +340,7 @@ impl Checker<'_> {
         // what takes the result out of it.
         if signature.asynchronous {
             return Type::Builtin {
-                kind: Builtin::Task,
+                kind: Kind::Task,
                 args: vec![settle(signature.result)],
             };
         }
@@ -569,13 +542,8 @@ impl Checker<'_> {
             });
         }
 
-        if let Some(intrinsic) = self.predeclared_intrinsic(callee) {
-            return Some(Callee {
-                name: intrinsic.name().to_owned(),
-                overloads: vec![intrinsic_signature(intrinsic, span)],
-                receiver: None,
-                type_args: Vec::new(),
-            });
+        if let Some((_, callee)) = self.predeclared(callee, span) {
+            return Some(callee);
         }
 
         match &callee.kind {
@@ -623,12 +591,12 @@ impl Checker<'_> {
             Type::Unresolved | Type::Primitive(Primitive::Any | Primitive::Never) => true,
             Type::Builtin {
                 kind:
-                    Builtin::List
-                    | Builtin::Map
-                    | Builtin::Set
-                    | Builtin::FrozenList
-                    | Builtin::FrozenMap
-                    | Builtin::FrozenSet,
+                    Kind::List
+                    | Kind::Map
+                    | Kind::Set
+                    | Kind::FrozenList
+                    | Kind::FrozenMap
+                    | Kind::FrozenSet,
                 ..
             }
             | Type::Function { .. } => true,
@@ -670,7 +638,7 @@ impl Checker<'_> {
                         variadic: false,
                     }],
                     result: Type::Builtin {
-                        kind: Builtin::Result,
+                        kind: Kind::Result,
                         args: params.into_iter().map(Type::Parameter).collect(),
                     },
                     takes_self: false,

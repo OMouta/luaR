@@ -22,26 +22,8 @@ impl<'a> Body<'a> {
         args: &[Argument],
         span: Span,
     ) -> Value {
-        if self.context.facts.freezes(span) {
-            let value = self.expr(callee, None);
-            let ty = self.recorded(span);
-            return self.emit(InstKind::Freeze { value }, ty, span);
-        }
-        if self.context.facts.checked_index(span) {
-            return self.checked_index(callee, args, span);
-        }
-        if self.context.facts.contains(span) {
-            return self.contains(callee, args, span);
-        }
-        if let Some(mutation) = self.context.facts.collection_mutation(span) {
-            return self.collection_mutation(mutation, callee, args, span);
-        }
-        if let Some(method) = self.context.facts.overflow_method(span) {
-            return self.overflow_method(method, callee, args, span);
-        }
-
-        if let Some(intrinsic) = self.context.facts.intrinsic(span) {
-            return self.intrinsic(intrinsic, args, span);
+        if let Some(builtin) = self.context.facts.builtin(span) {
+            return self.builtin(builtin, callee, args, span);
         }
 
         if let ExprKind::Field {
@@ -94,14 +76,6 @@ impl<'a> Body<'a> {
                 .is_some_and(|ty| matches!(ty, Ty::Function { .. }))
         {
             return self.through(callee, args, span);
-        }
-
-        // LR72: a raw pointer's methods reach no declaration; `read` and
-        // `write` are the load and the store themselves.
-        if let Some(name) = method
-            && let Some(Ty::Pointer { target, .. }) = self.known_type(callee)
-        {
-            return self.memory_method(callee, name, *target, args, span);
         }
 
         let Some(declaration) = self.context.facts.call(span) else {

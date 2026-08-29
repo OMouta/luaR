@@ -6,29 +6,38 @@ use luar_diagnostics::Span;
 
 use crate::types::Type;
 
-/// An operation the compiler implements: a predeclared one (LR54.1), or one
-/// the standard library declares with `@intrinsic` (LR60).
+/// An operation the compiler implements: a predeclared name (LR54.1), an
+/// `@intrinsic` of the standard library (LR60), or a method of a builtin type
+/// (LR4.3, LR13, LR59, LR70, LR72).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Intrinsic {
+pub enum Builtin {
     Print,
     Error,
-    Identical,
     Assert,
     DebugAssert,
     Panic,
     ListNew,
     MapNew,
     SetNew,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CollectionMutation {
+    Identical,
+    Freeze,
+    CheckedIndex,
+    Contains,
     ListPush,
     ListPop,
+    Clear,
     SetInsert,
     MapRemove,
     SetRemove,
-    Clear,
+    Overflow {
+        mode: Overflow,
+        op: luar_ast::BinaryOp,
+    },
+    Unchecked,
+    UncheckedSet,
+    PointerRead,
+    PointerWrite,
+    PointerAdd,
 }
 
 /// What `x:wrappingAdd(y)` and its kin do where the ordinary operator would
@@ -40,29 +49,6 @@ pub enum Overflow {
     Check,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct OverflowMethod {
-    pub mode: Overflow,
-    pub op: luar_ast::BinaryOp,
-}
-
-impl Intrinsic {
-    #[must_use]
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Print => "print",
-            Self::Error => "Error",
-            Self::Identical => "identical",
-            Self::Assert => "assert",
-            Self::DebugAssert => "debugAssert",
-            Self::Panic => "panic",
-            Self::ListNew => "List.new",
-            Self::MapNew => "Map.new",
-            Self::SetNew => "Set.new",
-        }
-    }
-}
-
 /// What the checker knows about one program.
 #[derive(Debug, Default)]
 pub struct Facts {
@@ -70,12 +56,7 @@ pub struct Facts {
     calls: HashMap<Span, Span>,
     bindings: HashMap<Span, Type>,
     type_args: HashMap<Span, Vec<Type>>,
-    intrinsics: HashMap<Span, Intrinsic>,
-    freezes: HashSet<Span>,
-    checked_indexes: HashSet<Span>,
-    contains: HashSet<Span>,
-    collection_mutations: HashMap<Span, CollectionMutation>,
-    overflow_methods: HashMap<Span, OverflowMethod>,
+    builtins: HashMap<Span, Builtin>,
     /// The names something takes the address of (LR72).
     addressed: HashSet<String>,
 }
@@ -128,58 +109,15 @@ impl Facts {
         self.type_args.get(&span).map(Vec::as_slice)
     }
 
-    pub fn record_intrinsic(&mut self, span: Span, intrinsic: Intrinsic) {
-        self.intrinsics.insert(span, intrinsic);
+    /// Records that the call at `span` is an operation the compiler
+    /// implements, and which one.
+    pub fn record_builtin(&mut self, span: Span, builtin: Builtin) {
+        self.builtins.insert(span, builtin);
     }
 
     #[must_use]
-    pub fn intrinsic(&self, span: Span) -> Option<Intrinsic> {
-        self.intrinsics.get(&span).copied()
-    }
-
-    pub fn record_freeze(&mut self, span: Span) {
-        self.freezes.insert(span);
-    }
-
-    #[must_use]
-    pub fn freezes(&self, span: Span) -> bool {
-        self.freezes.contains(&span)
-    }
-
-    pub fn record_checked_index(&mut self, span: Span) {
-        self.checked_indexes.insert(span);
-    }
-
-    #[must_use]
-    pub fn checked_index(&self, span: Span) -> bool {
-        self.checked_indexes.contains(&span)
-    }
-
-    pub fn record_contains(&mut self, span: Span) {
-        self.contains.insert(span);
-    }
-
-    #[must_use]
-    pub fn contains(&self, span: Span) -> bool {
-        self.contains.contains(&span)
-    }
-
-    pub fn record_collection_mutation(&mut self, span: Span, mutation: CollectionMutation) {
-        self.collection_mutations.insert(span, mutation);
-    }
-
-    #[must_use]
-    pub fn collection_mutation(&self, span: Span) -> Option<CollectionMutation> {
-        self.collection_mutations.get(&span).copied()
-    }
-
-    pub fn record_overflow_method(&mut self, span: Span, method: OverflowMethod) {
-        self.overflow_methods.insert(span, method);
-    }
-
-    #[must_use]
-    pub fn overflow_method(&self, span: Span) -> Option<OverflowMethod> {
-        self.overflow_methods.get(&span).copied()
+    pub fn builtin(&self, span: Span) -> Option<Builtin> {
+        self.builtins.get(&span).copied()
     }
 
     pub fn record_addressed(&mut self, name: String) {
@@ -199,12 +137,7 @@ impl Facts {
         self.calls.extend(other.calls);
         self.bindings.extend(other.bindings);
         self.type_args.extend(other.type_args);
-        self.intrinsics.extend(other.intrinsics);
-        self.freezes.extend(other.freezes);
-        self.checked_indexes.extend(other.checked_indexes);
-        self.contains.extend(other.contains);
-        self.collection_mutations.extend(other.collection_mutations);
-        self.overflow_methods.extend(other.overflow_methods);
+        self.builtins.extend(other.builtins);
         self.addressed.extend(other.addressed);
     }
 }

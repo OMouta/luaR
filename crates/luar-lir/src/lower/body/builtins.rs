@@ -1,35 +1,78 @@
-//! Lowering intrinsics and the methods of the builtin types.
+//! Lowering the operations the compiler implements (LR54.1, LR60).
 
 use luar_ast::{Argument, Expr};
 use luar_diagnostics::Span;
-use luar_sema::facts::{CollectionMutation, Intrinsic, OverflowMethod};
+use luar_sema::facts::{self, Builtin};
 
 use crate::inst::{BinaryOp, Const, InstKind, Overflow, Value};
 use crate::lower::CompilationMode;
 use crate::lower::body::Body;
 use crate::lower::body::expr::binary_op;
-use crate::ty::{Builtin, IntTy, Ty};
+use crate::ty::{self, IntTy, Ty};
 
 impl<'a> Body<'a> {
-    /// LR9.1: a call passes an argument for every parameter, at the type that
-    /// parameter takes.
-    pub(super) fn memory_method(
+    pub(super) fn builtin(
         &mut self,
+        kind: Builtin,
         callee: &Expr,
-        name: &str,
-        target: Ty,
+        args: &[Argument],
+        span: Span,
+    ) -> Value {
+        match kind {
+            Builtin::Print => self.print(args, span),
+            Builtin::Error => self.error(args, span),
+            Builtin::Assert => self.assertion(args, span),
+            Builtin::DebugAssert if self.context.mode == CompilationMode::Release => {
+                self.emit(InstKind::Const(Const::Unit), Ty::Unit, span)
+            }
+            Builtin::DebugAssert => self.assertion(args, span),
+            Builtin::Panic => self.panic(args, span),
+            Builtin::ListNew | Builtin::MapNew | Builtin::SetNew => self.empty_collection(span),
+            Builtin::Identical => self.identical(args, span),
+            Builtin::Freeze => {
+                let value = self.expr(callee, None);
+                let ty = self.recorded(span);
+                self.emit(InstKind::Freeze { value }, ty, span)
+            }
+            Builtin::CheckedIndex => self.checked_index(callee, args, span),
+            Builtin::Contains => self.contains(callee, args, span),
+            Builtin::ListPush
+            | Builtin::ListPop
+            | Builtin::Clear
+            | Builtin::SetInsert
+            | Builtin::MapRemove
+            | Builtin::SetRemove => self.collection_mutation(kind, callee, args, span),
+            Builtin::Overflow { mode, op } => self.overflowing(mode, op, callee, args, span),
+            Builtin::Unchecked | Builtin::UncheckedSet => {
+                self.missing(span, "an unchecked element access")
+            }
+            Builtin::PointerRead | Builtin::PointerWrite | Builtin::PointerAdd => {
+                self.pointer_method(kind, callee, args, span)
+            }
+        }
+    }
+
+    /// LR72: a raw pointer's methods reach no declaration; `read` and `write`
+    /// are the load and the store themselves.
+    fn pointer_method(
+        &mut self,
+        kind: Builtin,
+        callee: &Expr,
         args: &[Argument],
         span: Span,
     ) -> Value {
         let pointer = self.expr(callee, None);
-        match (name, args) {
-            ("read", []) => self.emit(InstKind::Load { pointer }, target, span),
-            ("write", [argument]) => {
+        let Ty::Pointer { target, .. } = self.function.type_of(pointer).clone() else {
+            return self.missing(span, "a pointer method on something that is not a pointer");
+        };
+        match (kind, args) {
+            (Builtin::PointerRead, []) => self.emit(InstKind::Load { pointer }, *target, span),
+            (Builtin::PointerWrite, [argument]) => {
                 let value = self.stored(&argument.value, Some(&target));
                 self.emit_void(InstKind::Store { pointer, value }, span);
                 self.emit(InstKind::Const(Const::Unit), Ty::Unit, span)
             }
-            ("add", [argument]) => {
+            (Builtin::PointerAdd, [argument]) => {
                 let count = self.expr(&argument.value, Some(&Ty::Int(IntTy::Isize)));
                 let ty = self.function.type_of(pointer).clone();
                 self.emit(InstKind::Offset { pointer, count }, ty, span)
@@ -38,136 +81,106 @@ impl<'a> Body<'a> {
         }
     }
 
-    pub(super) fn intrinsic(
-        &mut self,
-        intrinsic: Intrinsic,
-        args: &[Argument],
-        span: Span,
-    ) -> Value {
+    fn empty_collection(&mut self, span: Span) -> Value {
         let constructed = self.recorded(span);
-        match (&intrinsic, &constructed) {
-            (
-                Intrinsic::ListNew,
-                Ty::Builtin {
-                    kind: Builtin::List,
-                    args,
-                },
-            ) => {
+        let kind = match &constructed {
+            Ty::Builtin {
+                kind: ty::Builtin::List,
+                args,
+            } => {
                 let Some(element) = args.first().cloned() else {
                     return self.missing(span, "a list constructor without an element type");
                 };
-                return self.emit(
-                    InstKind::MakeList {
-                        element,
-                        values: Vec::new(),
-                    },
-                    constructed,
-                    span,
-                );
+                InstKind::MakeList {
+                    element,
+                    values: Vec::new(),
+                }
             }
-            (
-                Intrinsic::MapNew,
-                Ty::Builtin {
-                    kind: Builtin::Map,
-                    args,
-                },
-            ) => {
+            Ty::Builtin {
+                kind: ty::Builtin::Map,
+                args,
+            } => {
                 let (Some(key), Some(value)) = (args.first().cloned(), args.get(1).cloned()) else {
                     return self.missing(span, "a map constructor without key and value types");
                 };
-                return self.emit(
-                    InstKind::MakeMap {
-                        key,
-                        value,
-                        entries: Vec::new(),
-                    },
-                    constructed,
-                    span,
-                );
+                InstKind::MakeMap {
+                    key,
+                    value,
+                    entries: Vec::new(),
+                }
             }
-            (
-                Intrinsic::SetNew,
-                Ty::Builtin {
-                    kind: Builtin::Set,
-                    args,
-                },
-            ) => {
+            Ty::Builtin {
+                kind: ty::Builtin::Set,
+                args,
+            } => {
                 let Some(element) = args.first().cloned() else {
                     return self.missing(span, "a set constructor without an element type");
                 };
-                return self.emit(
-                    InstKind::MakeSet {
-                        element,
-                        values: Vec::new(),
-                    },
-                    constructed,
-                    span,
-                );
-            }
-            (Intrinsic::ListNew | Intrinsic::MapNew | Intrinsic::SetNew, _) => {
-                return self.missing(span, "a collection constructor with an unresolved type");
-            }
-            _ => {}
-        }
-
-        // LR32: identity is the address, so two values are identical where
-        // they are one pointer.
-        if intrinsic == Intrinsic::Identical {
-            let [left, right] = args else {
-                return self.missing(span, "an `identical` without two values");
-            };
-            let left = self.expr(&left.value, None);
-            let right = self.expr(&right.value, None);
-            return self.emit(
-                InstKind::Binary {
-                    op: BinaryOp::Equal,
-                    left,
-                    right,
-                },
-                Ty::Bool,
-                span,
-            );
-        }
-
-        if intrinsic == Intrinsic::Error {
-            let Some(argument) = args.first() else {
-                return self.missing(span, "an `Error` without a message");
-            };
-            let message = self.expr(&argument.value, Some(&Ty::Str));
-            return self.emit(InstKind::MakeError { message }, Ty::Error, span);
-        }
-
-        if intrinsic == Intrinsic::Print {
-            if args.is_empty() {
-                let value = self.emit(InstKind::Const(Const::Str(String::new())), Ty::Str, span);
-                self.emit_void(InstKind::Print { value }, span);
-                return self.emit(InstKind::Const(Const::Unit), Ty::Unit, span);
-            }
-            if args.len() != 1 {
-                for argument in args {
-                    self.expr(&argument.value, None);
+                InstKind::MakeSet {
+                    element,
+                    values: Vec::new(),
                 }
-                return self.missing(span, "`print` with more than one value");
             }
-            let argument = &args[0];
-            let value = self.expr(&argument.value, None);
-            let value = self.display(value, argument.value.span);
+            _ => return self.missing(span, "a collection constructor with an unresolved type"),
+        };
+        self.emit(kind, constructed, span)
+    }
+
+    /// LR32: identity is the address, so two values are identical where they
+    /// are one pointer.
+    fn identical(&mut self, args: &[Argument], span: Span) -> Value {
+        let [left, right] = args else {
+            return self.missing(span, "an `identical` without two values");
+        };
+        let left = self.expr(&left.value, None);
+        let right = self.expr(&right.value, None);
+        self.emit(
+            InstKind::Binary {
+                op: BinaryOp::Equal,
+                left,
+                right,
+            },
+            Ty::Bool,
+            span,
+        )
+    }
+
+    fn error(&mut self, args: &[Argument], span: Span) -> Value {
+        let Some(argument) = args.first() else {
+            return self.missing(span, "an `Error` without a message");
+        };
+        let message = self.expr(&argument.value, Some(&Ty::Str));
+        self.emit(InstKind::MakeError { message }, Ty::Error, span)
+    }
+
+    fn print(&mut self, args: &[Argument], span: Span) -> Value {
+        if args.is_empty() {
+            let value = self.emit(InstKind::Const(Const::Str(String::new())), Ty::Str, span);
             self.emit_void(InstKind::Print { value }, span);
             return self.emit(InstKind::Const(Const::Unit), Ty::Unit, span);
         }
-
-        if intrinsic == Intrinsic::DebugAssert && self.context.mode == CompilationMode::Release {
-            return self.emit(InstKind::Const(Const::Unit), Ty::Unit, span);
+        if args.len() != 1 {
+            for argument in args {
+                self.expr(&argument.value, None);
+            }
+            return self.missing(span, "`print` with more than one value");
         }
+        let argument = &args[0];
+        let value = self.expr(&argument.value, None);
+        let value = self.display(value, argument.value.span);
+        self.emit_void(InstKind::Print { value }, span);
+        self.emit(InstKind::Const(Const::Unit), Ty::Unit, span)
+    }
 
-        if intrinsic == Intrinsic::Panic {
-            let message = args
-                .first()
-                .map(|argument| self.expr(&argument.value, Some(&Ty::Str)))
-                .unwrap_or_else(|| self.missing(span, "a panic message"));
-            return self.emit(InstKind::Panic { message }, Ty::Never, span);
-        }
+    fn panic(&mut self, args: &[Argument], span: Span) -> Value {
+        let message = args
+            .first()
+            .map(|argument| self.expr(&argument.value, Some(&Ty::Str)))
+            .unwrap_or_else(|| self.missing(span, "a panic message"));
+        self.emit(InstKind::Panic { message }, Ty::Never, span)
+    }
 
+    fn assertion(&mut self, args: &[Argument], span: Span) -> Value {
         let mut condition = None;
         let mut message = None;
         let mut position = 0;
@@ -195,7 +208,7 @@ impl<'a> Body<'a> {
         self.emit(InstKind::Const(Const::Unit), Ty::Unit, span)
     }
 
-    pub(super) fn checked_index(&mut self, callee: &Expr, args: &[Argument], span: Span) -> Value {
+    fn checked_index(&mut self, callee: &Expr, args: &[Argument], span: Span) -> Value {
         let receiver = self.expr(callee, None);
         let held = self.function.type_of(receiver).clone();
         let Ty::Builtin {
@@ -209,8 +222,8 @@ impl<'a> Body<'a> {
             );
         };
         let wanted = match kind {
-            Builtin::Map | Builtin::FrozenMap => type_args.first().cloned(),
-            Builtin::List | Builtin::FrozenList => Some(Ty::INT),
+            ty::Builtin::Map | ty::Builtin::FrozenMap => type_args.first().cloned(),
+            ty::Builtin::List | ty::Builtin::FrozenList => Some(Ty::INT),
             _ => None,
         };
         let (Some(wanted), [argument]) = (wanted, args) else {
@@ -221,9 +234,9 @@ impl<'a> Body<'a> {
         self.emit(InstKind::GetCheckedIndex { receiver, index }, result, span)
     }
 
-    pub(super) fn collection_mutation(
+    fn collection_mutation(
         &mut self,
-        mutation: CollectionMutation,
+        kind: Builtin,
         callee: &Expr,
         args: &[Argument],
         span: Span,
@@ -232,20 +245,20 @@ impl<'a> Body<'a> {
         let Some(element) = self.collection_args(receiver).first().cloned() else {
             return self.missing(span, "a collection mutation without an element type");
         };
-        let kind = match mutation {
-            CollectionMutation::ListPop => {
+        let kind = match kind {
+            Builtin::ListPop => {
                 let result = self.recorded(span);
                 return self.emit(InstKind::ListPop { receiver }, result, span);
             }
-            CollectionMutation::Clear => InstKind::Clear { receiver },
-            CollectionMutation::MapRemove | CollectionMutation::SetRemove => {
+            Builtin::Clear => InstKind::Clear { receiver },
+            Builtin::MapRemove | Builtin::SetRemove => {
                 let Some(argument) = args.first() else {
                     return self.missing(span, "a removal without a key");
                 };
                 let key = self.expr(&argument.value, Some(&element));
                 let result = self.recorded(span);
-                let kind = match mutation {
-                    CollectionMutation::MapRemove => InstKind::MapRemove { receiver, key },
+                let kind = match kind {
+                    Builtin::MapRemove => InstKind::MapRemove { receiver, key },
                     _ => InstKind::SetRemove {
                         receiver,
                         value: key,
@@ -253,13 +266,13 @@ impl<'a> Body<'a> {
                 };
                 return self.emit(kind, result, span);
             }
-            CollectionMutation::ListPush | CollectionMutation::SetInsert => {
+            _ => {
                 let Some(argument) = args.first() else {
                     return self.missing(span, "a collection mutation without a value");
                 };
                 let value = self.expr(&argument.value, Some(&element));
-                match mutation {
-                    CollectionMutation::ListPush => InstKind::ListPush { receiver, value },
+                match kind {
+                    Builtin::ListPush => InstKind::ListPush { receiver, value },
                     _ => InstKind::SetInsert { receiver, value },
                 }
             }
@@ -268,7 +281,7 @@ impl<'a> Body<'a> {
         self.emit(InstKind::Const(Const::Unit), Ty::Unit, span)
     }
 
-    pub(super) fn contains(&mut self, callee: &Expr, args: &[Argument], span: Span) -> Value {
+    fn contains(&mut self, callee: &Expr, args: &[Argument], span: Span) -> Value {
         let receiver = self.expr(callee, None);
         let Some(element) = self.collection_args(receiver).first().cloned() else {
             return self.missing(span, "a lookup without a key type");
@@ -282,14 +295,15 @@ impl<'a> Body<'a> {
 
     /// LR4.3: `x:wrappingAdd(y)` and its kin apply the operator they name
     /// with the overflow behavior they name.
-    pub(super) fn overflow_method(
+    fn overflowing(
         &mut self,
-        method: OverflowMethod,
+        mode: facts::Overflow,
+        op: luar_ast::BinaryOp,
         callee: &Expr,
         args: &[Argument],
         span: Span,
     ) -> Value {
-        let Some(op) = binary_op(method.op) else {
+        let Some(op) = binary_op(op) else {
             return self.missing(span, "an overflow-explicit operator");
         };
         let result = self.recorded(span);
@@ -302,10 +316,10 @@ impl<'a> Body<'a> {
             return self.missing(span, "an overflow-explicit operation without an operand");
         };
         let right = self.expr(&argument.value, Some(&operand));
-        let mode = match method.mode {
-            luar_sema::facts::Overflow::Wrap => Overflow::Wrap,
-            luar_sema::facts::Overflow::Saturate => Overflow::Saturate,
-            luar_sema::facts::Overflow::Check => Overflow::Check,
+        let mode = match mode {
+            facts::Overflow::Wrap => Overflow::Wrap,
+            facts::Overflow::Saturate => Overflow::Saturate,
+            facts::Overflow::Check => Overflow::Check,
         };
         self.emit(
             InstKind::Overflowing {

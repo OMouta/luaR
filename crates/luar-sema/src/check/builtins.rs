@@ -1,28 +1,23 @@
-//! The built-in methods and intrinsics, by name (LR60).
+//! The operations the compiler implements, by receiver and name (LR54.1, LR60).
 
 use luar_ast::{BinaryOp, Expr, ExprKind, Item};
 use luar_diagnostics::{Diagnostic, Span, codes};
 
-use crate::facts::{CollectionMutation, Intrinsic, Overflow, OverflowMethod};
+use crate::facts::{Builtin, Overflow};
 use crate::names::Origin;
-use crate::table::Signature;
-use crate::types::{Builtin, Primitive, Type};
+use crate::table::{Param, Signature};
+use crate::types::{Builtin as Kind, Primitive, Type};
 
-use super::Checker;
 use super::operators::{is_integer, settle};
+use super::{Callee, Checker};
 
 impl Checker<'_> {
-    pub(super) fn predeclared_intrinsic(&self, callee: &Expr) -> Option<Intrinsic> {
-        match &callee.kind {
+    /// The predeclared function a call names (LR54.1), where nothing in scope
+    /// shadows it.
+    pub(super) fn predeclared(&self, callee: &Expr, span: Span) -> Option<(Builtin, Callee)> {
+        let name = match &callee.kind {
             ExprKind::Name(name) if !self.shadowed(name) && self.declared(name).is_none() => {
-                match name.as_str() {
-                    "print" => Some(Intrinsic::Print),
-                    "Error" => Some(Intrinsic::Error),
-                    "assert" => Some(Intrinsic::Assert),
-                    "debugAssert" => Some(Intrinsic::DebugAssert),
-                    "panic" => Some(Intrinsic::Panic),
-                    _ => None,
-                }
+                name.clone()
             }
             ExprKind::Field {
                 receiver,
@@ -35,20 +30,25 @@ impl Checker<'_> {
                 if self.shadowed(owner) || self.names.scope(self.scope).get(owner).is_some() {
                     return None;
                 }
-                match owner.as_str() {
-                    "List" => Some(Intrinsic::ListNew),
-                    "Map" => Some(Intrinsic::MapNew),
-                    "Set" => Some(Intrinsic::SetNew),
-                    _ => None,
-                }
+                format!("{owner}.new")
             }
-            _ => None,
-        }
+            _ => return None,
+        };
+        let (kind, signature) = builtin_function(&name, span)?;
+        Some((
+            kind,
+            Callee {
+                name,
+                overloads: vec![signature],
+                receiver: None,
+                type_args: Vec::new(),
+            },
+        ))
     }
 
     /// The operation a call reaches through an `@intrinsic` declaration of
     /// the standard library (LR60).
-    pub(super) fn std_intrinsic(&self, callee: &Expr) -> Option<Intrinsic> {
+    pub(super) fn std_intrinsic(&self, callee: &Expr) -> Option<Builtin> {
         let ExprKind::Name(name) = &callee.kind else {
             return None;
         };
@@ -108,107 +108,265 @@ impl Checker<'_> {
     }
 }
 
-pub(super) fn frozen_method(receiver: &Type, name: &str, span: Span) -> Option<Signature> {
-    if name != "frozen" {
-        return None;
+fn param(name: &str, ty: Type) -> Param {
+    Param {
+        name: name.to_owned(),
+        ty,
+        optional: false,
+        variadic: false,
     }
-    let Type::Builtin { kind, args } = receiver else {
-        return None;
-    };
-    let kind = match kind {
-        Builtin::List => Builtin::FrozenList,
-        Builtin::Map => Builtin::FrozenMap,
-        Builtin::Set => Builtin::FrozenSet,
-        _ => return None,
-    };
-    Some(Signature {
-        asynchronous: false,
-        type_params: Vec::new(),
-        constraints: Vec::new(),
-        params: Vec::new(),
-        result: Type::Builtin {
-            kind,
-            args: args.clone(),
+}
+
+/// The method `name` the language itself gives a value of type `receiver`,
+/// and its signature (LR4.3, LR13, LR59, LR70, LR72).
+pub(super) fn builtin_method(
+    receiver: &Type,
+    name: &str,
+    span: Span,
+) -> Option<(Builtin, Signature)> {
+    let arg = |args: &[Type], index: usize| args.get(index).cloned().unwrap_or(Type::Unresolved);
+    let int = Type::Primitive(Primitive::I64);
+    let unit = Type::Tuple(Vec::new());
+    let (kind, params, result) = match receiver {
+        Type::Builtin { kind, args } => {
+            let frozen = |kind| Type::Builtin {
+                kind,
+                args: args.clone(),
+            };
+            match (kind, name) {
+                (Kind::List, "frozen") => (Builtin::Freeze, Vec::new(), frozen(Kind::FrozenList)),
+                (Kind::Map, "frozen") => (Builtin::Freeze, Vec::new(), frozen(Kind::FrozenMap)),
+                (Kind::Set, "frozen") => (Builtin::Freeze, Vec::new(), frozen(Kind::FrozenSet)),
+                (Kind::List | Kind::FrozenList, "get") => (
+                    Builtin::CheckedIndex,
+                    vec![param("index", int)],
+                    arg(args, 0).optional(),
+                ),
+                (Kind::Map | Kind::FrozenMap, "get") => (
+                    Builtin::CheckedIndex,
+                    vec![param("key", arg(args, 0))],
+                    arg(args, 1).optional(),
+                ),
+                // A list reaches `contains` through the prelude (LR54.1).
+                (Kind::Map | Kind::FrozenMap, "contains") => (
+                    Builtin::Contains,
+                    vec![param("key", arg(args, 0))],
+                    Type::BOOL,
+                ),
+                (Kind::Set | Kind::FrozenSet, "contains") => (
+                    Builtin::Contains,
+                    vec![param("value", arg(args, 0))],
+                    Type::BOOL,
+                ),
+                (Kind::List, "push") => {
+                    (Builtin::ListPush, vec![param("value", arg(args, 0))], unit)
+                }
+                (Kind::List, "pop") => (Builtin::ListPop, Vec::new(), arg(args, 0).optional()),
+                (Kind::Set, "insert") => {
+                    (Builtin::SetInsert, vec![param("value", arg(args, 0))], unit)
+                }
+                (Kind::Map, "remove") => (
+                    Builtin::MapRemove,
+                    vec![param("key", arg(args, 0))],
+                    arg(args, 1).optional(),
+                ),
+                (Kind::Set, "remove") => (
+                    Builtin::SetRemove,
+                    vec![param("value", arg(args, 0))],
+                    Type::BOOL,
+                ),
+                (Kind::List | Kind::Map | Kind::Set, "clear") => (Builtin::Clear, Vec::new(), unit),
+                (Kind::List | Kind::FrozenList, "unchecked") => {
+                    (Builtin::Unchecked, vec![param("index", int)], arg(args, 0))
+                }
+                (Kind::List, "uncheckedSet") => (
+                    Builtin::UncheckedSet,
+                    vec![param("index", int), param("value", arg(args, 0))],
+                    unit,
+                ),
+                _ => return None,
+            }
+        }
+        Type::Array(element) => match name {
+            "unchecked" => (
+                Builtin::Unchecked,
+                vec![param("index", int)],
+                element.as_ref().clone(),
+            ),
+            "uncheckedSet" => (
+                Builtin::UncheckedSet,
+                vec![
+                    param("index", int),
+                    param("value", element.as_ref().clone()),
+                ],
+                unit,
+            ),
+            _ => return None,
         },
-        takes_self: true,
-        visibility: None,
-        span,
-        inferred: false,
-        unsafe_: false,
-    })
+        Type::Primitive(Primitive::Bytes) => match name {
+            "unchecked" => (
+                Builtin::Unchecked,
+                vec![param("index", int)],
+                Type::Primitive(Primitive::U8),
+            ),
+            "uncheckedSet" => (
+                Builtin::UncheckedSet,
+                vec![
+                    param("index", int),
+                    param("value", Type::Primitive(Primitive::U8)),
+                ],
+                unit,
+            ),
+            _ => return None,
+        },
+        Type::Pointer { mutable, target } => match name {
+            "read" => (Builtin::PointerRead, Vec::new(), target.as_ref().clone()),
+            "write" if *mutable => (
+                Builtin::PointerWrite,
+                vec![param("value", target.as_ref().clone())],
+                unit,
+            ),
+            "add" => (
+                Builtin::PointerAdd,
+                vec![param("offset", Type::Primitive(Primitive::Isize))],
+                receiver.clone(),
+            ),
+            _ => return None,
+        },
+        _ => {
+            let held = settle(receiver.clone());
+            if !is_integer(&held) {
+                return None;
+            }
+            let (mode, op) = match name {
+                "wrappingAdd" => (Overflow::Wrap, BinaryOp::Add),
+                "wrappingSub" => (Overflow::Wrap, BinaryOp::Subtract),
+                "wrappingMul" => (Overflow::Wrap, BinaryOp::Multiply),
+                "saturatingAdd" => (Overflow::Saturate, BinaryOp::Add),
+                "saturatingSub" => (Overflow::Saturate, BinaryOp::Subtract),
+                "saturatingMul" => (Overflow::Saturate, BinaryOp::Multiply),
+                "checkedAdd" => (Overflow::Check, BinaryOp::Add),
+                "checkedSub" => (Overflow::Check, BinaryOp::Subtract),
+                "checkedMul" => (Overflow::Check, BinaryOp::Multiply),
+                _ => return None,
+            };
+            let result = match mode {
+                Overflow::Check => held.clone().optional(),
+                Overflow::Wrap | Overflow::Saturate => held.clone(),
+            };
+            (
+                Builtin::Overflow { mode, op },
+                vec![param("other", held)],
+                result,
+            )
+        }
+    };
+    let unsafe_ = matches!(
+        kind,
+        Builtin::Unchecked
+            | Builtin::UncheckedSet
+            | Builtin::PointerRead
+            | Builtin::PointerWrite
+            | Builtin::PointerAdd
+    );
+    Some((
+        kind,
+        Signature {
+            asynchronous: false,
+            type_params: Vec::new(),
+            constraints: Vec::new(),
+            params,
+            result,
+            takes_self: true,
+            visibility: None,
+            span,
+            inferred: false,
+            unsafe_,
+        },
+    ))
 }
 
-pub(super) fn checked_index_method(receiver: &Type, name: &str, span: Span) -> Option<Signature> {
-    if name != "get" {
-        return None;
-    }
-    let Type::Builtin { kind, args } = receiver else {
-        return None;
-    };
-    let (name, param, result) = match kind {
-        Builtin::List | Builtin::FrozenList => (
-            "index",
-            Type::Primitive(Primitive::I64),
-            args.first().cloned().unwrap_or(Type::Unresolved),
+/// The predeclared function `name`, and its signature (LR54.1).
+fn builtin_function(name: &str, span: Span) -> Option<(Builtin, Signature)> {
+    let unit = Type::Tuple(Vec::new());
+    let (kind, type_params, params, result) = match name {
+        "print" => (
+            Builtin::Print,
+            Vec::new(),
+            vec![Param {
+                variadic: true,
+                ..param("values", Type::Primitive(Primitive::Any))
+            }],
+            unit,
         ),
-        Builtin::Map | Builtin::FrozenMap => (
-            "key",
-            args.first().cloned().unwrap_or(Type::Unresolved),
-            args.get(1).cloned().unwrap_or(Type::Unresolved),
+        "Error" => (
+            Builtin::Error,
+            Vec::new(),
+            vec![param("message", Type::STRING)],
+            Type::Builtin {
+                kind: Kind::Error,
+                args: Vec::new(),
+            },
         ),
+        "assert" => (
+            Builtin::Assert,
+            Vec::new(),
+            vec![
+                param("condition", Type::BOOL),
+                Param {
+                    optional: true,
+                    ..param("message", Type::STRING)
+                },
+            ],
+            unit,
+        ),
+        "debugAssert" => (
+            Builtin::DebugAssert,
+            Vec::new(),
+            vec![param("condition", Type::BOOL)],
+            unit,
+        ),
+        "panic" => (
+            Builtin::Panic,
+            Vec::new(),
+            vec![param("message", Type::STRING)],
+            Type::Primitive(Primitive::Never),
+        ),
+        "List.new" => constructor(Builtin::ListNew, Kind::List, &["T"]),
+        "Map.new" => constructor(Builtin::MapNew, Kind::Map, &["K", "V"]),
+        "Set.new" => constructor(Builtin::SetNew, Kind::Set, &["T"]),
         _ => return None,
     };
-    Some(Signature {
-        asynchronous: false,
-        type_params: Vec::new(),
-        constraints: Vec::new(),
-        params: vec![crate::table::Param {
-            name: name.to_owned(),
-            ty: param,
-            optional: false,
-            variadic: false,
-        }],
-        result: result.optional(),
-        takes_self: true,
-        visibility: None,
-        span,
-        inferred: false,
-        unsafe_: false,
-    })
+    Some((
+        kind,
+        Signature {
+            asynchronous: false,
+            type_params,
+            constraints: Vec::new(),
+            params,
+            result,
+            takes_self: false,
+            visibility: None,
+            span,
+            inferred: false,
+            unsafe_: false,
+        },
+    ))
 }
 
-/// `scores:contains(key)` on a map (LR13.2) and `ids:contains(value)` on a
-/// set (LR13.3), frozen or not. A list reaches `contains` through the prelude
-/// (LR54.1).
-pub(super) fn contains_method(receiver: &Type, name: &str, span: Span) -> Option<Signature> {
-    if name != "contains" {
-        return None;
-    }
-    let Type::Builtin { kind, args } = receiver else {
-        return None;
-    };
-    let param = match kind {
-        Builtin::Map | Builtin::FrozenMap => "key",
-        Builtin::Set | Builtin::FrozenSet => "value",
-        _ => return None,
-    };
-    Some(Signature {
-        asynchronous: false,
-        type_params: Vec::new(),
-        constraints: Vec::new(),
-        params: vec![crate::table::Param {
-            name: param.to_owned(),
-            ty: args.first().cloned().unwrap_or(Type::Unresolved),
-            optional: false,
-            variadic: false,
-        }],
-        result: Type::BOOL,
-        takes_self: true,
-        visibility: None,
-        span,
-        inferred: false,
-        unsafe_: false,
-    })
+fn constructor(
+    builtin: Builtin,
+    kind: Kind,
+    names: &[&str],
+) -> (Builtin, Vec<String>, Vec<Param>, Type) {
+    let type_params: Vec<String> = names.iter().map(|name| (*name).to_owned()).collect();
+    let args = type_params.iter().cloned().map(Type::Parameter).collect();
+    (
+        builtin,
+        type_params,
+        Vec::new(),
+        Type::Builtin { kind, args },
+    )
 }
 
 /// Whether `ty` names any of `params`.
@@ -247,119 +405,16 @@ pub(super) fn usable(ty: &Type, params: &[String]) -> bool {
     }
 }
 
-pub(super) fn collection_mutation_method(
-    receiver: &Type,
-    name: &str,
-    span: Span,
-) -> Option<(CollectionMutation, Vec<Signature>)> {
-    let Type::Builtin { kind, args } = receiver else {
-        return None;
-    };
-    let element = args.first().cloned().unwrap_or(Type::Unresolved);
-    let mutation = match (kind, name) {
-        (Builtin::List, "push") => CollectionMutation::ListPush,
-        (Builtin::List, "pop") => CollectionMutation::ListPop,
-        (Builtin::Set, "insert") => CollectionMutation::SetInsert,
-        (Builtin::Map, "remove") => CollectionMutation::MapRemove,
-        (Builtin::Set, "remove") => CollectionMutation::SetRemove,
-        (Builtin::List | Builtin::Map | Builtin::Set, "clear") => CollectionMutation::Clear,
-        _ => return None,
-    };
-    let param = |name: &str, ty: &Type| crate::table::Param {
-        name: name.to_owned(),
-        ty: ty.clone(),
-        optional: false,
-        variadic: false,
-    };
-    let unit = Type::Tuple(Vec::new());
-    let signatures = match mutation {
-        CollectionMutation::ListPush | CollectionMutation::SetInsert => {
-            vec![(vec![param("value", &element)], unit)]
-        }
-        CollectionMutation::ListPop => vec![(Vec::new(), element.clone().optional())],
-        CollectionMutation::MapRemove => vec![(
-            vec![param("key", &element)],
-            args.get(1).cloned().unwrap_or(Type::Unresolved).optional(),
-        )],
-        CollectionMutation::SetRemove => vec![(vec![param("value", &element)], Type::BOOL)],
-        CollectionMutation::Clear => vec![(Vec::new(), unit)],
-    };
-    let signatures = signatures
-        .into_iter()
-        .map(|(params, result)| Signature {
-            asynchronous: false,
-            type_params: Vec::new(),
-            constraints: Vec::new(),
-            params,
-            result,
-            takes_self: true,
-            visibility: None,
-            span,
-            inferred: false,
-            unsafe_: false,
-        })
-        .collect();
-    Some((mutation, signatures))
-}
-
-/// LR4.3: `x:wrappingAdd(y)` and its kin, on any integer type.
-pub(super) fn overflow_method(
-    receiver: &Type,
-    name: &str,
-    span: Span,
-) -> Option<(OverflowMethod, Signature)> {
-    let held = settle(receiver.clone());
-    if !is_integer(&held) {
-        return None;
-    }
-    let (mode, op) = match name {
-        "wrappingAdd" => (Overflow::Wrap, BinaryOp::Add),
-        "wrappingSub" => (Overflow::Wrap, BinaryOp::Subtract),
-        "wrappingMul" => (Overflow::Wrap, BinaryOp::Multiply),
-        "saturatingAdd" => (Overflow::Saturate, BinaryOp::Add),
-        "saturatingSub" => (Overflow::Saturate, BinaryOp::Subtract),
-        "saturatingMul" => (Overflow::Saturate, BinaryOp::Multiply),
-        "checkedAdd" => (Overflow::Check, BinaryOp::Add),
-        "checkedSub" => (Overflow::Check, BinaryOp::Subtract),
-        "checkedMul" => (Overflow::Check, BinaryOp::Multiply),
-        _ => return None,
-    };
-    let result = match mode {
-        Overflow::Check => held.clone().optional(),
-        Overflow::Wrap | Overflow::Saturate => held.clone(),
-    };
-    Some((
-        OverflowMethod { mode, op },
-        Signature {
-            asynchronous: false,
-            type_params: Vec::new(),
-            constraints: Vec::new(),
-            params: vec![crate::table::Param {
-                name: "other".to_owned(),
-                ty: held,
-                optional: false,
-                variadic: false,
-            }],
-            result,
-            takes_self: true,
-            visibility: None,
-            span,
-            inferred: false,
-            unsafe_: false,
-        },
-    ))
-}
-
 pub(super) fn is_collection(ty: &Type) -> bool {
     matches!(
         ty,
         Type::Builtin {
-            kind: Builtin::List
-                | Builtin::FrozenList
-                | Builtin::Map
-                | Builtin::FrozenMap
-                | Builtin::Set
-                | Builtin::FrozenSet,
+            kind: Kind::List
+                | Kind::FrozenList
+                | Kind::Map
+                | Kind::FrozenMap
+                | Kind::Set
+                | Kind::FrozenSet,
             ..
         }
     )
@@ -369,88 +424,10 @@ pub(super) fn is_frozen_collection(ty: &Type) -> bool {
     matches!(
         ty,
         Type::Builtin {
-            kind: Builtin::FrozenList | Builtin::FrozenMap | Builtin::FrozenSet,
+            kind: Kind::FrozenList | Kind::FrozenMap | Kind::FrozenSet,
             ..
         }
     )
-}
-
-pub(super) fn intrinsic_signature(intrinsic: Intrinsic, span: Span) -> Signature {
-    let (type_params, params, result) = match intrinsic {
-        // LR60: a standard library intrinsic is declared where it is written.
-        Intrinsic::Identical => {
-            unreachable!("a standard library intrinsic has a declared signature")
-        }
-        Intrinsic::Print => (
-            Vec::new(),
-            vec![crate::table::Param {
-                name: "values".to_owned(),
-                ty: Type::Primitive(Primitive::Any),
-                optional: false,
-                variadic: true,
-            }],
-            Type::Tuple(Vec::new()),
-        ),
-        Intrinsic::Error => (
-            Vec::new(),
-            vec![intrinsic_param("message", Type::STRING, false)],
-            Type::Builtin {
-                kind: Builtin::Error,
-                args: Vec::new(),
-            },
-        ),
-        Intrinsic::Assert => (
-            Vec::new(),
-            vec![
-                intrinsic_param("condition", Type::BOOL, false),
-                intrinsic_param("message", Type::STRING, true),
-            ],
-            Type::Tuple(Vec::new()),
-        ),
-        Intrinsic::DebugAssert => (
-            Vec::new(),
-            vec![intrinsic_param("condition", Type::BOOL, false)],
-            Type::Tuple(Vec::new()),
-        ),
-        Intrinsic::Panic => (
-            Vec::new(),
-            vec![intrinsic_param("message", Type::STRING, false)],
-            Type::Primitive(Primitive::Never),
-        ),
-        Intrinsic::ListNew => collection_constructor(Builtin::List, &["T"]),
-        Intrinsic::MapNew => collection_constructor(Builtin::Map, &["K", "V"]),
-        Intrinsic::SetNew => collection_constructor(Builtin::Set, &["T"]),
-    };
-    Signature {
-        asynchronous: false,
-        type_params,
-        constraints: Vec::new(),
-        params,
-        result,
-        takes_self: false,
-        visibility: None,
-        span,
-        inferred: false,
-        unsafe_: false,
-    }
-}
-
-fn collection_constructor(
-    kind: Builtin,
-    names: &[&str],
-) -> (Vec<String>, Vec<crate::table::Param>, Type) {
-    let type_params: Vec<String> = names.iter().map(|name| (*name).to_owned()).collect();
-    let args = type_params.iter().cloned().map(Type::Parameter).collect();
-    (type_params, Vec::new(), Type::Builtin { kind, args })
-}
-
-fn intrinsic_param(name: &str, ty: Type, optional: bool) -> crate::table::Param {
-    crate::table::Param {
-        name: name.to_owned(),
-        ty,
-        optional,
-        variadic: false,
-    }
 }
 
 /// Reads a type into a sentence. The literal types already name themselves.
@@ -478,9 +455,9 @@ fn is_intrinsic(function: &luar_ast::Function) -> bool {
 
 /// The operation an `@intrinsic` declaration named `name` stands for, where
 /// the lowering depends on the types at the call (LR60).
-fn intrinsic_named(name: &str) -> Option<Intrinsic> {
+fn intrinsic_named(name: &str) -> Option<Builtin> {
     match name {
-        "identical" => Some(Intrinsic::Identical),
+        "identical" => Some(Builtin::Identical),
         _ => None,
     }
 }

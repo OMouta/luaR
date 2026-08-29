@@ -10,12 +10,9 @@ use crate::modules::ModuleId;
 use crate::table::{Decl, Overloads, SELF, Signature, Variant};
 use crate::types::{Builtin, Primitive, Type};
 
-use super::builtins::{
-    checked_index_method, collection_mutation_method, contains_method, frozen_method,
-    overflow_method,
-};
+use super::builtins::builtin_method;
 use super::calls::{against, filled, infer, takes_self};
-use super::unsafe_ops::{unavailable_unsafe_memory_method, unsafe_memory_method};
+use super::unsafe_ops::unavailable_unsafe_memory_method;
 use super::{Checker, Found, ThreadMarker};
 
 /// Whether two signatures are the same to a caller: same parameters, same
@@ -52,26 +49,6 @@ fn builtin_protocol(protocol: &str, held: &Type) -> bool {
         }
         _ => false,
     }
-}
-
-/// The method `name` the language itself gives a value of type `receiver`
-/// (LR4.3, LR13, LR59, LR72).
-fn language_method(receiver: &Type, name: &str, span: Span) -> Option<Overloads> {
-    let single = [
-        unsafe_memory_method,
-        frozen_method,
-        checked_index_method,
-        contains_method,
-    ]
-    .iter()
-    .find_map(|method| method(receiver, name, span));
-    if let Some(signature) = single {
-        return Some(vec![signature]);
-    }
-    if let Some((_, signatures)) = collection_mutation_method(receiver, name, span) {
-        return Some(signatures);
-    }
-    overflow_method(receiver, name, span).map(|(_, signature)| vec![signature])
 }
 
 /// A method that was found, and what the receiver filled the type parameters
@@ -401,7 +378,7 @@ impl Checker<'_> {
                 }
                 declared.clone()
             }
-            _ if language_method(target, name, span).is_some()
+            _ if builtin_method(target, name, span).is_some()
                 || self.prelude_adds(target, name) =>
             {
                 target.to_string()
@@ -533,8 +510,8 @@ impl Checker<'_> {
             };
         }
 
-        if let Some(found) = language_method(receiver, name, span) {
-            return Some((found, Vec::new()));
+        if let Some((_, found)) = builtin_method(receiver, name, span) {
+            return Some((vec![found], Vec::new()));
         }
 
         if let Type::Named {

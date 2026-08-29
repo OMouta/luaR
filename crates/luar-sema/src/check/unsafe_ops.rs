@@ -3,7 +3,6 @@
 use luar_ast::{Expr, ExprKind};
 use luar_diagnostics::{Diagnostic, Span, codes};
 
-use crate::table::Signature;
 use crate::types::{Builtin, Primitive, Type};
 
 use super::Checker;
@@ -53,92 +52,6 @@ impl Checker<'_> {
                 .note("Take `&` of a `const` binding, or bind it with `local` (LR72, LR5.2)."),
             );
         }
-    }
-}
-
-/// The unchecked collection and raw-pointer operations (LR29.2, LR70, LR72).
-pub(super) fn unsafe_memory_method(receiver: &Type, name: &str, span: Span) -> Option<Signature> {
-    let int = Type::Primitive(Primitive::I64);
-    let isize = Type::Primitive(Primitive::Isize);
-    let unit = Type::Tuple(Vec::new());
-
-    let (params, result) = match (receiver, name) {
-        (Type::Array(element), "unchecked") => {
-            (vec![memory_param("index", int)], element.as_ref().clone())
-        }
-        (
-            Type::Builtin {
-                kind: Builtin::List | Builtin::FrozenList,
-                args,
-            },
-            "unchecked",
-        ) => (
-            vec![memory_param("index", int)],
-            args.first().cloned().unwrap_or(Type::Unresolved),
-        ),
-        (Type::Array(element), "uncheckedSet") => (
-            vec![
-                memory_param("index", int),
-                memory_param("value", element.as_ref().clone()),
-            ],
-            unit,
-        ),
-        (
-            Type::Builtin {
-                kind: Builtin::List,
-                args,
-            },
-            "uncheckedSet",
-        ) => (
-            vec![
-                memory_param("index", int),
-                memory_param("value", args.first().cloned().unwrap_or(Type::Unresolved)),
-            ],
-            unit,
-        ),
-        (Type::Primitive(Primitive::Bytes), "unchecked") => (
-            vec![memory_param("index", int)],
-            Type::Primitive(Primitive::U8),
-        ),
-        (Type::Primitive(Primitive::Bytes), "uncheckedSet") => (
-            vec![
-                memory_param("index", int),
-                memory_param("value", Type::Primitive(Primitive::U8)),
-            ],
-            unit,
-        ),
-        (Type::Pointer { target, .. }, "read") => (Vec::new(), target.as_ref().clone()),
-        (
-            Type::Pointer {
-                mutable: true,
-                target,
-            },
-            "write",
-        ) => (vec![memory_param("value", target.as_ref().clone())], unit),
-        (Type::Pointer { .. }, "add") => (vec![memory_param("offset", isize)], receiver.clone()),
-        _ => return None,
-    };
-
-    Some(Signature {
-        asynchronous: false,
-        type_params: Vec::new(),
-        constraints: Vec::new(),
-        params,
-        result,
-        takes_self: true,
-        visibility: None,
-        span,
-        inferred: false,
-        unsafe_: true,
-    })
-}
-
-fn memory_param(name: &str, ty: Type) -> crate::table::Param {
-    crate::table::Param {
-        name: name.to_owned(),
-        ty,
-        optional: false,
-        variadic: false,
     }
 }
 
