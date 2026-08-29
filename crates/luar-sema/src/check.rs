@@ -2737,6 +2737,7 @@ impl Checker<'_> {
         let checked_index =
             method.is_some_and(|name| checked_index_method(receiver, name, span).is_some());
         let contains = method.is_some_and(|name| contains_method(receiver, name, span).is_some());
+        let index_of = method.is_some_and(|name| index_of_method(receiver, name, span).is_some());
         let collection_mutation = method.and_then(|name| {
             collection_mutation_method(receiver, name, span).map(|(mutation, _)| mutation)
         });
@@ -2828,6 +2829,9 @@ impl Checker<'_> {
         }
         if contains {
             self.facts.record_contains(span);
+        }
+        if index_of {
+            self.facts.record_index_of(span);
         }
         if let Some(mutation) = collection_mutation {
             self.facts.record_collection_mutation(span, mutation);
@@ -3127,6 +3131,9 @@ impl Checker<'_> {
             return Some(vec![signature]);
         }
         if let Some(signature) = contains_method(receiver, name, span) {
+            return Some(vec![signature]);
+        }
+        if let Some(signature) = index_of_method(receiver, name, span) {
             return Some(vec![signature]);
         }
         if let Some((_, signature)) = collection_mutation_method(receiver, name, span) {
@@ -4720,6 +4727,37 @@ fn contains_method(receiver: &Type, name: &str, span: Span) -> Option<Signature>
             variadic: false,
         }],
         result: Type::BOOL,
+        takes_self: true,
+        visibility: None,
+        span,
+        inferred: false,
+        unsafe_: false,
+    })
+}
+
+/// `values:indexOf(value)` on a list (LR13.1), frozen or not.
+fn index_of_method(receiver: &Type, name: &str, span: Span) -> Option<Signature> {
+    if name != "indexOf" {
+        return None;
+    }
+    let Type::Builtin {
+        kind: Builtin::List | Builtin::FrozenList,
+        args,
+    } = receiver
+    else {
+        return None;
+    };
+    Some(Signature {
+        asynchronous: false,
+        type_params: Vec::new(),
+        constraints: Vec::new(),
+        params: vec![crate::table::Param {
+            name: "value".to_owned(),
+            ty: args.first().cloned().unwrap_or(Type::Unresolved),
+            optional: false,
+            variadic: false,
+        }],
+        result: Type::Primitive(Primitive::I64).optional(),
         takes_self: true,
         visibility: None,
         span,

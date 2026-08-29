@@ -2473,6 +2473,9 @@ impl<'a> Body<'a> {
         if self.context.facts.contains(span) {
             return self.contains(callee, args, span);
         }
+        if self.context.facts.index_of(span) {
+            return self.missing(span, "a list index lookup");
+        }
         if let Some(mutation) = self.context.facts.collection_mutation(span) {
             return self.collection_mutation(mutation, callee, args, span);
         }
