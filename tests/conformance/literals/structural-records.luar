@@ -1,0 +1,19 @@
+--- expect: compile-ok
+--- spec: LR12.1
+type User = {
+    id: u64,
+    name: string,
+    email: string?,
+}
+
+function displayName(user: { name: string, id: u64, email: string? })
+    print(user.name)
+end
+
+export function main()
+    local user: User = {
+        id = 1,
+        name = "Jon Doe",
+    }
+    displayName(user)
+end
