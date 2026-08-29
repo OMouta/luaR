@@ -2333,7 +2333,11 @@ Index<K, V>
 Into<T>
 ```
 
-The exact standard protocol names are library specification concerns, but user-defined types must be able to participate in ordinary language constructs without compiler-specific hardcoding.
+`Iterator<T>` declares `next(self): T?`. It returns `nil` when iteration is complete.
+
+`Iterable<T>` declares `iterator(self): Iterator<T>`. A `for` evaluates its iterable once, calls `iterator` once, then calls `next` before each iteration until it returns `nil`. The loop binding receives the `T` held by each non-`nil` result.
+
+The other standard protocol names are library specification concerns, but user-defined types must be able to participate in ordinary language constructs without compiler-specific hardcoding.
 
 The standard protocols are interfaces exported by `std/prelude` (LR54.1). A primitive type (LR6) and `string` satisfy `Eq`, `Hash`, and `Display` without declaring it, and the numeric types, `char`, and `string` satisfy `Comparable`, since the operators are built in for them (LR11.3). A user-defined type satisfies one by declaring it (LR18) or deriving it (LR75).
 
