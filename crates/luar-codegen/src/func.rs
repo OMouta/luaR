@@ -1375,7 +1375,7 @@ impl Translator<'_, '_> {
                 kind: Builtin::Map | Builtin::FrozenMap,
                 args,
             } => {
-                let text = self.key_is_text(args.first()?)?;
+                let text = self.compared_by_text(args.first()?)?;
                 let map = self.value(receiver);
                 let hash = self.key_hash(index)?;
                 let word = self.key_word(index);
@@ -1495,7 +1495,7 @@ impl Translator<'_, '_> {
         let Ty::Builtin { args, .. } = &ty else {
             return None;
         };
-        let text = self.key_is_text(args.first()?)?;
+        let text = self.compared_by_text(args.first()?)?;
         let header = self.allocate(&ty, 0)?;
         let zero = self.builder.ins().iconst(self.pointer, 0);
         self.builder
@@ -1523,7 +1523,7 @@ impl Translator<'_, '_> {
         let Ty::Builtin { args, .. } = &ty else {
             return None;
         };
-        let text = self.key_is_text(args.first()?)?;
+        let text = self.compared_by_text(args.first()?)?;
         let header = self.allocate(&ty, 0)?;
         let zero = self.builder.ins().iconst(self.pointer, 0);
         self.builder
@@ -1693,7 +1693,10 @@ impl Translator<'_, '_> {
             self.gap(format!("inserting into `{held}`"));
             return;
         };
-        let Some(text) = args.first().and_then(|element| self.key_is_text(element)) else {
+        let Some(text) = args
+            .first()
+            .and_then(|element| self.compared_by_text(element))
+        else {
             return;
         };
         let set = self.value(receiver);
@@ -1701,8 +1704,85 @@ impl Translator<'_, '_> {
     }
 
     fn contains(&mut self, receiver: Value, value: Value) -> Option<ir::Value> {
+        let held = self.function.type_of(receiver).clone();
+        if let Ty::Builtin {
+            kind: Builtin::List | Builtin::FrozenList,
+            args,
+        } = &held
+        {
+            let Some(element) = args.first() else {
+                self.gap("a list without an element type");
+                return None;
+            };
+            return self.list_contains(receiver, value, element);
+        }
         let bucket = self.find_bucket(receiver, value)?;
         Some(self.builder.ins().icmp_imm(IntCC::NotEqual, bucket, 0))
+    }
+
+    fn list_contains(&mut self, receiver: Value, value: Value, element: &Ty) -> Option<ir::Value> {
+        let text = self.compared_by_text(element)?;
+        let Some(machine) = machine(element, self.pointer) else {
+            self.gap(format!("a list holding `{element}`"));
+            return None;
+        };
+        let list = self.value(receiver);
+        let wanted = self.value(value);
+        let length = self
+            .builder
+            .ins()
+            .load(self.pointer, OWNED, list, layout::LENGTH);
+        let buffer = self
+            .builder
+            .ins()
+            .load(self.pointer, OWNED, list, layout::BUFFER);
+        let scan = self.builder.create_block();
+        let compare = self.builder.create_block();
+        let done = self.builder.create_block();
+        self.builder.append_block_param(scan, self.pointer);
+        self.builder.append_block_param(compare, self.pointer);
+        self.builder.append_block_param(done, types::I8);
+        let zero = self.builder.ins().iconst(self.pointer, 0);
+        self.builder.ins().jump(scan, &[ir::BlockArg::Value(zero)]);
+
+        self.builder.switch_to_block(scan);
+        let index = self.builder.block_params(scan)[0];
+        let more = self
+            .builder
+            .ins()
+            .icmp(IntCC::UnsignedLessThan, index, length);
+        let no = self.builder.ins().iconst(types::I8, 0);
+        self.builder.ins().brif(
+            more,
+            compare,
+            &[ir::BlockArg::Value(index)],
+            done,
+            &[ir::BlockArg::Value(no)],
+        );
+
+        self.builder.switch_to_block(compare);
+        let index = self.builder.block_params(compare)[0];
+        let offset = self.builder.ins().imul_imm(index, i64::from(layout::CELL));
+        let cell = self.builder.ins().iadd(buffer, offset);
+        let held = self.builder.ins().load(machine, OWNED, cell, 0);
+        let same = if text {
+            let call = self.builder.ins().call(self.text_equal, &[held, wanted]);
+            self.builder.inst_results(call)[0]
+        } else {
+            self.builder.ins().icmp(IntCC::Equal, held, wanted)
+        };
+        let following = self.builder.ins().iadd_imm(index, 1);
+        let yes = self.builder.ins().iconst(types::I8, 1);
+        self.builder.ins().brif(
+            same,
+            done,
+            &[ir::BlockArg::Value(yes)],
+            scan,
+            &[ir::BlockArg::Value(following)],
+        );
+
+        self.builder.switch_to_block(done);
+        Some(self.builder.block_params(done)[0])
     }
 
     fn map_remove(
@@ -1791,7 +1871,9 @@ impl Translator<'_, '_> {
             self.gap(format!("looking up `{held}`"));
             return None;
         };
-        let text = args.first().and_then(|element| self.key_is_text(element))?;
+        let text = args
+            .first()
+            .and_then(|element| self.compared_by_text(element))?;
         let table = self.value(receiver);
         let hash = self.key_hash(key)?;
         let word = self.key_word(key);
@@ -1827,14 +1909,14 @@ impl Translator<'_, '_> {
         self.builder.inst_results(call).first().copied()
     }
 
-    /// Whether keys of `ty` are compared by their text rather than their word,
-    /// or `None` for a key type the runtime cannot compare.
-    fn key_is_text(&mut self, ty: &Ty) -> Option<bool> {
+    /// Whether two values of `ty` are the same when their text is rather than
+    /// when their words are, or `None` for a type the runtime cannot compare.
+    fn compared_by_text(&mut self, ty: &Ty) -> Option<bool> {
         match ty {
             Ty::Str | Ty::Bytes => Some(true),
             Ty::Bool | Ty::Int(_) | Ty::Char => Some(false),
             _ => {
-                self.gap(format!("a map keyed by `{ty}`"));
+                self.gap(format!("comparing `{ty}`"));
                 None
             }
         }
@@ -1875,7 +1957,7 @@ impl Translator<'_, '_> {
                 kind: Builtin::Map,
                 args,
             } => {
-                let Some(text) = args.first().and_then(|key| self.key_is_text(key)) else {
+                let Some(text) = args.first().and_then(|key| self.compared_by_text(key)) else {
                     return;
                 };
                 let map = self.value(receiver);
