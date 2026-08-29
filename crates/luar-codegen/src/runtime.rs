@@ -81,6 +81,8 @@ impl Runtime {
 
         let collector = gc::emit(module, pointer, call_conv)?;
         let concat = define_concat(module, pointer, call_conv, collector.allocate)?;
+        define_bytes_of(module, pointer, call_conv)?;
+        define_string_from_bytes(module, pointer, call_conv, collector.allocate)?;
         let text_equal = define_text_equal(module, pointer, call_conv)?;
         let hash_bytes = define_hash_bytes(module, pointer, call_conv)?;
         let display_signed =
@@ -368,6 +370,116 @@ fn define_concat(
         .define_function(declared, &mut context)
         .map_err(|error| Error::Cranelift(error.to_string()))?;
     Ok(declared)
+}
+
+/// `std/mem.bytesOf`, reached by name through `luar_sema::check::runtime_symbol`
+/// (LR60, LR72).
+fn define_bytes_of(
+    module: &mut ObjectModule,
+    pointer: types::Type,
+    call_conv: CallConv,
+) -> Result<(), Error> {
+    let mut signature = Signature::new(call_conv);
+    signature.params.push(AbiParam::new(pointer));
+    signature.returns.push(AbiParam::new(pointer));
+    let declared = module
+        .declare_function("luar_bytes_of", Linkage::Local, &signature)
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
+
+    let mut context = Context::new();
+    let mut frame = FunctionBuilderContext::new();
+    context.func.signature = signature;
+    let mut builder = FunctionBuilder::new(&mut context.func, &mut frame);
+    let entry = builder.create_block();
+    builder.append_block_params_for_function_params(entry);
+    builder.switch_to_block(entry);
+    let text = builder.block_params(entry)[0];
+    let bytes = builder.ins().iadd_imm(text, 8);
+    builder.ins().return_(&[bytes]);
+    builder.seal_all_blocks();
+    builder.finalize();
+    module
+        .define_function(declared, &mut context)
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
+    Ok(())
+}
+
+/// `std/mem.stringFromBytes`, reached by name through
+/// `luar_sema::check::runtime_symbol` (LR60, LR72).
+fn define_string_from_bytes(
+    module: &mut ObjectModule,
+    pointer: types::Type,
+    call_conv: CallConv,
+    allocate: ModuleFuncId,
+) -> Result<(), Error> {
+    let mut signature = Signature::new(call_conv);
+    signature.params.push(AbiParam::new(pointer));
+    signature.params.push(AbiParam::new(types::I64));
+    signature.returns.push(AbiParam::new(pointer));
+    let declared = module
+        .declare_function("luar_string_from_bytes", Linkage::Local, &signature)
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
+
+    let mut context = Context::new();
+    let mut frame = FunctionBuilderContext::new();
+    context.func.signature = signature;
+    let allocate = module.declare_func_in_func(allocate, &mut context.func);
+    let mut builder = FunctionBuilder::new(&mut context.func, &mut frame);
+    let entry = builder.create_block();
+    let copy = builder.create_block();
+    let copy_byte = builder.create_block();
+    let done = builder.create_block();
+    builder.append_block_params_for_function_params(entry);
+    builder.append_block_param(copy, types::I64);
+    builder.append_block_param(copy_byte, types::I64);
+
+    builder.switch_to_block(entry);
+    let data = builder.block_params(entry)[0];
+    let length = builder.block_params(entry)[1];
+    let cell = i64::from(pointer.bytes());
+    let bytes = builder.ins().iadd_imm(length, 8 + cell - 1);
+    let bytes = builder.ins().band_imm(bytes, -cell);
+    let bytes = integer_width(&mut builder, bytes, pointer);
+    let no_finalizer = builder.ins().iconst(pointer, 0);
+    let call = builder.ins().call(allocate, &[bytes, no_finalizer]);
+    let string = builder.inst_results(call)[0];
+    builder.ins().store(MemFlags::trusted(), length, string, 0);
+    let zero = builder.ins().iconst(types::I64, 0);
+    builder
+        .ins()
+        .jump(copy, &[cranelift_codegen::ir::BlockArg::Value(zero)]);
+
+    builder.switch_to_block(copy);
+    let index = builder.block_params(copy)[0];
+    let more = builder.ins().icmp(IntCC::UnsignedLessThan, index, length);
+    builder.ins().brif(
+        more,
+        copy_byte,
+        &[cranelift_codegen::ir::BlockArg::Value(index)],
+        done,
+        &[],
+    );
+
+    builder.switch_to_block(copy_byte);
+    let index = builder.block_params(copy_byte)[0];
+    let from = builder.ins().iadd(data, index);
+    let byte = builder.ins().load(types::I8, MemFlags::trusted(), from, 0);
+    let start = builder.ins().iadd_imm(string, 8);
+    let to = builder.ins().iadd(start, index);
+    builder.ins().store(MemFlags::trusted(), byte, to, 0);
+    let next = builder.ins().iadd_imm(index, 1);
+    builder
+        .ins()
+        .jump(copy, &[cranelift_codegen::ir::BlockArg::Value(next)]);
+
+    builder.switch_to_block(done);
+    builder.ins().return_(&[string]);
+    builder.seal_all_blocks();
+    builder.finalize();
+    module
+        .define_function(declared, &mut context)
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
+    Ok(())
 }
 
 fn define_text_equal(
