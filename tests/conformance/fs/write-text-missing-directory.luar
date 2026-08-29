@@ -1,0 +1,13 @@
+--- expect: run
+--- exit: 0
+--- spec: LR60
+import { writeText } from "std/fs"
+
+export function main(): int
+    match writeText("missing/output.txt", "hello")
+        case Result.Ok(_)
+            return 1
+        case Result.Err(_)
+            return 0
+    end
+end

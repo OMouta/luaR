@@ -1,0 +1,27 @@
+--- expect: run
+--- exit: 0
+--- stdout: "λ\n\n"
+--- spec: LR60
+import { readText, writeText } from "std/fs"
+
+export function main()
+    local path = "../../../target/luar-write-text-test.txt"
+    match writeText(path, "discarded text")
+        case Result.Err(_)
+            print("first write failed")
+            return
+        case Result.Ok(_)
+    end
+    match writeText(path, "λ\n")
+        case Result.Err(_)
+            print("second write failed")
+            return
+        case Result.Ok(_)
+    end
+    match readText(path)
+        case Result.Err(_)
+            print("read failed")
+        case Result.Ok(text)
+            print(text)
+    end
+end

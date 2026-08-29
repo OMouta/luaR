@@ -8,6 +8,9 @@ unsafe function fopen(path: *const u8, mode: *const u8): *mut u8
 unsafe function fread(buffer: *mut u8, size: usize, count: usize, file: *mut u8): usize
 
 @extern("c")
+unsafe function fwrite(buffer: *const u8, size: usize, count: usize, file: *mut u8): usize
+
+@extern("c")
 unsafe function ferror(file: *mut u8): i32
 
 @extern("c")
@@ -61,6 +64,27 @@ export function readText(path: string): Result<string, Error>
         local text = stringFromBytes(buffer, length)
         free(buffer)
         return Result.Ok(text)
+    end
+end
+
+export function writeText(path: string, text: string): Result<(), Error>
+    unsafe
+        local name = cString(path)
+        local mode = cString("wb")
+        local file = fopen(name, mode)
+        free(name)
+        free(mode)
+        if file as usize == 0 then
+            return Result.Err(Error(`cannot open {path}`))
+        end
+
+        local length = text.byteLength
+        local written = fwrite(bytesOf(text), 1, length as usize, file)
+        local closeFailed = fclose(file) ~= 0
+        if written ~= length as usize or closeFailed then
+            return Result.Err(Error(`cannot write {path}`))
+        end
+        return Result.Ok(())
     end
 end
 
