@@ -3060,6 +3060,8 @@ Not every high-level protocol must live in the minimal runtime, but ordinary app
 
 The standard library should prefer typed APIs over loosely structured map-based configuration.
 
+`std/fs.readText(path: string): Result<string, Error>` reads a file as UTF-8. It returns `Err` when the file cannot be read or its contents are not valid UTF-8.
+
 ---
 
 ## 61. Testing
