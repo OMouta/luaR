@@ -90,7 +90,6 @@ pub(crate) struct Translator<'a, 'b> {
     pub display_signed: FuncRef,
     pub display_unsigned: FuncRef,
     pub print: FuncRef,
-    pub read_text: FuncRef,
     pub abort: FuncRef,
     /// The bucket a map holds a key in, and the bucket it will (LR13.2).
     pub map_find: FuncRef,
@@ -265,11 +264,6 @@ impl Translator<'_, '_> {
                 None
             }
             InstKind::MakeError { message } => Some(self.value(*message)),
-            InstKind::ReadText { path } => {
-                let path = self.value(*path);
-                let call = self.builder.ins().call(self.read_text, &[path]);
-                self.builder.inst_results(call).first().copied()
-            }
             InstKind::Assert { condition, message } => {
                 self.assert(*condition, *message);
                 None
