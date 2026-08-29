@@ -2917,7 +2917,7 @@ Predeclared names are not a module. They cannot be imported from, renamed, or re
 
 `std/prelude` is a standard library module (LR60) in scope in every module without an import, except in itself and in the modules it imports. Its exports occupy the same scope as the predeclared names: a declaration or an import of the same name shadows one, and its extension blocks (LR20) are in scope as if imported by name. It may also be imported by name, which is how a module that shadows one of its exports still reaches it.
 
-The prelude holds the standard protocols (LR35) and the methods of the collection and `Result` types (LR13, LR25.1) that are written in LuaR over the operations the language provides. Which of a type's methods come from the prelude and which from the language is not observable: an extension block adding a method of the same name to the same type is rejected either way (LR20).
+The prelude holds the standard protocols (LR35) and the methods of the collection, optional, and `Result` types (LR13, LR8, LR25.1) that are written in LuaR over the operations the language provides. Which of a type's methods come from the prelude and which from the language is not observable: an extension block adding a method of the same name to the same type is rejected either way (LR20).
 
 Type names work the same way. The primitive types (LR6) need no import, and neither do the collection types the language builds from its own literal syntax (LR13, LR59) or the `Task` every async call produces (LR27):
 
