@@ -184,6 +184,10 @@ pub enum InstKind {
     MakeError {
         message: Value,
     },
+    /// `std/fs.readText` (LR60).
+    ReadText {
+        path: Value,
+    },
     /// `assert` or an included `debugAssert` (LR49).
     Assert {
         condition: Value,
@@ -523,6 +527,7 @@ impl InstKind {
             Self::Call { .. }
             | Self::CallIndirect { .. }
             | Self::CallVirtual { .. }
+            | Self::ReadText { .. }
             | Self::SetField { .. }
             | Self::SetIndex { .. }
             | Self::ListPush { .. }

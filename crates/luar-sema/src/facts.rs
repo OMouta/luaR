@@ -11,6 +11,7 @@ use crate::types::Type;
 pub enum Intrinsic {
     Print,
     Error,
+    ReadText,
     Assert,
     DebugAssert,
     Panic,
@@ -54,6 +55,7 @@ impl Intrinsic {
         match self {
             Self::Print => "print",
             Self::Error => "Error",
+            Self::ReadText => "readText",
             Self::Assert => "assert",
             Self::DebugAssert => "debugAssert",
             Self::Panic => "panic",

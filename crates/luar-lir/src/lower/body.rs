@@ -2822,6 +2822,14 @@ impl<'a> Body<'a> {
             return self.emit(InstKind::MakeError { message }, Ty::Error, span);
         }
 
+        if intrinsic == Intrinsic::ReadText {
+            let Some(argument) = args.first() else {
+                return self.missing(span, "a `readText` without a path");
+            };
+            let path = self.expr(&argument.value, Some(&Ty::Str));
+            return self.emit(InstKind::ReadText { path }, constructed, span);
+        }
+
         if intrinsic == Intrinsic::Print {
             if args.is_empty() {
                 let value = self.emit(InstKind::Const(Const::Str(String::new())), Ty::Str, span);
@@ -3878,6 +3886,20 @@ impl<'a> Body<'a> {
     /// The tag of the variant `name` names, if `ty` is an enum with one
     /// (LR15).
     fn variant_of(&self, ty: &Ty, name: &str) -> Option<u32> {
+        if matches!(
+            ty,
+            Ty::Builtin {
+                kind: Builtin::Result,
+                ..
+            }
+        ) {
+            return match name {
+                "Ok" => Some(0),
+                "Err" => Some(1),
+                _ => None,
+            };
+        }
+
         let Ty::Named { id, .. } = ty else {
             return None;
         };

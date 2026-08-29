@@ -2819,7 +2819,7 @@ impl Checker<'_> {
 
         let intrinsic = method
             .is_none()
-            .then(|| self.predeclared_intrinsic(callee))
+            .then(|| self.call_intrinsic(callee))
             .flatten();
         let freezes = method.is_some_and(|name| frozen_method(receiver, name, span).is_some());
         let checked_index =
@@ -3486,6 +3486,30 @@ impl Checker<'_> {
             }
             _ => None,
         }
+    }
+
+    fn call_intrinsic(&self, callee: &Expr) -> Option<Intrinsic> {
+        self.predeclared_intrinsic(callee)
+            .or_else(|| self.is_read_text(callee).then_some(Intrinsic::ReadText))
+    }
+
+    fn is_read_text(&self, callee: &Expr) -> bool {
+        let ExprKind::Name(name) = &callee.kind else {
+            return false;
+        };
+        if self.shadowed(name) {
+            return false;
+        }
+        let Some(Origin::Imported { module, name }) = self
+            .names
+            .scope(self.scope)
+            .get(name)
+            .map(|binding| &binding.origin)
+        else {
+            return false;
+        };
+
+        name == "readText" && self.graph.module(*module).path == std::path::Path::new("std/fs")
     }
 
     fn is_identical(&self, callee: &Expr) -> bool {
@@ -5186,6 +5210,20 @@ fn intrinsic_signature(intrinsic: Intrinsic, span: Span) -> Signature {
             Type::Builtin {
                 kind: Builtin::Error,
                 args: Vec::new(),
+            },
+        ),
+        Intrinsic::ReadText => (
+            Vec::new(),
+            vec![intrinsic_param("path", Type::STRING, false)],
+            Type::Builtin {
+                kind: Builtin::Result,
+                args: vec![
+                    Type::STRING,
+                    Type::Builtin {
+                        kind: Builtin::Error,
+                        args: Vec::new(),
+                    },
+                ],
             },
         ),
         Intrinsic::Assert => (

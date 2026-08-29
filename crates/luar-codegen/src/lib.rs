@@ -1,5 +1,6 @@
 //! Backend: LIR to machine code.
 
+mod fs;
 mod func;
 mod gc;
 mod layout;
@@ -408,6 +409,9 @@ impl Emitter<'_> {
                 .runtime
                 .display_unsigned_in(&mut self.module, &mut context.func);
             let print = self.runtime.print_in(&mut self.module, &mut context.func);
+            let read_text = self
+                .runtime
+                .read_text_in(&mut self.module, &mut context.func);
             let abort = self.runtime.abort_in(&mut self.module, &mut context.func);
             let map_find = self
                 .runtime
@@ -447,6 +451,7 @@ impl Emitter<'_> {
                 display_signed,
                 display_unsigned,
                 print,
+                read_text,
                 abort,
                 map_find,
                 map_insert,

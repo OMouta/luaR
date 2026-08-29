@@ -1,0 +1,15 @@
+--- expect: run
+--- exit: 0
+--- stdout: "read\n"
+--- spec: LR60
+import { readText } from "std/fs"
+
+export function main()
+    local result = readText("Cargo.toml")
+    match result
+        case Result.Ok(_)
+            print("read")
+        case Result.Err(_)
+            print("error")
+    end
+end

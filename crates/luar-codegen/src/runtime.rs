@@ -13,6 +13,7 @@ use cranelift_object::ObjectModule;
 use luar_lir::inst::Trap;
 
 use crate::Error;
+use crate::fs;
 use crate::func::TRAPS;
 use crate::gc;
 use crate::map;
@@ -47,6 +48,7 @@ pub(crate) struct Runtime {
     pub display_signed: ModuleFuncId,
     pub display_unsigned: ModuleFuncId,
     pub print: ModuleFuncId,
+    pub read_text: ModuleFuncId,
     pub abort: ModuleFuncId,
     /// The bucket a map holds a key in, and the bucket it will (LR13.2).
     pub map_find: ModuleFuncId,
@@ -88,6 +90,7 @@ impl Runtime {
         let display_unsigned =
             define_display_integer(module, pointer, call_conv, collector.allocate, false)?;
         let print = define_print(module, pointer, call_conv, write)?;
+        let read_text = fs::emit(module, pointer, call_conv, collector.allocate)?;
         let abort = define_abort(module, pointer, call_conv, exit, write, collector.roots)?;
         let table = map::emit(module, pointer, call_conv, collector.allocate, text_equal)?;
 
@@ -106,6 +109,7 @@ impl Runtime {
             display_signed,
             display_unsigned,
             print,
+            read_text,
             abort,
             map_find: table.find,
             map_insert: table.insert,
@@ -202,6 +206,14 @@ impl Runtime {
         function: &mut cranelift_codegen::ir::Function,
     ) -> FuncRef {
         module.declare_func_in_func(self.print, function)
+    }
+
+    pub fn read_text_in(
+        &self,
+        module: &mut ObjectModule,
+        function: &mut cranelift_codegen::ir::Function,
+    ) -> FuncRef {
+        module.declare_func_in_func(self.read_text, function)
     }
 
     pub fn abort_in(

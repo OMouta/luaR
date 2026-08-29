@@ -9,6 +9,7 @@ use luar_diagnostics::{Diagnostic, FileId, SourceMap, Span, codes};
 use luar_sema::modules::{Edge, Graph, Missing, ModuleId, Target};
 
 const STD_MEM: &str = "export function identical<A, B>(left: A, right: B): bool\nend\n";
+const STD_FS: &str = "export function readText(path: string): Result<string, Error>\n    return Result.Err(Error(\"readText\"))\nend\n";
 const STD_THREAD: &str = "export interface Send\nend\nexport interface Sync\nend\n";
 
 /// Reads and parses `root` and everything reachable from it.
@@ -72,6 +73,7 @@ fn read(
     let path = import.path.as_deref()?;
 
     let standard = match path {
+        "std/fs" => Some(STD_FS),
         "std/mem" => Some(STD_MEM),
         "std/thread" => Some(STD_THREAD),
         _ => None,
