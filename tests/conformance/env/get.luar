@@ -1,0 +1,14 @@
+--- expect: run
+--- exit: 0
+--- spec: LR60
+import { get } from "std/env"
+
+export function main(): int
+    if get("PATH") == nil then
+        return 1
+    end
+    if get("LUAR_CONFORMANCE_MISSING_ENVIRONMENT_VARIABLE_8E393968") ~= nil then
+        return 2
+    end
+    return 0
+end
