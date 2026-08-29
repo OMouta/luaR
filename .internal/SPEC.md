@@ -2335,7 +2335,7 @@ Into<T>
 
 `Iterator<T>` declares `next(self): T?`. It returns `nil` when iteration is complete.
 
-`Iterable<T>` declares `iterator(self): Iterator<T>`. A `for` evaluates its iterable once, calls `iterator` once, then calls `next` before each iteration until it returns `nil`. The loop binding receives the `T` held by each non-`nil` result.
+`Iterable<T>` declares `iterator(self): Iterator<T>`. A `for` evaluates its iterable once, calls `iterator` once, then calls `next` before each iteration until it returns `nil`. A non-tuple `T` yields one value. A tuple `T` yields its members as separate values, in order.
 
 The other standard protocol names are library specification concerns, but user-defined types must be able to participate in ordinary language constructs without compiler-specific hardcoding.
 
