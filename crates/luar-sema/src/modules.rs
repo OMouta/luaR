@@ -83,6 +83,14 @@ pub fn resolve(path: &str, importer: &Path) -> Target {
     }
 }
 
+/// Whether `path` is where the graph holds a standard library module: the
+/// import path as written, which names no file (LR60).
+#[must_use]
+pub fn is_standard(path: &Path) -> bool {
+    path.extension().is_none()
+        && matches!(path.to_str().and_then(classify), Some(Specifier::Std(_)))
+}
+
 /// Resolves `.` and `..` in `path` without touching the filesystem.
 #[must_use]
 pub fn normalize(path: PathBuf) -> PathBuf {

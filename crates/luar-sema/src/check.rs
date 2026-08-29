@@ -498,6 +498,7 @@ impl Checker<'_> {
             // built, so its body is checked against what is recorded there.
             Item::Function(function) => {
                 self.reject_finalizers(&function.decorators);
+                self.check_intrinsic(function);
 
                 // LR20: a qualified name writes a member of the type it names,
                 // so its body reads `self` as that type.
@@ -2819,7 +2820,10 @@ impl Checker<'_> {
 
         let intrinsic = method
             .is_none()
-            .then(|| self.predeclared_intrinsic(callee))
+            .then(|| {
+                self.predeclared_intrinsic(callee)
+                    .or_else(|| self.std_intrinsic(callee))
+            })
             .flatten();
         let freezes = method.is_some_and(|name| frozen_method(receiver, name, span).is_some());
         let checked_index =
@@ -2869,7 +2873,7 @@ impl Checker<'_> {
             .collect();
 
         // LR32: `identical` takes only values with observable identity.
-        if self.is_identical(callee) {
+        if intrinsic == Some(Intrinsic::Identical) {
             for (argument, held) in args.iter().zip(&held) {
                 let held = settle(held.clone());
                 if !self.has_identity(&held) {
@@ -3488,23 +3492,62 @@ impl Checker<'_> {
         }
     }
 
-    fn is_identical(&self, callee: &Expr) -> bool {
+    /// The operation a call reaches through an `@intrinsic` declaration of
+    /// the standard library (LR60).
+    fn std_intrinsic(&self, callee: &Expr) -> Option<Intrinsic> {
         let ExprKind::Name(name) = &callee.kind else {
-            return false;
+            return None;
         };
         if self.shadowed(name) {
-            return false;
+            return None;
         }
-        let Some(Origin::Imported { module, name }) = self
-            .names
-            .scope(self.scope)
-            .get(name)
-            .map(|binding| &binding.origin)
+        let Origin::Imported { module, name } = &self.names.scope(self.scope).get(name)?.origin
         else {
-            return false;
+            return None;
         };
+        let declared = self
+            .graph
+            .module(*module)
+            .ast
+            .items
+            .iter()
+            .any(|item| match item {
+                Item::Function(function) => {
+                    function.name.as_slice() == [name.as_str()] && is_intrinsic(function)
+                }
+                _ => false,
+            });
+        declared.then(|| intrinsic_named(name)).flatten()
+    }
 
-        name == "identical" && self.graph.module(*module).path == std::path::Path::new("std/mem")
+    /// LR60: `@intrinsic` names an operation the compiler implements, in the
+    /// standard library and nowhere else.
+    fn check_intrinsic(&mut self, function: &luar_ast::Function) {
+        let Some(decorator) = function
+            .decorators
+            .iter()
+            .find(|decorator| decorator.name == "intrinsic")
+        else {
+            return;
+        };
+        let standard = crate::modules::is_standard(&self.graph.module(self.scope).path);
+        let known = matches!(function.name.as_slice(), [name] if intrinsic_named(name).is_some());
+        if standard && known {
+            return;
+        }
+        let message = if standard {
+            format!(
+                "the compiler implements no intrinsic `{}`",
+                function.name.join(".")
+            )
+        } else {
+            "`@intrinsic` is written only in a standard library module".to_owned()
+        };
+        self.diagnostics.push(Diagnostic::error(
+            codes::INTRINSIC_DECLARATION,
+            decorator.span,
+            message,
+        ));
     }
 
     fn has_identity(&self, ty: &Type) -> bool {
@@ -5170,6 +5213,8 @@ fn memory_param(name: &str, ty: Type) -> crate::table::Param {
 
 fn intrinsic_signature(intrinsic: Intrinsic, span: Span) -> Signature {
     let (type_params, params, result) = match intrinsic {
+        // LR60: a standard library intrinsic is declared where it is written.
+        Intrinsic::Identical => unreachable!("`identical` has a declared signature"),
         Intrinsic::Print => (
             Vec::new(),
             vec![crate::table::Param {
@@ -5548,5 +5593,20 @@ fn plural(count: usize, word: &str) -> String {
         word.to_owned()
     } else {
         format!("{word}s")
+    }
+}
+
+fn is_intrinsic(function: &luar_ast::Function) -> bool {
+    function
+        .decorators
+        .iter()
+        .any(|decorator| decorator.name == "intrinsic")
+}
+
+/// The operation an `@intrinsic` declaration named `name` stands for (LR60).
+fn intrinsic_named(name: &str) -> Option<Intrinsic> {
+    match name {
+        "identical" => Some(Intrinsic::Identical),
+        _ => None,
     }
 }

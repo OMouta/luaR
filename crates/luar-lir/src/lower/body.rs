@@ -2817,6 +2817,25 @@ impl<'a> Body<'a> {
             _ => {}
         }
 
+        // LR32: identity is the address, so two values are identical where
+        // they are one pointer.
+        if intrinsic == Intrinsic::Identical {
+            let [left, right] = args else {
+                return self.missing(span, "an `identical` without two values");
+            };
+            let left = self.expr(&left.value, None);
+            let right = self.expr(&right.value, None);
+            return self.emit(
+                InstKind::Binary {
+                    op: BinaryOp::Equal,
+                    left,
+                    right,
+                },
+                Ty::Bool,
+                span,
+            );
+        }
+
         if intrinsic == Intrinsic::Error {
             let Some(argument) = args.first() else {
                 return self.missing(span, "an `Error` without a message");

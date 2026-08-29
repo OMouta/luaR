@@ -6,11 +6,13 @@ use luar_diagnostics::Span;
 
 use crate::types::Type;
 
-/// A predeclared operation implemented by the compiler (LR54.1).
+/// An operation the compiler implements: a predeclared one (LR54.1), or one
+/// the standard library declares with `@intrinsic` (LR60).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Intrinsic {
     Print,
     Error,
+    Identical,
     Assert,
     DebugAssert,
     Panic,
@@ -54,6 +56,7 @@ impl Intrinsic {
         match self {
             Self::Print => "print",
             Self::Error => "Error",
+            Self::Identical => "identical",
             Self::Assert => "assert",
             Self::DebugAssert => "debugAssert",
             Self::Panic => "panic",

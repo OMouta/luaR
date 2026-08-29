@@ -987,7 +987,9 @@ fn overloads(decl: &Decl) -> Vec<&Signature> {
 fn collect(items: &[Item], module: ModuleId, found: &mut Vec<(ModuleId, String, AstFunction)>) {
     for item in items {
         match item {
-            Item::Function(function) => {
+            // LR60: an intrinsic has no body to lower, and every call to it is
+            // lowered in place.
+            Item::Function(function) if !is_intrinsic(function) => {
                 found.push((module, function.name.join("."), function.clone()));
             }
             Item::Struct(structure) => {
@@ -1074,4 +1076,11 @@ fn declared_at(module: &Module, name: &str) -> Option<Span> {
         Item::Interface(interface) if interface.name == name => Some(interface.span),
         _ => None,
     })
+}
+
+fn is_intrinsic(function: &AstFunction) -> bool {
+    function
+        .decorators
+        .iter()
+        .any(|decorator| decorator.name == "intrinsic")
 }

@@ -268,6 +268,8 @@ registry! {
         "A `for` names one binding for each value an iteration yields.";
     active 205 => RESULT_ARGUMENTS_NEEDED, "LR25.1",
         "A `Result` variant with nothing asking for its type has its arguments written.";
+    active 206 => INTRINSIC_DECLARATION, "LR60",
+        "`@intrinsic` names an operation the compiler implements, in a standard library module.";
 }
 
 #[cfg(test)]

@@ -1,0 +1,6 @@
+--- The marker interfaces for values crossing threads (LR28).
+export interface Send
+end
+
+export interface Sync
+end

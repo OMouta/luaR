@@ -290,7 +290,11 @@ fn declaration(cursor: &mut Cursor, decorators: Vec<Decorator>) -> Option<Functi
         }
     }
 
-    let bodied = foreign.is_none();
+    // LR60: an intrinsic states a signature and no more.
+    let bodied = foreign.is_none()
+        && !decorators
+            .iter()
+            .any(|decorator| decorator.name == "intrinsic");
 
     Some(function(
         cursor,
