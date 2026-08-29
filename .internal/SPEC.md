@@ -2874,6 +2874,7 @@ debugAssert
 panic
 unreachable
 Result
+Error
 ```
 
 Predeclared names occupy a scope outside the module. A declaration or an import of the same name shadows one, and shadowing one is not an error:
@@ -2898,7 +2899,7 @@ Task
 
 Every other name in a type is declared by the module or imported (LR21.1). The standard protocols (LR35) are library names and are imported like any other.
 
-The set is closed. A name belongs in it only because it cannot be written as an ordinary declaration, or because every program needs it to state a signature. `assert` and `debugAssert` depend on compilation mode (LR49), `unreachable` has type `never` (LR50), and `panic` does not return (LR25.4). `Result` names the type of every fallible signature (LR25.1), and `Task` the type every async call produces (LR27). `print` is neither, and is predeclared so that writing a line of output does not require an import.
+The set is closed. A name belongs in it only because it cannot be written as an ordinary declaration, or because every program needs it to state a signature. `assert` and `debugAssert` depend on compilation mode (LR49), `unreachable` has type `never` (LR50), and `panic` does not return (LR25.4). `Result` names the type of every fallible signature (LR25.1), `Error` is the common error type returned by standard-library APIs, and `Task` is the type every async call produces (LR27). `Error(message)` builds an `Error` with that string as its message. `print` is predeclared so that writing a line of output does not require an import.
 
 ---
 
