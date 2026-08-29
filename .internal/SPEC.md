@@ -3109,6 +3109,8 @@ A bodiless function declaration marked `@intrinsic` names an operation the compi
 
 `std/fs.writeText(path: string, text: string): Result<(), Error>` replaces the file at `path` with `text` encoded as UTF-8. It is `Err` where the file cannot be opened or written.
 
+`std/env.get(name: string): string?` is the value of the environment variable named by `name`, or `nil` where it is not set.
+
 ---
 
 ## 61. Testing
