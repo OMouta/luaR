@@ -3136,8 +3136,8 @@ impl Checker<'_> {
         if let Some(signature) = index_of_method(receiver, name, span) {
             return Some(vec![signature]);
         }
-        if let Some((_, signature)) = collection_mutation_method(receiver, name, span) {
-            return Some(vec![signature]);
+        if let Some((_, signatures)) = collection_mutation_method(receiver, name, span) {
+            return Some(signatures);
         }
         if let Some((_, signature)) = overflow_method(receiver, name, span) {
             return Some(vec![signature]);
@@ -4770,7 +4770,7 @@ fn collection_mutation_method(
     receiver: &Type,
     name: &str,
     span: Span,
-) -> Option<(CollectionMutation, Signature)> {
+) -> Option<(CollectionMutation, Vec<Signature>)> {
     let Type::Builtin { kind, args } = receiver else {
         return None;
     };
@@ -4781,6 +4781,7 @@ fn collection_mutation_method(
         (Builtin::List, "insert") => CollectionMutation::ListInsert,
         (Builtin::List, "removeAt") => CollectionMutation::ListRemoveAt,
         (Builtin::List, "reverse") => CollectionMutation::ListReverse,
+        (Builtin::List, "pushAll") => CollectionMutation::ListPushAll,
         (Builtin::Set, "insert") => CollectionMutation::SetInsert,
         (Builtin::Map, "remove") => CollectionMutation::MapRemove,
         (Builtin::Set, "remove") => CollectionMutation::SetRemove,
@@ -4794,28 +4795,35 @@ fn collection_mutation_method(
         variadic: false,
     };
     let index = Type::Primitive(Primitive::I64);
-    let (params, result) = match mutation {
+    let unit = Type::Tuple(Vec::new());
+    let sequence = |kind: Builtin| Type::Builtin {
+        kind,
+        args: vec![element.clone()],
+    };
+    let signatures = match mutation {
         CollectionMutation::ListPush | CollectionMutation::SetInsert => {
-            (vec![param("value", &element)], Type::Tuple(Vec::new()))
+            vec![(vec![param("value", &element)], unit)]
         }
-        CollectionMutation::ListPop => (Vec::new(), element.clone().optional()),
-        CollectionMutation::ListInsert => (
-            vec![param("index", &index), param("value", &element)],
-            Type::Tuple(Vec::new()),
-        ),
-        CollectionMutation::ListRemoveAt => (vec![param("index", &index)], element.clone()),
-        CollectionMutation::MapRemove => (
+        CollectionMutation::ListPop => vec![(Vec::new(), element.clone().optional())],
+        CollectionMutation::ListInsert => {
+            vec![(vec![param("index", &index), param("value", &element)], unit)]
+        }
+        CollectionMutation::ListRemoveAt => vec![(vec![param("index", &index)], element.clone())],
+        // LR59: a frozen list is accepted where a read-only sequence is.
+        CollectionMutation::ListPushAll => vec![
+            (vec![param("other", &sequence(Builtin::List))], unit.clone()),
+            (vec![param("other", &sequence(Builtin::FrozenList))], unit),
+        ],
+        CollectionMutation::MapRemove => vec![(
             vec![param("key", &element)],
             args.get(1).cloned().unwrap_or(Type::Unresolved).optional(),
-        ),
-        CollectionMutation::SetRemove => (vec![param("value", &element)], Type::BOOL),
-        CollectionMutation::Clear | CollectionMutation::ListReverse => {
-            (Vec::new(), Type::Tuple(Vec::new()))
-        }
+        )],
+        CollectionMutation::SetRemove => vec![(vec![param("value", &element)], Type::BOOL)],
+        CollectionMutation::Clear | CollectionMutation::ListReverse => vec![(Vec::new(), unit)],
     };
-    Some((
-        mutation,
-        Signature {
+    let signatures = signatures
+        .into_iter()
+        .map(|(params, result)| Signature {
             asynchronous: false,
             type_params: Vec::new(),
             constraints: Vec::new(),
@@ -4826,8 +4834,9 @@ fn collection_mutation_method(
             span,
             inferred: false,
             unsafe_: false,
-        },
-    ))
+        })
+        .collect();
+    Some((mutation, signatures))
 }
 
 /// LR4.3: `x:wrappingAdd(y)` and its kin, on any integer type.

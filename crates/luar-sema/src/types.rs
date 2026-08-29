@@ -336,7 +336,7 @@ impl Type {
             (Self::Array(element), Self::SequenceLiteral(held)) => element.accepts(held),
             (
                 Self::Builtin {
-                    kind: Builtin::List | Builtin::FrozenList,
+                    kind: Builtin::List,
                     args,
                 },
                 Self::SequenceLiteral(held),
