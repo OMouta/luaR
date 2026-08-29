@@ -1,0 +1,18 @@
+--- The standard protocols (LR35) and the collection methods written in LuaR
+--- (LR54.1). In scope in every module without an import.
+
+export interface Eq
+    function eq(self, other: Self): bool
+end
+
+export interface Hash
+    function hash(self): u64
+end
+
+export interface Display
+    function display(self): string
+end
+
+export interface Comparable
+    function compare(self, other: Self): int
+end

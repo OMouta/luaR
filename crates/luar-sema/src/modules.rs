@@ -1,6 +1,6 @@
 //! The module graph, and where an import points (LR21.1).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use luar_ast::Module;
@@ -8,6 +8,9 @@ use luar_diagnostics::{FileId, Span};
 
 /// The extension a module file carries (LR2).
 const EXTENSION: &str = "luar";
+
+/// The module in scope everywhere without an import (LR54.1).
+pub const PRELUDE: &str = "std/prelude";
 
 /// What an import path names (LR21.1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -127,6 +130,9 @@ pub struct Node {
     pub ast: Module,
     /// One edge per import, in the order written.
     pub imports: Vec<Edge>,
+    /// The prelude this module sees without an import (LR54.1). Absent in
+    /// the prelude and in the modules it reaches.
+    pub prelude: Option<ModuleId>,
 }
 
 /// An import, and the module it reached.
@@ -162,8 +168,40 @@ impl Graph {
             path,
             ast,
             imports: Vec::new(),
+            prelude: None,
         });
         id
+    }
+
+    /// The prelude, once it is in the graph (LR54.1).
+    #[must_use]
+    pub fn prelude(&self) -> Option<ModuleId> {
+        self.find(Path::new(PRELUDE))
+    }
+
+    /// Puts `prelude` in scope in every module it does not reach, itself
+    /// included (LR54.1). Called once every import is recorded.
+    pub fn open_prelude(&mut self, prelude: ModuleId) {
+        let mut reached = BTreeSet::from([prelude]);
+        let mut pending = vec![prelude];
+        while let Some(id) = pending.pop() {
+            for target in self
+                .module(id)
+                .imports
+                .iter()
+                .filter_map(|edge| edge.target)
+            {
+                if reached.insert(target) {
+                    pending.push(target);
+                }
+            }
+        }
+
+        for (id, node) in self.nodes.iter_mut().enumerate() {
+            if !reached.contains(&ModuleId(id as u32)) {
+                node.prelude = Some(prelude);
+            }
+        }
     }
 
     /// The module read from `path`, if it is already in the graph.

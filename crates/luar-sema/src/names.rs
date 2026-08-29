@@ -116,7 +116,42 @@ pub fn resolve(graph: &Graph) -> (Names, Vec<Diagnostic>) {
         }
     }
 
+    // LR54.1: the prelude's exports go under everything a module binds for
+    // itself, so a declaration or an import of the same name shadows one.
+    let opened: Vec<(ModuleId, Vec<(String, Binding)>)> = graph
+        .modules()
+        .filter_map(|(id, node)| Some((id, opened(node.prelude?, &names))))
+        .collect();
+
+    for (id, bindings) in opened {
+        let scope = names.scopes.get_mut(&id).expect("every module has a scope");
+        for (name, binding) in bindings {
+            scope.bind(name, binding);
+        }
+    }
+
     (names, diagnostics)
+}
+
+/// The prelude's exports, as if imported by name (LR54.1).
+fn opened(prelude: ModuleId, names: &Names) -> Vec<(String, Binding)> {
+    names
+        .scope(prelude)
+        .names()
+        .filter(|(_, binding)| exported(&binding.origin))
+        .map(|(name, binding)| {
+            (
+                name.to_owned(),
+                Binding {
+                    origin: Origin::Imported {
+                        module: prelude,
+                        name: name.to_owned(),
+                    },
+                    span: binding.span,
+                },
+            )
+        })
+        .collect()
 }
 
 /// The names a module declares, and whether each is exported.
