@@ -1105,6 +1105,8 @@ The inferred type is `List<string>`. `[...]` always produces a sequence and neve
 
 `values:clear()` removes every element and returns `()`.
 
+`values:contains(value)` is whether an element equals `value`, a `bool`.
+
 `values.length` is the number of elements the list holds, an `int`. It is not a field, so it cannot be assigned (LR89.2).
 
 Lists are zero-indexed.
