@@ -1,0 +1,20 @@
+--- expect: run
+--- exit: 123
+--- spec: LR55
+ref struct Counter
+    value: int
+end
+
+function next(counter: Counter): int
+    counter.value += 1
+    return counter.value
+end
+
+function digits(a: int, b: int, c: int): int
+    return a * 100 + b * 10 + c
+end
+
+export function main(): int
+    local counter = Counter { value = 0 }
+    return digits(next(counter), next(counter), next(counter))
+end

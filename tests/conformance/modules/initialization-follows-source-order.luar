@@ -2,6 +2,7 @@
 --- exit: 101
 --- stderr: "luar: panic: first\nbacktrace:\n  at initialization-follows-source-order.$init\n"
 --- spec: LR78
+--- spec: LR21.3
 panic("first")
 panic("second")
 

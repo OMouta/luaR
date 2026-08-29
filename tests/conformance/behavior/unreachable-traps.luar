@@ -1,0 +1,7 @@
+--- expect: run
+--- exit: 101
+--- trap: unreachable
+--- spec: LR50
+export function main()
+    unreachable()
+end
