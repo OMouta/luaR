@@ -224,54 +224,6 @@ impl Translator<'_, '_> {
             .store(OWNED, length, list, layout::LENGTH);
     }
 
-    pub(super) fn list_remove_at(&mut self, receiver: Value, index: Value) -> Option<ir::Value> {
-        let machine = self.mutable_list_element(receiver)?;
-        let address = self.element_address(receiver, index);
-        let removed = self.builder.ins().load(machine, OWNED, address, 0);
-        let list = self.value(receiver);
-        let index = self.value(index);
-        let length = self
-            .builder
-            .ins()
-            .load(self.pointer, OWNED, list, layout::LENGTH);
-        let last = self.builder.ins().iadd_imm(length, -1);
-        let buffer = self
-            .builder
-            .ins()
-            .load(self.pointer, OWNED, list, layout::BUFFER);
-
-        // Each element after `index` moves down one cell.
-        let shift = self.builder.create_block();
-        let shift_one = self.builder.create_block();
-        let done = self.builder.create_block();
-        self.builder.append_block_param(shift, self.pointer);
-        self.builder
-            .ins()
-            .jump(shift, &[ir::BlockArg::Value(index)]);
-
-        self.builder.switch_to_block(shift);
-        let cursor = self.builder.block_params(shift)[0];
-        let more = self
-            .builder
-            .ins()
-            .icmp(IntCC::UnsignedLessThan, cursor, last);
-        self.builder.ins().brif(more, shift_one, &[], done, &[]);
-
-        self.builder.switch_to_block(shift_one);
-        let after = self.builder.ins().iadd_imm(cursor, 1);
-        let from = self.list_cell(buffer, after);
-        let to = self.list_cell(buffer, cursor);
-        let moved = self.builder.ins().load(machine, OWNED, from, 0);
-        self.builder.ins().store(OWNED, moved, to, 0);
-        self.builder
-            .ins()
-            .jump(shift, &[ir::BlockArg::Value(after)]);
-
-        self.builder.switch_to_block(done);
-        self.builder.ins().store(OWNED, last, list, layout::LENGTH);
-        Some(removed)
-    }
-
     /// Room for one more element past `length`: a full buffer is doubled
     /// first. Continues in a block where `BUFFER` has to be read again.
     fn list_reserve(

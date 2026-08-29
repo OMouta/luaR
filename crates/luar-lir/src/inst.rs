@@ -313,12 +313,6 @@ pub enum InstKind {
         receiver: Value,
         value: Value,
     },
-    /// The element at `index`, taken out, the ones after it moved down
-    /// (LR13.1).
-    ListRemoveAt {
-        receiver: Value,
-        index: Value,
-    },
     /// The last element, taken off the list, or nothing (LR13.1).
     ListPop {
         receiver: Value,
@@ -505,7 +499,6 @@ impl InstKind {
             | Self::SetIndex { .. }
             | Self::ListPush { .. }
             | Self::ListPop { .. }
-            | Self::ListRemoveAt { .. }
             | Self::SetInsert { .. }
             | Self::MapRemove { .. }
             | Self::SetRemove { .. }

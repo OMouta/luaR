@@ -410,7 +410,6 @@ impl Translator<'_, '_> {
                 None
             }
             InstKind::ListPop { receiver } => self.list_pop(*receiver, inst.result),
-            InstKind::ListRemoveAt { receiver, index } => self.list_remove_at(*receiver, *index),
             InstKind::SetInsert { receiver, value } => {
                 self.set_insert(*receiver, *value);
                 None

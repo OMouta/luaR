@@ -263,9 +263,6 @@ fn instruction(inst: &Inst, function: &Function) -> String {
             format!("push {} <- {}", name(*receiver), name(*value))
         }
         InstKind::ListPop { receiver } => format!("pop {}", name(*receiver)),
-        InstKind::ListRemoveAt { receiver, index } => {
-            format!("remove {}[{}]", name(*receiver), name(*index))
-        }
         InstKind::SetInsert { receiver, value } => {
             format!("insert {} <- {}", name(*receiver), name(*value))
         }

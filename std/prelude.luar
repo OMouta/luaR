@@ -85,6 +85,15 @@ export extend ListMutation<T> for List<T>
         end
     end
 
+    function removeAt(self, index: int): T
+        local removed = self[index]
+        for i in index + 1..<self.length do
+            self[i - 1] = self[i]
+        end
+        self:pop()
+        return removed
+    end
+
     function reverse(self)
         local low = 0
         local high = self.length - 1

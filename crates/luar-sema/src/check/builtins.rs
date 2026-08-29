@@ -333,7 +333,6 @@ pub(super) fn collection_mutation_method(
     let mutation = match (kind, name) {
         (Builtin::List, "push") => CollectionMutation::ListPush,
         (Builtin::List, "pop") => CollectionMutation::ListPop,
-        (Builtin::List, "removeAt") => CollectionMutation::ListRemoveAt,
         (Builtin::Set, "insert") => CollectionMutation::SetInsert,
         (Builtin::Map, "remove") => CollectionMutation::MapRemove,
         (Builtin::Set, "remove") => CollectionMutation::SetRemove,
@@ -346,14 +345,12 @@ pub(super) fn collection_mutation_method(
         optional: false,
         variadic: false,
     };
-    let index = Type::Primitive(Primitive::I64);
     let unit = Type::Tuple(Vec::new());
     let signatures = match mutation {
         CollectionMutation::ListPush | CollectionMutation::SetInsert => {
             vec![(vec![param("value", &element)], unit)]
         }
         CollectionMutation::ListPop => vec![(Vec::new(), element.clone().optional())],
-        CollectionMutation::ListRemoveAt => vec![(vec![param("index", &index)], element.clone())],
         CollectionMutation::MapRemove => vec![(
             vec![param("key", &element)],
             args.get(1).cloned().unwrap_or(Type::Unresolved).optional(),
