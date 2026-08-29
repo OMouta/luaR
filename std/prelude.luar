@@ -17,6 +17,14 @@ export interface Comparable
     function compare(self, other: Self): int
 end
 
+export interface Index<K, V>
+    function index(self, key: K): V
+end
+
+export interface Into<T>
+    function into(self): T
+end
+
 export extend ListSearch<T> for List<T>
     function contains(self, value: T): bool
     where T: Eq

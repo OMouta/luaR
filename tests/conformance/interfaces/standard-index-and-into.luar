@@ -1,0 +1,23 @@
+--- expect: compile-ok
+--- spec: LR35
+--- spec: LR36
+--- spec: LR54.1
+struct Row implements Index<int, string>
+    values: List<string>
+
+    function index(self, key: int): string
+        return self.values[key]
+    end
+end
+
+struct Code implements Into<string>
+    value: string
+
+    function into(self): string
+        return self.value
+    end
+end
+
+export function read(row: Row, code: Code): string
+    return row[0] .. code:into()
+end
