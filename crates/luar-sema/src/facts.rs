@@ -21,6 +21,8 @@ pub enum Intrinsic {
 pub enum CollectionMutation {
     ListPush,
     ListPop,
+    ListInsert,
+    ListRemoveAt,
     SetInsert,
     MapRemove,
     SetRemove,

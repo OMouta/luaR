@@ -1,0 +1,9 @@
+--- expect: compile-error
+--- code: LR0148
+--- span: 8:27
+--- spec: LR9.1
+--- spec: LR13.1
+export function main()
+    local values = [1, 2]
+    print(values:removeAt("0"))
+end

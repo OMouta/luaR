@@ -4740,30 +4740,36 @@ fn collection_mutation_method(
     let mutation = match (kind, name) {
         (Builtin::List, "push") => CollectionMutation::ListPush,
         (Builtin::List, "pop") => CollectionMutation::ListPop,
+        (Builtin::List, "insert") => CollectionMutation::ListInsert,
+        (Builtin::List, "removeAt") => CollectionMutation::ListRemoveAt,
         (Builtin::Set, "insert") => CollectionMutation::SetInsert,
         (Builtin::Map, "remove") => CollectionMutation::MapRemove,
         (Builtin::Set, "remove") => CollectionMutation::SetRemove,
         (Builtin::List | Builtin::Map | Builtin::Set, "clear") => CollectionMutation::Clear,
         _ => return None,
     };
-    let param = |name: &str| {
-        vec![crate::table::Param {
-            name: name.to_owned(),
-            ty: element.clone(),
-            optional: false,
-            variadic: false,
-        }]
+    let param = |name: &str, ty: &Type| crate::table::Param {
+        name: name.to_owned(),
+        ty: ty.clone(),
+        optional: false,
+        variadic: false,
     };
+    let index = Type::Primitive(Primitive::I64);
     let (params, result) = match mutation {
         CollectionMutation::ListPush | CollectionMutation::SetInsert => {
-            (param("value"), Type::Tuple(Vec::new()))
+            (vec![param("value", &element)], Type::Tuple(Vec::new()))
         }
         CollectionMutation::ListPop => (Vec::new(), element.clone().optional()),
+        CollectionMutation::ListInsert => (
+            vec![param("index", &index), param("value", &element)],
+            Type::Tuple(Vec::new()),
+        ),
+        CollectionMutation::ListRemoveAt => (vec![param("index", &index)], element.clone()),
         CollectionMutation::MapRemove => (
-            param("key"),
+            vec![param("key", &element)],
             args.get(1).cloned().unwrap_or(Type::Unresolved).optional(),
         ),
-        CollectionMutation::SetRemove => (param("value"), Type::BOOL),
+        CollectionMutation::SetRemove => (vec![param("value", &element)], Type::BOOL),
         CollectionMutation::Clear => (Vec::new(), Type::Tuple(Vec::new())),
     };
     Some((

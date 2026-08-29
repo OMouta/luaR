@@ -2820,6 +2820,9 @@ impl<'a> Body<'a> {
                 return self.emit(InstKind::ListPop { receiver }, result, span);
             }
             CollectionMutation::Clear => InstKind::Clear { receiver },
+            CollectionMutation::ListInsert | CollectionMutation::ListRemoveAt => {
+                return self.missing(span, "a list mutation at an index");
+            }
             CollectionMutation::MapRemove | CollectionMutation::SetRemove => {
                 let Some(argument) = args.first() else {
                     return self.missing(span, "a removal without a key");
