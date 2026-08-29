@@ -582,6 +582,11 @@ impl Translator<'_, '_> {
                 }
                 None
             }
+            InstKind::TextBytes { text } => {
+                let text = self.value(*text);
+                Some(self.builder.ins().iadd_imm(text, i64::from(layout::CELL)))
+            }
+            InstKind::MakeText { data, length } => self.make_text(*data, *length),
             // An aggregate already sits in storage of its own, and its slot
             // holds the pointer to it, so that pointer is its address.
             InstKind::AddressOf { slot, .. } => match self.slots.get(slot).copied() {
@@ -1310,6 +1315,52 @@ impl Translator<'_, '_> {
         Some(built)
     }
 
+    /// LR72: a string holding `length` bytes copied from `data`.
+    fn make_text(&mut self, data: Value, length: Value) -> Option<ir::Value> {
+        let data = self.value(data);
+        let length = self.value(length);
+        let cell = i64::from(layout::CELL);
+        let size = self.builder.ins().iadd_imm(length, cell + cell - 1);
+        let size = self.builder.ins().band_imm(size, -cell);
+        let size = self.word_of(size);
+        let text = self.allocate_sized(size, &Ty::Str, 0)?;
+        self.builder
+            .ins()
+            .store(OWNED, length, text, layout::LENGTH);
+
+        let copy = self.builder.create_block();
+        let copy_one = self.builder.create_block();
+        let done = self.builder.create_block();
+        self.builder.append_block_param(copy, self.pointer);
+        self.builder.append_block_param(copy_one, self.pointer);
+        let zero = self.builder.ins().iconst(self.pointer, 0);
+        self.builder.ins().jump(copy, &[ir::BlockArg::Value(zero)]);
+
+        self.builder.switch_to_block(copy);
+        let index = self.builder.block_params(copy)[0];
+        let more = self
+            .builder
+            .ins()
+            .icmp(IntCC::UnsignedLessThan, index, length);
+        self.builder
+            .ins()
+            .brif(more, copy_one, &[ir::BlockArg::Value(index)], done, &[]);
+
+        self.builder.switch_to_block(copy_one);
+        let index = self.builder.block_params(copy_one)[0];
+        let from = self.builder.ins().iadd(data, index);
+        let byte = self.builder.ins().load(types::I8, OWNED, from, 0);
+        let to = self.builder.ins().iadd(text, index);
+        self.builder.ins().store(OWNED, byte, to, layout::CELL);
+        let following = self.builder.ins().iadd_imm(index, 1);
+        self.builder
+            .ins()
+            .jump(copy, &[ir::BlockArg::Value(following)]);
+
+        self.builder.switch_to_block(done);
+        Some(text)
+    }
+
     /// Storage large enough for a value of `ty`.
     fn allocate(&mut self, ty: &Ty, temporary: u32) -> Option<ir::Value> {
         let Some(size) = layout::size(self.program, ty, self.pointer) else {
@@ -1321,6 +1372,10 @@ impl Translator<'_, '_> {
 
     fn allocate_bytes(&mut self, size: i32, ty: &Ty, temporary: u32) -> Option<ir::Value> {
         let size = self.builder.ins().iconst(self.pointer, i64::from(size));
+        self.allocate_sized(size, ty, temporary)
+    }
+
+    fn allocate_sized(&mut self, size: ir::Value, ty: &Ty, temporary: u32) -> Option<ir::Value> {
         let finalizer = match self.finalizers.get(ty).copied() {
             Some(function) => self.builder.ins().func_addr(self.pointer, function),
             None => self.builder.ins().iconst(self.pointer, 0),

@@ -1,0 +1,14 @@
+--- expect: run
+--- exit: 0
+--- stdout: "true hello 104\n"
+--- spec: LR72
+import { bytesOf, stringFromBytes } from "std/mem"
+
+export function main()
+    local text = "hello"
+    unsafe
+        local first = bytesOf(text):read()
+        local copy = stringFromBytes(bytesOf(text), text.byteLength)
+        print(`{copy == text} {copy} {first}`)
+    end
+end

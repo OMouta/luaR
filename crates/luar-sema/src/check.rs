@@ -5214,7 +5214,9 @@ fn memory_param(name: &str, ty: Type) -> crate::table::Param {
 fn intrinsic_signature(intrinsic: Intrinsic, span: Span) -> Signature {
     let (type_params, params, result) = match intrinsic {
         // LR60: a standard library intrinsic is declared where it is written.
-        Intrinsic::Identical => unreachable!("`identical` has a declared signature"),
+        Intrinsic::Identical | Intrinsic::BytesOf | Intrinsic::StringFromBytes => {
+            unreachable!("a standard library intrinsic has a declared signature")
+        }
         Intrinsic::Print => (
             Vec::new(),
             vec![crate::table::Param {
@@ -5607,6 +5609,8 @@ fn is_intrinsic(function: &luar_ast::Function) -> bool {
 fn intrinsic_named(name: &str) -> Option<Intrinsic> {
     match name {
         "identical" => Some(Intrinsic::Identical),
+        "bytesOf" => Some(Intrinsic::BytesOf),
+        "stringFromBytes" => Some(Intrinsic::StringFromBytes),
         _ => None,
     }
 }

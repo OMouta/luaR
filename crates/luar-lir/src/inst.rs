@@ -432,6 +432,17 @@ pub enum InstKind {
         value: Value,
     },
 
+    /// The address of the first byte of a string, which `std/mem.bytesOf`
+    /// takes (LR72).
+    TextBytes {
+        text: Value,
+    },
+    /// A string holding a copy of `length` bytes at `data`, which
+    /// `std/mem.stringFromBytes` builds (LR72).
+    MakeText {
+        data: Value,
+        length: Value,
+    },
     /// The address of a stack slot, which `&x` and `&mut x` take (LR72).
     AddressOf {
         mutable: bool,
@@ -505,6 +516,8 @@ impl InstKind {
             | Self::Unwrap { .. }
             | Self::MakeDyn { .. }
             | Self::DynValue { .. }
+            | Self::TextBytes { .. }
+            | Self::MakeText { .. }
             | Self::AddressOf { .. }
             | Self::FieldAddress { .. }
             | Self::Offset { .. }

@@ -1,3 +1,13 @@
 --- Reference identity (LR32).
 @intrinsic
 export function identical<A, B>(left: A, right: B): bool
+
+--- The address of the first byte of `text`, valid while `text` is reachable
+--- (LR72).
+@intrinsic
+export unsafe function bytesOf(text: string): *const u8
+
+--- A string holding a copy of `length` bytes at `data`, which the caller
+--- guarantees are UTF-8 (LR72).
+@intrinsic
+export unsafe function stringFromBytes(data: *const u8, length: int): string
