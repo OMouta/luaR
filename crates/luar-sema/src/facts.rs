@@ -74,7 +74,6 @@ pub struct Facts {
     freezes: HashSet<Span>,
     checked_indexes: HashSet<Span>,
     contains: HashSet<Span>,
-    map_err: HashSet<Span>,
     collection_mutations: HashMap<Span, CollectionMutation>,
     overflow_methods: HashMap<Span, OverflowMethod>,
     /// The names something takes the address of (LR72).
@@ -165,15 +164,6 @@ impl Facts {
         self.contains.contains(&span)
     }
 
-    pub fn record_map_err(&mut self, span: Span) {
-        self.map_err.insert(span);
-    }
-
-    #[must_use]
-    pub fn map_err(&self, span: Span) -> bool {
-        self.map_err.contains(&span)
-    }
-
     pub fn record_collection_mutation(&mut self, span: Span, mutation: CollectionMutation) {
         self.collection_mutations.insert(span, mutation);
     }
@@ -213,7 +203,6 @@ impl Facts {
         self.freezes.extend(other.freezes);
         self.checked_indexes.extend(other.checked_indexes);
         self.contains.extend(other.contains);
-        self.map_err.extend(other.map_err);
         self.collection_mutations.extend(other.collection_mutations);
         self.overflow_methods.extend(other.overflow_methods);
         self.addressed.extend(other.addressed);

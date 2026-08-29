@@ -12,7 +12,7 @@ use crate::types::{Builtin, Primitive, Type};
 
 use super::builtins::{
     checked_index_method, collection_mutation_method, contains_method, frozen_method,
-    map_err_method, overflow_method,
+    overflow_method,
 };
 use super::calls::{against, filled, infer, takes_self};
 use super::unsafe_ops::{unavailable_unsafe_memory_method, unsafe_memory_method};
@@ -55,14 +55,13 @@ fn builtin_protocol(protocol: &str, held: &Type) -> bool {
 }
 
 /// The method `name` the language itself gives a value of type `receiver`
-/// (LR4.3, LR8, LR13, LR25.1, LR59, LR72).
+/// (LR4.3, LR13, LR59, LR72).
 fn language_method(receiver: &Type, name: &str, span: Span) -> Option<Overloads> {
     let single = [
         unsafe_memory_method,
         frozen_method,
         checked_index_method,
         contains_method,
-        map_err_method,
     ]
     .iter()
     .find_map(|method| method(receiver, name, span));

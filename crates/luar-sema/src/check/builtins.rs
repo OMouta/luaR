@@ -211,49 +211,6 @@ pub(super) fn contains_method(receiver: &Type, name: &str, span: Span) -> Option
     })
 }
 
-/// `result:mapErr(f)` (LR25.1).
-pub(super) fn map_err_method(receiver: &Type, name: &str, span: Span) -> Option<Signature> {
-    if name != "mapErr" {
-        return None;
-    }
-    let Type::Builtin {
-        kind: Builtin::Result,
-        args,
-    } = receiver
-    else {
-        return None;
-    };
-    let (Some(value), Some(error)) = (args.first(), args.get(1)) else {
-        return None;
-    };
-    let mapped = || Type::Parameter("F".to_owned());
-    Some(Signature {
-        asynchronous: false,
-        type_params: vec!["F".to_owned()],
-        constraints: Vec::new(),
-        params: vec![crate::table::Param {
-            name: "map".to_owned(),
-            ty: Type::Function {
-                asynchronous: false,
-                sendable: false,
-                params: vec![error.clone()],
-                result: Box::new(mapped()),
-            },
-            optional: false,
-            variadic: false,
-        }],
-        result: Type::Builtin {
-            kind: Builtin::Result,
-            args: vec![value.clone(), mapped()],
-        },
-        takes_self: true,
-        visibility: None,
-        span,
-        inferred: false,
-        unsafe_: false,
-    })
-}
-
 /// Whether `ty` names any of `params`.
 fn mentions(ty: &Type, params: &[String]) -> bool {
     match ty {

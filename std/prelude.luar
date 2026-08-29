@@ -115,3 +115,14 @@ export extend OptionalOr<T> for T?
         return Result.Err(error)
     end
 end
+
+export extend ResultMap<T, E> for Result<T, E>
+    function mapErr<F>(self, map: (E) -> F): Result<T, F>
+        match self
+            case Result.Ok(value)
+                return Result.Ok(value)
+            case Result.Err(error)
+                return Result.Err(map(error))
+        end
+    end
+end

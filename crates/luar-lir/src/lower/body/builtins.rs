@@ -4,7 +4,7 @@ use luar_ast::{Argument, Expr};
 use luar_diagnostics::Span;
 use luar_sema::facts::{CollectionMutation, Intrinsic, OverflowMethod};
 
-use crate::inst::{BinaryOp, Const, InstKind, Overflow, Target, Terminator, Value};
+use crate::inst::{BinaryOp, Const, InstKind, Overflow, Value};
 use crate::lower::CompilationMode;
 use crate::lower::body::Body;
 use crate::lower::body::expr::binary_op;
@@ -278,114 +278,6 @@ impl<'a> Body<'a> {
         };
         let value = self.expr(&argument.value, Some(&element));
         self.emit(InstKind::Contains { receiver, value }, Ty::Bool, span)
-    }
-
-    /// LR25.1: `result:mapErr(f)` is the same `Ok`, or `Err` of what `f`
-    /// makes of the error.
-    pub(super) fn map_err(&mut self, callee: &Expr, args: &[Argument], span: Span) -> Value {
-        let result = self.expr(callee, None);
-        let Ty::Builtin {
-            kind: Builtin::Result,
-            args: held,
-        } = self.function.type_of(result).clone()
-        else {
-            return self.missing(span, "`mapErr` on a value that is not a `Result`");
-        };
-        let (Some(value_ty), Some(error_ty)) = (held.first().cloned(), held.get(1).cloned()) else {
-            return self.missing(span, "a `Result` without both type arguments");
-        };
-        let mapped = self.recorded(span);
-        let Ty::Builtin {
-            kind: Builtin::Result,
-            args: mapped_args,
-        } = &mapped
-        else {
-            return self.missing(span, "a `mapErr` whose result is not a `Result`");
-        };
-        let Some(mapped_error) = mapped_args.get(1).cloned() else {
-            return self.missing(span, "a mapped `Result` without an error type");
-        };
-        let Some(argument) = args.first() else {
-            return self.missing(span, "a `mapErr` without a function");
-        };
-        let map_ty = Ty::Function {
-            params: vec![error_ty.clone()],
-            result: Box::new(mapped_error.clone()),
-        };
-        let map = self.expr(&argument.value, Some(&map_ty));
-
-        let failed = self.function.add_block();
-        let succeeded = self.function.add_block();
-        let join = self.function.add_block();
-        let tag = self.emit(InstKind::GetTag { value: result }, Ty::INT, span);
-        let err = self.emit(InstKind::Const(Const::Int(1)), Ty::INT, span);
-        let is_err = self.emit(
-            InstKind::Binary {
-                op: BinaryOp::Equal,
-                left: tag,
-                right: err,
-            },
-            Ty::Bool,
-            span,
-        );
-        self.terminate(Terminator::Branch {
-            condition: is_err,
-            then: Target::to(failed),
-            otherwise: Target::to(succeeded),
-        });
-
-        self.switch_to(failed);
-        let error = self.emit(
-            InstKind::GetPayload {
-                value: result,
-                variant: 1,
-                field: 0,
-            },
-            error_ty,
-            span,
-        );
-        let replaced = self.emit(
-            InstKind::CallIndirect {
-                callee: map,
-                args: vec![error],
-            },
-            mapped_error,
-            span,
-        );
-        let failure = self.emit(
-            InstKind::MakeEnum {
-                ty: mapped.clone(),
-                variant: 1,
-                payload: vec![replaced],
-            },
-            mapped.clone(),
-            span,
-        );
-        self.terminate(Terminator::Jump(Target::new(join, vec![failure])));
-
-        self.switch_to(succeeded);
-        let value = self.emit(
-            InstKind::GetPayload {
-                value: result,
-                variant: 0,
-                field: 0,
-            },
-            value_ty,
-            span,
-        );
-        let success = self.emit(
-            InstKind::MakeEnum {
-                ty: mapped.clone(),
-                variant: 0,
-                payload: vec![value],
-            },
-            mapped.clone(),
-            span,
-        );
-        self.terminate(Terminator::Jump(Target::new(join, vec![success])));
-
-        self.switch_to(join);
-        self.function.add_block_param(join, mapped)
     }
 
     /// LR4.3: `x:wrappingAdd(y)` and its kin apply the operator they name
