@@ -3073,6 +3073,8 @@ Native code enters the standard library through foreign declarations (LR46) and 
 
 A bodiless function declaration marked `@intrinsic` names an operation the compiler implements and the language has no other spelling for, such as `identical` (LR32) and `reinterpret` (LR72) in `std/mem`. `@intrinsic` is accepted only in a standard library module. A call to one is checked against the declared signature like any other call.
 
+`std/fs.readText(path: string): Result<string, Error>` is the contents of the file at `path` as text. It is `Err` where the file cannot be opened or read, or where its bytes are not valid UTF-8.
+
 ---
 
 ## 61. Testing
@@ -3376,6 +3378,8 @@ Taking the address of a temporary, of a `const` binding through `&mut`, or of a 
 Managed references are never written as raw pointers in source, and there is no operator that converts one into the other outside `unsafe` reinterpretation.
 
 Pointer dereference and arithmetic use the unsafe methods `read()`, `write(value)`, and `add(offset)` (LR29.2). The `reinterpret<T>(value)` function from `std/mem` accepts plain ABI-representable values and raw pointers, never managed references.
+
+The bytes of a string are reached through two `unsafe` functions in `std/mem`. `bytesOf(text: string): *const u8` is the address of the first byte of `text`, which stays put while `text` is reachable; the bytes are not zero-terminated. `stringFromBytes(data: *const u8, length: int): string` is a new string holding a copy of `length` bytes read from `data`, which the caller guarantees are valid UTF-8.
 
 ---
 
