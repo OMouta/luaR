@@ -338,11 +338,12 @@ pub fn citations(root: &Path) -> io::Result<BTreeMap<Section, Vec<String>>> {
     Ok(citations)
 }
 
-/// Reports coverage of the spec at `spec_path` by the suite at `suite_root`.
-pub fn report(spec_path: &Path, suite_root: &Path) -> io::Result<Coverage> {
-    let spec = fs::read_to_string(spec_path)?;
-    Ok(coverage(
-        &normative_sections(&spec)?,
-        &citations(suite_root)?,
-    ))
+/// Reports coverage of the specs at `spec_paths` by the suite at `suite_root`.
+pub fn report(spec_paths: &[&Path], suite_root: &Path) -> io::Result<Coverage> {
+    let mut defined = Vec::new();
+    for path in spec_paths {
+        let spec = fs::read_to_string(path)?;
+        defined.extend(normative_sections(&spec)?);
+    }
+    Ok(coverage(&defined, &citations(suite_root)?))
 }

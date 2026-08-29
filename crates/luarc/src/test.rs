@@ -6,7 +6,7 @@ use std::process::ExitCode;
 use luar_conformance::{Outcome, run_suite};
 
 const SUITE: &str = "tests/conformance";
-const SPEC: &str = ".internal/SPEC.md";
+const SPECS: [&str; 2] = [".internal/SPEC.md", ".internal/STD-SPEC.md"];
 
 /// Runs the suite. `filter` keeps the tests whose path contains it.
 pub fn run(filter: Option<&str>) -> ExitCode {
@@ -58,13 +58,14 @@ pub fn run(filter: Option<&str>) -> ExitCode {
 
 /// Reports which spec sections no test cites.
 pub fn coverage() -> ExitCode {
-    match luar_conformance::coverage::report(Path::new(SPEC), Path::new(SUITE)) {
+    let specs: Vec<&Path> = SPECS.iter().map(Path::new).collect();
+    match luar_conformance::coverage::report(&specs, Path::new(SUITE)) {
         Ok(coverage) => {
             print!("{coverage}");
             ExitCode::SUCCESS
         }
         Err(e) => {
-            eprintln!("luarc coverage: {SPEC}: {e}");
+            eprintln!("luarc coverage: {e}");
             ExitCode::FAILURE
         }
     }
