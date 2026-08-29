@@ -1,0 +1,20 @@
+--- expect: run
+--- exit: 0
+--- stdout: "42\n"
+--- spec: LR23.2
+@inline
+function increment(value: int): int
+    if value < 42 then
+        return value + 1
+    end
+    return value
+end
+
+@noinline
+function identity(value: int): int
+    return value
+end
+
+export function main()
+    print(identity(increment(41)))
+end

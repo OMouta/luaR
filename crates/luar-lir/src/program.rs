@@ -19,6 +19,14 @@ pub struct BlockId(pub u32);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SlotId(pub u32);
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Inline {
+    #[default]
+    Default,
+    Always,
+    Never,
+}
+
 /// One field of a struct or of an enum variant's payload.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Field {
@@ -144,6 +152,8 @@ pub struct Function {
     /// Whether calling it produces a `Task<T>` rather than running it (LR27).
     /// The pass that turns one into a state machine reads this.
     pub asynchronous: bool,
+    /// The source-level inlining request (LR23.2).
+    pub inline: Inline,
     /// The native symbol this declaration imports (LR46).
     pub external: Option<String>,
     /// Where it was written, for diagnostics and backtraces.
@@ -166,6 +176,7 @@ impl Function {
             params: params.clone(),
             result,
             asynchronous: false,
+            inline: Inline::Default,
             external: None,
             span,
             entry: BlockId(0),

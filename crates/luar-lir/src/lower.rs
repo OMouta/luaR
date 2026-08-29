@@ -595,6 +595,7 @@ impl Lowering<'_> {
         let mut lowered = Function::new(self.qualify(module, path), params, result, span);
         lowered.type_params = type_params;
         lowered.asynchronous = signature.asynchronous;
+        lowered.inline = inline(function);
         lowered.external = extern_symbol(function);
         if function.body.is_some() {
             // Until the body is lowered the function says it never returns.
@@ -1059,6 +1060,24 @@ fn is_finalizer(function: &AstFunction) -> bool {
         .decorators
         .iter()
         .any(|decorator| decorator.name == "finalizer")
+}
+
+fn inline(function: &AstFunction) -> crate::program::Inline {
+    if function
+        .decorators
+        .iter()
+        .any(|decorator| decorator.name == "noinline")
+    {
+        crate::program::Inline::Never
+    } else if function
+        .decorators
+        .iter()
+        .any(|decorator| decorator.name == "inline")
+    {
+        crate::program::Inline::Always
+    } else {
+        crate::program::Inline::Default
+    }
 }
 
 fn extern_symbol(function: &AstFunction) -> Option<String> {
