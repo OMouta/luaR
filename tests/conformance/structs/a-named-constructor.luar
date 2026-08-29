@@ -1,0 +1,20 @@
+--- expect: run
+--- exit: 0
+--- stdout: "Jon Doe\n"
+--- spec: LR66
+struct User
+    id: u64
+    name: string
+
+    static function named(name: string): User
+        return User {
+            id = 1,
+            name = name,
+        }
+    end
+end
+
+export function main()
+    local user = User.named("Jon Doe")
+    print(user.name)
+end
