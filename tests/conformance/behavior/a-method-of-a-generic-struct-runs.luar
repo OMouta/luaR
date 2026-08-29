@@ -1,0 +1,15 @@
+--- expect: run
+--- exit: 42
+--- spec: LR19
+--- spec: LR65
+struct Box<T>
+    value: T
+
+    function get(self): T
+        return self.value
+    end
+end
+
+export function main(): int
+    return Box { value = 42 }:get()
+end

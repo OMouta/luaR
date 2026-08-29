@@ -527,11 +527,12 @@ impl Checker<'_> {
                 // name, so adding one shadows the extension rather than
                 // changing what a call already meant.
                 Some(Decl::Struct(structure)) => {
-                    if let Some(overloads) = structure
-                        .methods
-                        .get(name)
-                        .map(|overloads| filled(overloads, &structure.type_params, args))
-                    {
+                    if let Some(mut overloads) = structure.methods.get(name).cloned() {
+                        for signature in &mut overloads {
+                            signature
+                                .type_params
+                                .splice(0..0, structure.type_params.iter().cloned());
+                        }
                         // Where every overload is private, no call from
                         // outside can reach any of them (LR44).
                         let hidden = overloads
@@ -556,7 +557,7 @@ impl Checker<'_> {
                             );
                         }
 
-                        return Some((overloads, Vec::new()));
+                        return Some((overloads, args.clone()));
                     }
                 }
                 // LR75: an enum declares no members of its own, and what
