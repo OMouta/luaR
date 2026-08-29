@@ -224,65 +224,6 @@ impl Translator<'_, '_> {
             .store(OWNED, length, list, layout::LENGTH);
     }
 
-    pub(super) fn list_insert(&mut self, receiver: Value, index: Value, value: Value) {
-        let Some(machine) = self.mutable_list_element(receiver) else {
-            return;
-        };
-        let list = self.value(receiver);
-        let index = self.value(index);
-        let length = self
-            .builder
-            .ins()
-            .load(self.pointer, OWNED, list, layout::LENGTH);
-        let past = self
-            .builder
-            .ins()
-            .icmp(IntCC::UnsignedGreaterThan, index, length);
-        self.trap_if(past, Trap::Bounds);
-        let needed = self.builder.ins().iadd_imm(length, 1);
-        self.list_reserve(list, length, needed, machine);
-        let buffer = self
-            .builder
-            .ins()
-            .load(self.pointer, OWNED, list, layout::BUFFER);
-
-        // Each element from the end down to `index` moves up one cell.
-        let shift = self.builder.create_block();
-        let shift_one = self.builder.create_block();
-        let write = self.builder.create_block();
-        self.builder.append_block_param(shift, self.pointer);
-        self.builder
-            .ins()
-            .jump(shift, &[ir::BlockArg::Value(length)]);
-
-        self.builder.switch_to_block(shift);
-        let cursor = self.builder.block_params(shift)[0];
-        let more = self
-            .builder
-            .ins()
-            .icmp(IntCC::UnsignedGreaterThan, cursor, index);
-        self.builder.ins().brif(more, shift_one, &[], write, &[]);
-
-        self.builder.switch_to_block(shift_one);
-        let before = self.builder.ins().iadd_imm(cursor, -1);
-        let from = self.list_cell(buffer, before);
-        let to = self.list_cell(buffer, cursor);
-        let moved = self.builder.ins().load(machine, OWNED, from, 0);
-        self.builder.ins().store(OWNED, moved, to, 0);
-        self.builder
-            .ins()
-            .jump(shift, &[ir::BlockArg::Value(before)]);
-
-        self.builder.switch_to_block(write);
-        let cell = self.list_cell(buffer, index);
-        let written = self.value(value);
-        self.builder.ins().store(OWNED, written, cell, 0);
-        let length = self.builder.ins().iadd_imm(length, 1);
-        self.builder
-            .ins()
-            .store(OWNED, length, list, layout::LENGTH);
-    }
-
     pub(super) fn list_remove_at(&mut self, receiver: Value, index: Value) -> Option<ir::Value> {
         let machine = self.mutable_list_element(receiver)?;
         let address = self.element_address(receiver, index);

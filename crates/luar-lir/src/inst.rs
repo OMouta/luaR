@@ -313,12 +313,6 @@ pub enum InstKind {
         receiver: Value,
         value: Value,
     },
-    /// `value` put at `index`, the elements from there on moved up (LR13.1).
-    ListInsert {
-        receiver: Value,
-        index: Value,
-        value: Value,
-    },
     /// The element at `index`, taken out, the ones after it moved down
     /// (LR13.1).
     ListRemoveAt {
@@ -511,7 +505,6 @@ impl InstKind {
             | Self::SetIndex { .. }
             | Self::ListPush { .. }
             | Self::ListPop { .. }
-            | Self::ListInsert { .. }
             | Self::ListRemoveAt { .. }
             | Self::SetInsert { .. }
             | Self::MapRemove { .. }
