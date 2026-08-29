@@ -2083,6 +2083,9 @@ impl<'a> Body<'a> {
                 optional,
             } => self.field(receiver, name, *optional, span),
             ExprKind::Tuple(members) => {
+                if members.is_empty() {
+                    return self.emit(InstKind::Const(Const::Unit), Ty::Unit, span);
+                }
                 let types = match wanted {
                     Some(Ty::Tuple(types)) => types.clone(),
                     _ => match self.recorded(span) {

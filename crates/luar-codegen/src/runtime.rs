@@ -787,6 +787,7 @@ fn define_abort(
     let assertion_bytes = b"luar: trap: assertion-failed";
     let panic_bytes = b"luar: panic";
     let exception_bytes = b"luar: uncaught exception";
+    let error_bytes = b"luar: error";
     let separator_bytes = b": ";
     let newline_bytes = b"\n";
     let trace_bytes = b"backtrace:\n";
@@ -794,6 +795,7 @@ fn define_abort(
     let assertion = static_data(module, "luar_assertion_prefix", assertion_bytes)?;
     let panic = static_data(module, "luar_panic_prefix", panic_bytes)?;
     let exception = static_data(module, "luar_exception_prefix", exception_bytes)?;
+    let error = static_data(module, "luar_error_prefix", error_bytes)?;
     let separator = static_data(module, "luar_failure_separator", separator_bytes)?;
     let newline = static_data(module, "luar_failure_newline", newline_bytes)?;
     let trace = static_data(module, "luar_backtrace_header", trace_bytes)?;
@@ -813,6 +815,7 @@ fn define_abort(
     let assertion = module.declare_data_in_func(assertion, &mut context.func);
     let panic = module.declare_data_in_func(panic, &mut context.func);
     let exception = module.declare_data_in_func(exception, &mut context.func);
+    let error = module.declare_data_in_func(error, &mut context.func);
     let separator = module.declare_data_in_func(separator, &mut context.func);
     let newline = module.declare_data_in_func(newline, &mut context.func);
     let trace = module.declare_data_in_func(trace, &mut context.func);
@@ -826,6 +829,7 @@ fn define_abort(
     let panic_header = builder.create_block();
     let exception_header = builder.create_block();
     let assertion_header = builder.create_block();
+    let error_header = builder.create_block();
     let after_header = builder.create_block();
     let message = builder.create_block();
     let trace_header = builder.create_block();
@@ -845,9 +849,16 @@ fn define_abort(
 
     builder.switch_to_block(choose);
     let is_exception = builder.ins().icmp_imm(IntCC::Equal, kind, 2);
+    let choose_error = builder.create_block();
     builder
         .ins()
-        .brif(is_exception, exception_header, &[], assertion_header, &[]);
+        .brif(is_exception, exception_header, &[], choose_error, &[]);
+
+    builder.switch_to_block(choose_error);
+    let is_error = builder.ins().icmp_imm(IntCC::Equal, kind, 3);
+    builder
+        .ins()
+        .brif(is_error, error_header, &[], assertion_header, &[]);
 
     builder.switch_to_block(panic_header);
     write_static(&mut builder, pointer, write, panic, panic_bytes.len());
@@ -863,6 +874,10 @@ fn define_abort(
         exception,
         exception_bytes.len(),
     );
+    builder.ins().jump(after_header, &[]);
+
+    builder.switch_to_block(error_header);
+    write_static(&mut builder, pointer, write, error, error_bytes.len());
     builder.ins().jump(after_header, &[]);
 
     builder.switch_to_block(assertion_header);

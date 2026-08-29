@@ -1,0 +1,7 @@
+--- expect: run
+--- exit: 0
+--- spec: LR14
+--- spec: LR45
+export function main(): Result<(), Error>
+    return Result.Ok(())
+end

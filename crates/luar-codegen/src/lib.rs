@@ -563,6 +563,31 @@ impl Emitter<'_> {
             result = inner;
         }
 
+        if let Some(value) = returned
+            && result_entrypoint(&result)
+        {
+            let ran = builder.create_block();
+            let failed = builder.create_block();
+            let tag = builder
+                .ins()
+                .load(layout::TAG_TYPE, MemFlags::trusted(), value, layout::TAG);
+            let is_error = builder.ins().icmp_imm(IntCC::NotEqual, tag, 0);
+            builder.ins().brif(is_error, failed, &[], ran, &[]);
+
+            builder.switch_to_block(failed);
+            let message =
+                builder
+                    .ins()
+                    .load(self.pointer, MemFlags::trusted(), value, layout::CELL);
+            let kind = builder.ins().iconst(types::I8, RETURNED_ERROR);
+            builder.ins().call(abort, &[kind, message]);
+            builder.ins().trap(TrapCode::unwrap_user(1));
+
+            builder.switch_to_block(ran);
+            returned = None;
+            result = Ty::Unit;
+        }
+
         // LR45: an entrypoint that returns an integer maps it to the exit
         // code, and one that returns nothing exits successfully.
         let status = match (returned, exit_code_type(&result, self.pointer)) {
@@ -599,6 +624,7 @@ fn rejected(error: cranelift_module::ModuleError) -> Error {
 
 /// The abort kind `luar_abort` reports as an exception nothing caught.
 const UNCAUGHT_EXCEPTION: i64 = 2;
+const RETURNED_ERROR: i64 = 3;
 
 /// What `main` returns where an exception can escape it: the type inside its
 /// `Result<T, dynamic>` (LR25.3).
@@ -610,6 +636,16 @@ fn thrown_from(result: &Ty) -> Option<Ty> {
         } if args.get(1) == Some(&Ty::Dynamic) => args.first().cloned(),
         _ => None,
     }
+}
+
+fn result_entrypoint(result: &Ty) -> bool {
+    matches!(
+        result,
+        Ty::Builtin {
+            kind: luar_lir::ty::Builtin::Result,
+            args,
+        } if args.as_slice() == [Ty::Unit, Ty::Error]
+    )
 }
 
 /// The width `main` returns its exit code in, or `None` where it returns

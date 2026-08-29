@@ -1,0 +1,7 @@
+--- expect: run
+--- exit: 101
+--- stderr: "luar: error: failed\nbacktrace:\n"
+--- spec: LR45
+export function main(): Result<(), Error>
+    return Result.Err(Error("failed"))
+end
