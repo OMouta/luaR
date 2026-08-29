@@ -196,7 +196,11 @@ fn execute(
         };
     }
 
-    let produced = Command::new(&output).output();
+    // A program starts in the directory holding its test, so a fixture
+    // beside the test is reached by name.
+    let produced = Command::new(&output)
+        .current_dir(path.parent().unwrap_or(Path::new(".")))
+        .output();
     let _ = fs::remove_file(&output);
     let produced = match produced {
         Ok(produced) => produced,

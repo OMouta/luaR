@@ -89,6 +89,9 @@ agrees with itself.
 `run` needs a backend, so it reports as skipped today. Write them anyway. When
 the backend lands, the suite immediately says how much of the language works.
 
+A `run` program starts in the directory holding its test, so a fixture beside
+the test is opened by name.
+
 ## Rules
 
 Changing what a test expects means changing the spec in the same commit. If the
