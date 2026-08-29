@@ -407,6 +407,7 @@ impl Emitter<'_> {
             let display_unsigned = self
                 .runtime
                 .display_unsigned_in(&mut self.module, &mut context.func);
+            let print = self.runtime.print_in(&mut self.module, &mut context.func);
             let abort = self.runtime.abort_in(&mut self.module, &mut context.func);
             let map_find = self
                 .runtime
@@ -445,6 +446,7 @@ impl Emitter<'_> {
                 hash_bytes,
                 display_signed,
                 display_unsigned,
+                print,
                 abort,
                 map_find,
                 map_insert,

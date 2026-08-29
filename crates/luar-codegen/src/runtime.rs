@@ -22,6 +22,7 @@ const TRAPPED: i64 = 101;
 
 /// The file descriptor a trap reports on.
 const STDERR: i64 = 2;
+const STDOUT: i64 = 1;
 
 /// What the process does after `exit`, which never returns.
 const AFTER_EXIT: TrapCode = TrapCode::unwrap_user(1);
@@ -45,6 +46,7 @@ pub(crate) struct Runtime {
     pub hash_bytes: ModuleFuncId,
     pub display_signed: ModuleFuncId,
     pub display_unsigned: ModuleFuncId,
+    pub print: ModuleFuncId,
     pub abort: ModuleFuncId,
     /// The bucket a map holds a key in, and the bucket it will (LR13.2).
     pub map_find: ModuleFuncId,
@@ -85,6 +87,7 @@ impl Runtime {
             define_display_integer(module, pointer, call_conv, collector.allocate, true)?;
         let display_unsigned =
             define_display_integer(module, pointer, call_conv, collector.allocate, false)?;
+        let print = define_print(module, pointer, call_conv, write)?;
         let abort = define_abort(module, pointer, call_conv, exit, write, collector.roots)?;
         let table = map::emit(module, pointer, call_conv, collector.allocate, text_equal)?;
 
@@ -102,6 +105,7 @@ impl Runtime {
             hash_bytes,
             display_signed,
             display_unsigned,
+            print,
             abort,
             map_find: table.find,
             map_insert: table.insert,
@@ -192,6 +196,14 @@ impl Runtime {
         module.declare_func_in_func(self.display_unsigned, function)
     }
 
+    pub fn print_in(
+        &self,
+        module: &mut ObjectModule,
+        function: &mut cranelift_codegen::ir::Function,
+    ) -> FuncRef {
+        module.declare_func_in_func(self.print, function)
+    }
+
     pub fn abort_in(
         &self,
         module: &mut ObjectModule,
@@ -207,6 +219,52 @@ impl Runtime {
     ) -> cranelift_codegen::ir::GlobalValue {
         module.declare_data_in_func(self.roots, function)
     }
+}
+
+fn define_print(
+    module: &mut ObjectModule,
+    pointer: types::Type,
+    call_conv: CallConv,
+    write: ModuleFuncId,
+) -> Result<ModuleFuncId, Error> {
+    let newline = static_data(module, "luar_print_newline", b"\n")?;
+    let mut signature = Signature::new(call_conv);
+    signature.params.push(AbiParam::new(pointer));
+    let declared = module
+        .declare_function("luar_print", Linkage::Local, &signature)
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
+
+    let mut context = Context::new();
+    let mut frame = FunctionBuilderContext::new();
+    context.func.signature = signature;
+    let write = module.declare_func_in_func(write, &mut context.func);
+    let newline = module.declare_data_in_func(newline, &mut context.func);
+    let mut builder = FunctionBuilder::new(&mut context.func, &mut frame);
+    let entry = builder.create_block();
+    builder.append_block_params_for_function_params(entry);
+    builder.switch_to_block(entry);
+
+    let text = builder.block_params(entry)[0];
+    let length = builder.ins().load(types::I64, MemFlags::trusted(), text, 0);
+    let length = if pointer.bits() > 32 {
+        builder.ins().ireduce(types::I32, length)
+    } else {
+        length
+    };
+    let bytes = builder.ins().iadd_imm(text, 8);
+    let stdout = builder.ins().iconst(types::I32, STDOUT);
+    builder.ins().call(write, &[stdout, bytes, length]);
+    let newline = builder.ins().global_value(pointer, newline);
+    let one = builder.ins().iconst(types::I32, 1);
+    builder.ins().call(write, &[stdout, newline, one]);
+    builder.ins().return_(&[]);
+
+    builder.seal_all_blocks();
+    builder.finalize();
+    module
+        .define_function(declared, &mut context)
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
+    Ok(declared)
 }
 
 fn define_concat(

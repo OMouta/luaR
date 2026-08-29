@@ -35,13 +35,9 @@ fn a_missing_suite_is_empty_rather_than_an_error() {
     );
 }
 
-/// A `run` expectation needs a backend, and there is none, so it is skipped.
-/// Skipped is not passed: the suite says how much of the language actually
-/// works, and a test nothing can answer must not count toward it.
 #[test]
-fn expectations_the_compiler_cannot_answer_are_skipped_not_passed() {
-    let outcome = run(&fixtures().join("runs.luar"));
-    assert!(matches!(outcome, Outcome::Skipped(_)), "reported {outcome}");
+fn a_run_expectation_the_backend_covers_passes() {
+    assert_eq!(run(&fixtures().join("runs.luar")), Outcome::Passed);
 }
 
 #[test]

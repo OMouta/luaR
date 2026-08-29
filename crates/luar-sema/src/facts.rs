@@ -9,6 +9,7 @@ use crate::types::Type;
 /// A predeclared operation implemented by the compiler (LR54.1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Intrinsic {
+    Print,
     Assert,
     DebugAssert,
     Panic,
@@ -50,6 +51,7 @@ impl Intrinsic {
     #[must_use]
     pub fn name(self) -> &'static str {
         match self {
+            Self::Print => "print",
             Self::Assert => "assert",
             Self::DebugAssert => "debugAssert",
             Self::Panic => "panic",

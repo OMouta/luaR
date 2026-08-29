@@ -170,6 +170,7 @@ fn instruction(inst: &Inst, function: &Function) -> String {
             format!("hash combine {} {}", name(*state), name(*value))
         }
         InstKind::DisplayValue { value } => format!("display {}", name(*value)),
+        InstKind::Print { value } => format!("print {}", name(*value)),
         InstKind::Assert { condition, message } => match message {
             Some(message) => format!("assert {} {}", name(*condition), name(*message)),
             None => format!("assert {}", name(*condition)),

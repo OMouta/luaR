@@ -89,6 +89,7 @@ pub(crate) struct Translator<'a, 'b> {
     pub hash_bytes: FuncRef,
     pub display_signed: FuncRef,
     pub display_unsigned: FuncRef,
+    pub print: FuncRef,
     pub abort: FuncRef,
     /// The bucket a map holds a key in, and the bucket it will (LR13.2).
     pub map_find: FuncRef,
@@ -257,6 +258,11 @@ impl Translator<'_, '_> {
                 Some(self.builder.ins().imul_imm(mixed, 0x100000001b3))
             }
             InstKind::DisplayValue { value } => self.display_value(*value),
+            InstKind::Print { value } => {
+                let value = self.value(*value);
+                self.builder.ins().call(self.print, &[value]);
+                None
+            }
             InstKind::Assert { condition, message } => {
                 self.assert(*condition, *message);
                 None

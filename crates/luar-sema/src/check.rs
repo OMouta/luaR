@@ -3458,6 +3458,7 @@ impl Checker<'_> {
         match &callee.kind {
             ExprKind::Name(name) if !self.shadowed(name) && self.declared(name).is_none() => {
                 match name.as_str() {
+                    "print" => Some(Intrinsic::Print),
                     "assert" => Some(Intrinsic::Assert),
                     "debugAssert" => Some(Intrinsic::DebugAssert),
                     "panic" => Some(Intrinsic::Panic),
@@ -5168,6 +5169,16 @@ fn memory_param(name: &str, ty: Type) -> crate::table::Param {
 
 fn intrinsic_signature(intrinsic: Intrinsic, span: Span) -> Signature {
     let (type_params, params, result) = match intrinsic {
+        Intrinsic::Print => (
+            Vec::new(),
+            vec![crate::table::Param {
+                name: "values".to_owned(),
+                ty: Type::Primitive(Primitive::Any),
+                optional: false,
+                variadic: true,
+            }],
+            Type::Tuple(Vec::new()),
+        ),
         Intrinsic::Assert => (
             Vec::new(),
             vec![

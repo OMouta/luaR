@@ -1,0 +1,9 @@
+--- expect: run
+--- exit: 0
+--- stdout: "hello\n42\ntrue\n"
+--- spec: LR54.1
+export function main()
+    print("hello")
+    print(42)
+    print(true)
+end

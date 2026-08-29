@@ -2193,13 +2193,7 @@ impl<'a> Body<'a> {
                 }
                 InterpolationPart::Expr(expr) => {
                     let value = self.expr(expr, None);
-                    match self.function.type_of(value) {
-                        Ty::Str => value,
-                        Ty::Int(_) => {
-                            self.emit(InstKind::DisplayValue { value }, Ty::Str, expr.span)
-                        }
-                        ty => return self.missing(expr.span, format!("formatting `{ty}`")),
-                    }
+                    self.display(value, expr.span)
                 }
             };
             joined = self.emit(
@@ -2214,6 +2208,43 @@ impl<'a> Body<'a> {
         }
 
         joined
+    }
+
+    fn display(&mut self, value: Value, span: Span) -> Value {
+        match self.function.type_of(value).clone() {
+            Ty::Str => value,
+            Ty::Int(_) => self.emit(InstKind::DisplayValue { value }, Ty::Str, span),
+            Ty::Bool => {
+                let yes = self.function.add_block();
+                let no = self.function.add_block();
+                let join = self.function.add_block();
+                self.terminate(Terminator::Branch {
+                    condition: value,
+                    then: Target::to(yes),
+                    otherwise: Target::to(no),
+                });
+
+                self.switch_to(yes);
+                let text = self.emit(
+                    InstKind::Const(Const::Str("true".to_owned())),
+                    Ty::Str,
+                    span,
+                );
+                self.terminate(Terminator::Jump(Target::new(join, vec![text])));
+
+                self.switch_to(no);
+                let text = self.emit(
+                    InstKind::Const(Const::Str("false".to_owned())),
+                    Ty::Str,
+                    span,
+                );
+                self.terminate(Terminator::Jump(Target::new(join, vec![text])));
+
+                self.switch_to(join);
+                self.function.add_block_param(join, Ty::Str)
+            }
+            ty => self.missing(span, format!("displaying `{ty}`")),
+        }
     }
 
     fn propagate(&mut self, inner: &Expr, span: Span) -> Value {
@@ -2781,6 +2812,25 @@ impl<'a> Body<'a> {
                 return self.missing(span, "a collection constructor with an unresolved type");
             }
             _ => {}
+        }
+
+        if intrinsic == Intrinsic::Print {
+            if args.is_empty() {
+                let value = self.emit(InstKind::Const(Const::Str(String::new())), Ty::Str, span);
+                self.emit_void(InstKind::Print { value }, span);
+                return self.emit(InstKind::Const(Const::Unit), Ty::Unit, span);
+            }
+            if args.len() != 1 {
+                for argument in args {
+                    self.expr(&argument.value, None);
+                }
+                return self.missing(span, "`print` with more than one value");
+            }
+            let argument = &args[0];
+            let value = self.expr(&argument.value, None);
+            let value = self.display(value, argument.value.span);
+            self.emit_void(InstKind::Print { value }, span);
+            return self.emit(InstKind::Const(Const::Unit), Ty::Unit, span);
         }
 
         if intrinsic == Intrinsic::DebugAssert && self.context.mode == CompilationMode::Release {

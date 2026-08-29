@@ -176,6 +176,10 @@ pub enum InstKind {
     DisplayValue {
         value: Value,
     },
+    /// Writes a string followed by a newline (LR54.1).
+    Print {
+        value: Value,
+    },
     /// `assert` or an included `debugAssert` (LR49).
     Assert {
         condition: Value,
@@ -535,6 +539,7 @@ impl InstKind {
             | Self::Store { .. }
             | Self::SlotGet { .. }
             | Self::SlotSet { .. } => Effect::State,
+            Self::Print { .. } => Effect::State,
         }
     }
 }
