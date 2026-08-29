@@ -1,0 +1,20 @@
+--- expect: run
+--- exit: 30
+--- spec: LR10.5
+--- spec: LR35
+--- spec: LR54.1
+export function main(): int
+    local values = [2, 4, 6]
+    local mutable = values:enumerated()
+    local frozen = values:frozen():enumerated()
+    local total = 0
+
+    for index, value in mutable do
+        total += index + value
+    end
+    for index, value in frozen do
+        total += index + value
+    end
+
+    return total
+end
