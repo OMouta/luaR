@@ -1416,6 +1416,8 @@ case value is string
 
 Patterns nest freely.
 
+A pattern is checked against the type of the value it matches. A literal, range, or type pattern names a type that value can hold; a variant pattern names a variant of that enum or a case of `Result`; a record pattern names the type matched and lists fields it declares, every one of them unless the pattern ends with `...`; a tuple pattern has one member per element; a sequence pattern matches a list, an array, or a slice. A pattern no value of that type can match is a compile-time error. A name a pattern binds holds the type of what it matched, and a name under `is` holds the type tested.
+
 ### 16.3 Guards
 
 A guard is a `bool` expression attached to a case:
