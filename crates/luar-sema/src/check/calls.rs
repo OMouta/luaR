@@ -224,6 +224,14 @@ impl Checker<'_> {
                 .or_else(|| self.std_intrinsic(callee)),
         };
         let resolved = self.signature_of(callee, method, receiver, span);
+        // LR9.2, LR9.3: anything else of function type is called through the
+        // value, at the parameters and result its type writes.
+        let by_value = resolved.is_none() && method.is_none();
+        let resolved = if by_value {
+            function_value(receiver, callee.span)
+        } else {
+            resolved
+        };
 
         // The arguments are expressions whoever is being called, and whatever
         // is wrong inside one is wrong before any overload is picked.
@@ -331,7 +339,9 @@ impl Checker<'_> {
             );
         }
 
-        self.facts.record_call(span, signature.span);
+        if !by_value {
+            self.facts.record_call(span, signature.span);
+        }
         if let Some(builtin) = builtin {
             self.facts.record_builtin(span, builtin);
         }
@@ -967,4 +977,43 @@ impl Checker<'_> {
             format!("expected `{wanted}`, found {}", article(held)),
         ));
     }
+}
+
+/// The one signature a value of function type is called at (LR9.2, LR9.3).
+fn function_value(held: &Type, span: Span) -> Option<Callee> {
+    let Type::Function {
+        asynchronous,
+        params,
+        result,
+        ..
+    } = held
+    else {
+        return None;
+    };
+    let params = params
+        .iter()
+        .map(|ty| crate::table::Param {
+            name: String::new(),
+            ty: ty.clone(),
+            optional: false,
+            variadic: false,
+        })
+        .collect();
+    Some(Callee {
+        name: held.to_string(),
+        overloads: vec![Signature {
+            asynchronous: *asynchronous,
+            type_params: Vec::new(),
+            constraints: Vec::new(),
+            params,
+            result: result.as_ref().clone(),
+            takes_self: false,
+            visibility: None,
+            span,
+            inferred: false,
+            unsafe_: false,
+        }],
+        receiver: None,
+        type_args: Vec::new(),
+    })
 }
