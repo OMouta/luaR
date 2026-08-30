@@ -1431,7 +1431,7 @@ A guarded case is never counted toward exhaustiveness, since the compiler does n
 
 ### 16.4 Exhaustiveness
 
-A `match` over a closed type must cover every possible value. Closed types are enums, booleans, unions of closed types, tuples and records of closed types, and `Result`.
+A `match` over a closed type must cover every possible value. Closed types are enums, booleans, `Result`, tuples and records of closed types, and unions and optionals, whose members are covered one at a time: a type test covers a member whole, and patterns of a member's type cover it the way they would cover a value of that type.
 
 An incomplete match is a compile-time error that lists the uncovered patterns.
 
