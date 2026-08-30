@@ -147,4 +147,16 @@ impl Translator<'_, '_> {
         );
         self.builder.ins().store(OWNED, machine, frame, offset);
     }
+
+    pub(super) fn clear_temporary_roots(&mut self) {
+        let frame = self.builder.ins().stack_addr(
+            self.pointer,
+            self.root_frame.expect("root frame exists"),
+            0,
+        );
+        let zero = self.builder.ins().iconst(self.pointer, 0);
+        for offset in &self.temporary_roots {
+            self.builder.ins().store(OWNED, zero, frame, *offset);
+        }
+    }
 }

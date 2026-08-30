@@ -34,6 +34,7 @@ impl Checker<'_> {
     ) -> (Pat, Option<Type>) {
         self.push();
         let (matched, pat) = self.pattern(&arm.pattern, held);
+        self.bind_pattern_slice_origins(&arm.pattern, scrutinee, held);
 
         // LR57: a case that settles which member the value holds narrows the
         // scrutinee for as long as the case lasts.
@@ -195,9 +196,14 @@ impl Checker<'_> {
                 for pattern in before.iter().chain(after) {
                     self.pattern(pattern, &element);
                 }
-                // LR38: a rest pattern binds a slice, which waits on `Slice<T>`.
                 if let Some(Some(name)) = rest {
-                    self.bind(name, Type::Unresolved);
+                    self.bind(
+                        name,
+                        Type::Builtin {
+                            kind: Builtin::Slice,
+                            args: vec![element],
+                        },
+                    );
                 }
                 (matched, wrap(member, open(span)))
             }
@@ -248,6 +254,36 @@ impl Checker<'_> {
                 }
                 (matched.unwrap_or_else(|| held.clone()), Pat::Or(pats))
             }
+        }
+    }
+
+    fn bind_pattern_slice_origins(&mut self, pattern: &Pattern, scrutinee: &Expr, held: &Type) {
+        let ExprKind::Name(source) = &scrutinee.kind else {
+            return;
+        };
+        let origin = self
+            .slice_borrows
+            .iter()
+            .rev()
+            .find_map(|scope| scope.get(source))
+            .cloned()
+            .or_else(|| {
+                matches!(
+                    held,
+                    Type::Builtin {
+                        kind: Builtin::List,
+                        ..
+                    }
+                )
+                .then(|| source.clone())
+            });
+        let Some(origin) = origin else {
+            return;
+        };
+
+        let scope = self.slice_borrows.last_mut().expect("a scope is open");
+        for name in sequence_rest_names(pattern) {
+            scope.insert(name.to_owned(), origin.clone());
         }
     }
 
@@ -678,11 +714,60 @@ fn sequence_element(held: &Type) -> Option<Type> {
     match held {
         Type::Array(element, _) => Some(element.as_ref().clone()),
         Type::Builtin {
-            kind: Builtin::List | Builtin::FrozenList,
+            kind: Builtin::List | Builtin::FrozenList | Builtin::Slice,
             args,
         } => Some(args.first().cloned().unwrap_or(Type::Unresolved)),
         _ => None,
     }
+}
+
+fn sequence_rest_names(pattern: &Pattern) -> Vec<&str> {
+    fn collect<'a>(pattern: &'a Pattern, names: &mut Vec<&'a str>) {
+        match &pattern.kind {
+            PatternKind::Sequence {
+                before,
+                rest,
+                after,
+            } => {
+                if let Some(Some(name)) = rest {
+                    names.push(name);
+                }
+                for pattern in before.iter().chain(after) {
+                    collect(pattern, names);
+                }
+            }
+            PatternKind::Path { payload, .. } => match payload {
+                Some(Payload::Tuple(patterns)) => {
+                    for pattern in patterns {
+                        collect(pattern, names);
+                    }
+                }
+                Some(Payload::Record { fields, .. }) => {
+                    for field in fields {
+                        if let Some(pattern) = &field.pattern {
+                            collect(pattern, names);
+                        }
+                    }
+                }
+                None => {}
+            },
+            PatternKind::Tuple(patterns) | PatternKind::Or(patterns) => {
+                for pattern in patterns {
+                    collect(pattern, names);
+                }
+            }
+            PatternKind::Typed { inner, .. } => collect(inner, names),
+            PatternKind::Wildcard
+            | PatternKind::Binding(_)
+            | PatternKind::Literal(_)
+            | PatternKind::Range { .. }
+            | PatternKind::Error => {}
+        }
+    }
+
+    let mut names = Vec::new();
+    collect(pattern, &mut names);
+    names
 }
 
 /// Whether two alternatives bind the same names at the same types (LR16.2).

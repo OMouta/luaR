@@ -72,10 +72,13 @@ impl Translator<'_, '_> {
     ) -> (ir::Value, ir::Value, ir::Value, ir::Value, ir::Value) {
         let source = self.value(receiver);
         let range = self.value(range);
-        let length = self
-            .builder
-            .ins()
-            .load(self.pointer, OWNED, source, layout::LENGTH);
+        let length = match self.function.type_of(receiver) {
+            Ty::Array(_, length) => self.builder.ins().iconst(self.pointer, *length as i64),
+            _ => self
+                .builder
+                .ins()
+                .load(self.pointer, OWNED, source, layout::LENGTH),
+        };
 
         let start_optional = self.builder.ins().load(self.pointer, OWNED, range, 0);
         let start_tag =
@@ -138,34 +141,49 @@ impl Translator<'_, '_> {
         zero: ir::Value,
     ) -> Option<ir::Value> {
         let slice_length = self.builder.ins().isub(end, start);
-        let (owner, source_start) = if matches!(
-            source_ty,
+        let (owner, source_start, array_owner) = match source_ty {
             Ty::Builtin {
                 kind: Builtin::Slice,
                 ..
-            }
-        ) {
-            let owner = self
-                .builder
-                .ins()
-                .load(self.pointer, OWNED, source, layout::BUFFER);
-            let source_start =
-                self.builder
+            } => {
+                let owner = self
+                    .builder
                     .ins()
-                    .load(self.pointer, OWNED, source, layout::CAPACITY);
-            (owner, source_start)
-        } else {
-            (source, zero)
+                    .load(self.pointer, OWNED, source, layout::BUFFER);
+                let source_start =
+                    self.builder
+                        .ins()
+                        .load(self.pointer, OWNED, source, layout::CAPACITY);
+                let array_owner =
+                    self.builder
+                        .ins()
+                        .load(self.pointer, OWNED, source, layout::BORROWS);
+                (owner, source_start, array_owner)
+            }
+            Ty::Array(..) => {
+                let one = self.builder.ins().iconst(self.pointer, 1);
+                (source, zero, one)
+            }
+            _ => (source, zero, zero),
         };
         let absolute_start = self.builder.ins().iadd(source_start, start);
+        let borrow_list = self.builder.create_block();
+        let borrowed = self.builder.create_block();
+        let is_list = self.builder.ins().icmp_imm(IntCC::Equal, array_owner, 0);
+        self.builder
+            .ins()
+            .brif(is_list, borrow_list, &[], borrowed, &[]);
+        self.builder.switch_to_block(borrow_list);
         let borrows = self
             .builder
             .ins()
             .load(self.pointer, OWNED, owner, layout::BORROWS);
-        let borrowed = self.builder.ins().iadd_imm(borrows, 1);
+        let next = self.builder.ins().iadd_imm(borrows, 1);
         self.builder
             .ins()
-            .store(OWNED, borrowed, owner, layout::BORROWS);
+            .store(OWNED, next, owner, layout::BORROWS);
+        self.builder.ins().jump(borrowed, &[]);
+        self.builder.switch_to_block(borrowed);
         let slice = self.allocate(ty, 0)?;
         self.builder
             .ins()
@@ -178,7 +196,7 @@ impl Translator<'_, '_> {
             .store(OWNED, owner, slice, layout::BUFFER);
         self.builder
             .ins()
-            .store(OWNED, zero, slice, layout::BORROWS);
+            .store(OWNED, array_owner, slice, layout::BORROWS);
         Some(slice)
     }
 
@@ -671,7 +689,7 @@ impl Translator<'_, '_> {
                 .icmp(IntCC::UnsignedGreaterThanOrEqual, index, length);
             self.trap_if(outside, Trap::Bounds);
         }
-        let (list, index) = if matches!(
+        let (owner, index, array_owner) = if matches!(
             held,
             Ty::Builtin {
                 kind: Builtin::Slice,
@@ -686,14 +704,38 @@ impl Translator<'_, '_> {
                 .builder
                 .ins()
                 .load(self.pointer, OWNED, collection, layout::CAPACITY);
-            (list, self.builder.ins().iadd(start, index))
+            let array_owner =
+                self.builder
+                    .ins()
+                    .load(self.pointer, OWNED, collection, layout::BORROWS);
+            (list, self.builder.ins().iadd(start, index), array_owner)
         } else {
-            (collection, index)
+            (
+                collection,
+                index,
+                self.builder.ins().iconst(self.pointer, 0),
+            )
         };
+        let list = self.builder.create_block();
+        let array = self.builder.create_block();
+        let ready = self.builder.create_block();
+        self.builder.append_block_param(ready, self.pointer);
+        let is_array = self.builder.ins().icmp_imm(IntCC::NotEqual, array_owner, 0);
+        self.builder.ins().brif(is_array, array, &[], list, &[]);
+        self.builder.switch_to_block(list);
         let buffer = self
             .builder
             .ins()
-            .load(self.pointer, OWNED, list, layout::BUFFER);
+            .load(self.pointer, OWNED, owner, layout::BUFFER);
+        self.builder
+            .ins()
+            .jump(ready, &[ir::BlockArg::Value(buffer)]);
+        self.builder.switch_to_block(array);
+        self.builder
+            .ins()
+            .jump(ready, &[ir::BlockArg::Value(owner)]);
+        self.builder.switch_to_block(ready);
+        let buffer = self.builder.block_params(ready)[0];
         let offset = self.builder.ins().imul_imm(index, i64::from(layout::CELL));
         self.builder.ins().iadd(buffer, offset)
     }

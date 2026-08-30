@@ -287,6 +287,15 @@ fn define_slice_finalizer(
     builder.append_block_params_for_function_params(entry);
     builder.switch_to_block(entry);
     let slice = builder.block_params(entry)[0];
+    let array_owner =
+        builder
+            .ins()
+            .load(pointer, MemFlags::trusted(), slice, crate::layout::BORROWS);
+    let release = builder.create_block();
+    let done = builder.create_block();
+    let is_array = builder.ins().icmp_imm(IntCC::NotEqual, array_owner, 0);
+    builder.ins().brif(is_array, done, &[], release, &[]);
+    builder.switch_to_block(release);
     let owner = builder
         .ins()
         .load(pointer, MemFlags::trusted(), slice, crate::layout::BUFFER);
@@ -300,6 +309,8 @@ fn define_slice_finalizer(
         owner,
         crate::layout::BORROWS,
     );
+    builder.ins().jump(done, &[]);
+    builder.switch_to_block(done);
     let zero = builder.ins().iconst(types::I8, 0);
     builder.ins().return_(&[zero]);
     builder.seal_all_blocks();

@@ -8,6 +8,15 @@ use crate::lower::body::{Arrival, Body};
 use crate::program::{BlockId, Shape};
 use crate::ty::{Builtin, Ty};
 
+struct PendingSlice<'a> {
+    receiver: Value,
+    before: usize,
+    after: usize,
+    name: &'a str,
+    element: Ty,
+    span: Span,
+}
+
 impl<'a> Body<'a> {
     /// LR16.1: the cases are tried in the order they are written, and the
     /// first whose pattern matches and whose guard holds runs.
@@ -93,25 +102,39 @@ impl<'a> Body<'a> {
 
     /// Tests one case, and where it does not hold leaves for `next`.
     fn arm(&mut self, subject: Value, arm: &MatchArm, next: BlockId) {
-        self.test(subject, &arm.pattern, next);
+        let mut slices = Vec::new();
+        self.test(subject, &arm.pattern, next, &mut slices);
+        for slice in slices {
+            self.bind_rest_slice(slice);
+        }
 
         // LR16.3: a guard is tested after the pattern bound what it binds,
         // because the guard reads those bindings.
         if let Some(guard) = &arm.guard {
             let body = self.function.add_block();
+            let rejected = self.function.add_block();
             let condition = self.expr(guard, Some(&Ty::Bool));
             self.terminate(Terminator::Branch {
                 condition,
                 then: Target::to(body),
-                otherwise: Target::to(next),
+                otherwise: Target::to(rejected),
             });
+            self.switch_to(rejected);
+            self.unwind(self.scopes.len() - 1);
+            self.terminate(Terminator::Jump(Target::to(next)));
             self.switch_to(body);
         }
     }
 
     /// Tests `subject` against `pattern`, leaving for `fail` where it does not
     /// match, and binding what it binds where it does (LR16.2).
-    fn test(&mut self, subject: Value, pattern: &Pattern, fail: BlockId) {
+    fn test<'p>(
+        &mut self,
+        subject: Value,
+        pattern: &'p Pattern,
+        fail: BlockId,
+        slices: &mut Vec<PendingSlice<'p>>,
+    ) {
         let span = pattern.span;
         match &pattern.kind {
             PatternKind::Wildcard => {}
@@ -153,13 +176,13 @@ impl<'a> Body<'a> {
                     Some(tag) => {
                         let test = self.tag_test(subject, tag, span);
                         self.check(test, fail);
-                        self.bind_payload(subject, tag, payload.as_ref(), fail, span);
+                        self.bind_payload(subject, tag, payload.as_ref(), fail, span, slices);
                     }
                     // LR16.2: a path naming a struct rather than a variant
                     // tests nothing, and reads the fields it lists.
                     None => match payload {
                         Some(Payload::Record { fields, .. }) => {
-                            self.bind_fields(subject, fields, fail, span);
+                            self.bind_fields(subject, fields, fail, span, slices);
                         }
                         _ => self.gap(span, "a path pattern the compiler could not resolve"),
                     },
@@ -186,7 +209,108 @@ impl<'a> Body<'a> {
                         ty,
                         span,
                     );
-                    self.test(element, member, fail);
+                    self.test(element, member, fail, slices);
+                }
+            }
+
+            PatternKind::Sequence {
+                before,
+                rest,
+                after,
+            } => {
+                let held = self.function.type_of(subject).clone();
+                let (element, length) = match &held {
+                    Ty::Builtin {
+                        kind: Builtin::List | Builtin::Slice,
+                        args,
+                    } => (
+                        args.first().cloned().unwrap_or(Ty::Never),
+                        self.emit(InstKind::Length { receiver: subject }, Ty::INT, span),
+                    ),
+                    Ty::Array(element, length) => (
+                        element.as_ref().clone(),
+                        self.emit(InstKind::Const(Const::Int(*length)), Ty::INT, span),
+                    ),
+                    _ => {
+                        self.gap(
+                            span,
+                            "a sequence pattern over something that is not a sequence",
+                        );
+                        return;
+                    }
+                };
+                let written = before.len().saturating_add(after.len());
+                let required = self.emit(
+                    InstKind::Const(Const::Int(u64::try_from(written).unwrap_or(u64::MAX))),
+                    Ty::INT,
+                    span,
+                );
+                let shape = self.emit(
+                    InstKind::Binary {
+                        op: if rest.is_some() {
+                            BinaryOp::GreaterEqual
+                        } else {
+                            BinaryOp::Equal
+                        },
+                        left: length,
+                        right: required,
+                    },
+                    Ty::Bool,
+                    span,
+                );
+                self.check(shape, fail);
+
+                for (index, member) in before.iter().enumerate() {
+                    let index = self.emit(
+                        InstKind::Const(Const::Int(u64::try_from(index).unwrap_or(u64::MAX))),
+                        Ty::INT,
+                        member.span,
+                    );
+                    let value = self.emit(
+                        InstKind::GetIndex {
+                            receiver: subject,
+                            index,
+                        },
+                        element.clone(),
+                        member.span,
+                    );
+                    self.test(value, member, fail, slices);
+                }
+                for (offset, member) in after.iter().enumerate() {
+                    let distance = after.len() - offset;
+                    let distance = self.emit(
+                        InstKind::Const(Const::Int(u64::try_from(distance).unwrap_or(u64::MAX))),
+                        Ty::INT,
+                        member.span,
+                    );
+                    let index = self.emit(
+                        InstKind::Binary {
+                            op: BinaryOp::Subtract,
+                            left: length,
+                            right: distance,
+                        },
+                        Ty::INT,
+                        member.span,
+                    );
+                    let value = self.emit(
+                        InstKind::GetIndex {
+                            receiver: subject,
+                            index,
+                        },
+                        element.clone(),
+                        member.span,
+                    );
+                    self.test(value, member, fail, slices);
+                }
+                if let Some(Some(name)) = rest {
+                    slices.push(PendingSlice {
+                        receiver: subject,
+                        before: before.len(),
+                        after: after.len(),
+                        name,
+                        element,
+                        span,
+                    });
                 }
             }
 
@@ -227,12 +351,76 @@ impl<'a> Body<'a> {
                         subject
                     }
                 };
-                self.test(narrowed, inner, fail);
+                self.test(narrowed, inner, fail, slices);
             }
 
             PatternKind::Error => {}
             _ => self.gap(span, "a pattern"),
         }
+    }
+
+    fn bind_rest_slice(&mut self, slice: PendingSlice<'_>) {
+        let length = match self.function.type_of(slice.receiver) {
+            Ty::Array(_, length) => {
+                self.emit(InstKind::Const(Const::Int(*length)), Ty::INT, slice.span)
+            }
+            _ => self.emit(
+                InstKind::Length {
+                    receiver: slice.receiver,
+                },
+                Ty::INT,
+                slice.span,
+            ),
+        };
+        let start = self.emit(
+            InstKind::Const(Const::Int(u64::try_from(slice.before).unwrap_or(u64::MAX))),
+            Ty::INT,
+            slice.span,
+        );
+        let end = if slice.after == 0 {
+            length
+        } else {
+            let after = self.emit(
+                InstKind::Const(Const::Int(u64::try_from(slice.after).unwrap_or(u64::MAX))),
+                Ty::INT,
+                slice.span,
+            );
+            self.emit(
+                InstKind::Binary {
+                    op: BinaryOp::Subtract,
+                    left: length,
+                    right: after,
+                },
+                Ty::INT,
+                slice.span,
+            )
+        };
+        let bound = Ty::Optional(Box::new(Ty::INT));
+        let start = self.emit(
+            InstKind::MakeSome { value: start },
+            bound.clone(),
+            slice.span,
+        );
+        let end = self.emit(InstKind::MakeSome { value: end }, bound, slice.span);
+        let range_ty = Ty::Builtin {
+            kind: Builtin::RangeExclusive,
+            args: vec![Ty::INT],
+        };
+        let range = self.emit(InstKind::MakeTuple(vec![start, end]), range_ty, slice.span);
+        let slice_ty = Ty::Builtin {
+            kind: Builtin::Slice,
+            args: vec![slice.element],
+        };
+        let value = self.emit(
+            InstKind::MakeSlice {
+                receiver: slice.receiver,
+                range,
+                inclusive: false,
+            },
+            slice_ty,
+            slice.span,
+        );
+        self.bind_name(slice.name, value, slice.span);
     }
 
     /// The test a pattern comes down to, where it is one test and binds
@@ -306,13 +494,14 @@ impl<'a> Body<'a> {
 
     /// Matches what a variant carries, once its tag has proved the variant
     /// (LR15.2, LR16.2).
-    fn bind_payload(
+    fn bind_payload<'p>(
         &mut self,
         subject: Value,
         variant: u32,
-        payload: Option<&Payload>,
+        payload: Option<&'p Payload>,
         fail: BlockId,
         span: Span,
+        slices: &mut Vec<PendingSlice<'p>>,
     ) {
         let Some(payload) = payload else {
             return;
@@ -340,7 +529,7 @@ impl<'a> Body<'a> {
                         ty,
                         span,
                     );
-                    self.test(value, pattern, fail);
+                    self.test(value, pattern, fail, slices);
                 }
             }
             Payload::Record { fields, .. } => {
@@ -363,14 +552,21 @@ impl<'a> Body<'a> {
                         carried[index].clone(),
                         written.span,
                     );
-                    self.bind_field(value, written, fail);
+                    self.bind_field(value, written, fail, slices);
                 }
             }
         }
     }
 
     /// Matches the fields a struct or record pattern lists (LR16.2).
-    fn bind_fields(&mut self, subject: Value, fields: &[FieldPattern], fail: BlockId, span: Span) {
+    fn bind_fields<'p>(
+        &mut self,
+        subject: Value,
+        fields: &'p [FieldPattern],
+        fail: BlockId,
+        span: Span,
+        slices: &mut Vec<PendingSlice<'p>>,
+    ) {
         let held = self.function.type_of(subject).clone();
         let Some(declared) = self.fields_of(&held) else {
             self.gap(span, "a record pattern over a type with no fields");
@@ -391,15 +587,21 @@ impl<'a> Body<'a> {
                 declared[index].1.clone(),
                 written.span,
             );
-            self.bind_field(value, written, fail);
+            self.bind_field(value, written, fail, slices);
         }
     }
 
     /// One field of a record pattern: matched against a pattern where it has
     /// one, and bound under the name it is written with otherwise (LR16.2).
-    fn bind_field(&mut self, value: Value, written: &FieldPattern, fail: BlockId) {
+    fn bind_field<'p>(
+        &mut self,
+        value: Value,
+        written: &'p FieldPattern,
+        fail: BlockId,
+        slices: &mut Vec<PendingSlice<'p>>,
+    ) {
         match &written.pattern {
-            Some(pattern) => self.test(value, pattern, fail),
+            Some(pattern) => self.test(value, pattern, fail, slices),
             None => {
                 let name = written.bound_as.as_ref().unwrap_or(&written.field);
                 self.bind_name(name, value, written.span);

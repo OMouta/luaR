@@ -611,6 +611,7 @@ impl Translator<'_, '_> {
         };
 
         let Some(result) = inst.result else {
+            self.clear_temporary_roots();
             return;
         };
         let value = match produced {
@@ -624,6 +625,7 @@ impl Translator<'_, '_> {
         };
         self.values.insert(result, value);
         self.root(result, value);
+        self.clear_temporary_roots();
     }
 
     fn constant(&mut self, literal: &Const, result: Option<Value>) -> Option<ir::Value> {

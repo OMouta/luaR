@@ -1,0 +1,66 @@
+--- expect: run
+--- exit: 0
+--- stdout: "2\t3\nexact\n3\n2\t3\nshort\nguard\n5\n"
+--- spec: LR16.2
+--- spec: LR38
+function showTwo(values: Slice<int>)
+    print(values[0], values[1])
+end
+
+function showOne(values: Slice<int>)
+    print(values[0])
+end
+
+function guardReleasesSlice()
+    local values = [1, 2, 3, 4]
+    match values
+        case [...rest] if false
+            print("miss")
+        case _
+            print("guard")
+    end
+    values:push(5)
+    print(values[4])
+end
+
+export function main()
+    local values = [1, 2, 3, 4]
+    match values
+        case [1, ...middle, 4]
+            showTwo(middle)
+        case _
+            print("miss")
+    end
+
+    match values
+        case [1, 2, 3, 4]
+            print("exact")
+        case _
+            print("miss")
+    end
+
+    local window = values[1..<4]
+    match window
+        case [2, ...middle, 4]
+            showOne(middle)
+        case _
+            print("miss")
+    end
+
+    local fixed: [int; 4] = [1, 2, 3, 4]
+    match fixed
+        case [1, ...middle, 4]
+            showTwo(middle)
+        case _
+            print("miss")
+    end
+
+    match values
+        case [_, _, _]
+            print("miss")
+        case _
+            print("short")
+    end
+
+    guardReleasesSlice()
+end
