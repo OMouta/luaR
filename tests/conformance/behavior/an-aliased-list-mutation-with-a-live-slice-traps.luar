@@ -1,0 +1,15 @@
+--- expect: run
+--- exit: 101
+--- trap: borrowed-mutation
+--- spec: LR38
+function append(values: List<int>)
+    values:push(4)
+end
+
+export function main()
+    local values = [1, 2, 3]
+    local alias = values
+    local window = alias[0..<2]
+    print(window[0])
+    append(values)
+end

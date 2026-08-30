@@ -296,6 +296,8 @@ fn instruction(inst: &Inst, function: &Function) -> String {
             name(*range),
             if *inclusive { " inclusive" } else { "" }
         ),
+        InstKind::KeepAlive { value } => format!("keep alive {}", name(*value)),
+        InstKind::ReleaseSlice { value } => format!("release slice {}", name(*value)),
         InstKind::Overflowing {
             mode,
             op,

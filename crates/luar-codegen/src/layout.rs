@@ -20,7 +20,8 @@ pub const TAG_TYPE: Type = types::I64;
 pub const LENGTH: i32 = 0;
 pub const CAPACITY: i32 = CELL;
 pub const BUFFER: i32 = CELL * 2;
-pub const COLLECTION_CELLS: u32 = 3;
+pub const BORROWS: i32 = CELL * 3;
+pub const COLLECTION_CELLS: u32 = 4;
 
 /// The cells of one map bucket, in order (LR13.2). `occupied` is zero in a
 /// bucket nothing has been written to, and the key is stored as one word

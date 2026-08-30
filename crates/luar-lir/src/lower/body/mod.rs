@@ -67,6 +67,7 @@ enum Exit {
 enum Cleanup {
     Deferred(Expr),
     Finally(Block),
+    Slice(Var, Span),
 }
 
 /// Where a thrown value goes (LR25.3).
@@ -343,6 +344,11 @@ impl<'a> Body<'a> {
                         return;
                     }
                 }
+                Cleanup::Slice(var, span) => {
+                    if let Some(value) = self.defs.get(var).copied() {
+                        self.emit_void(InstKind::ReleaseSlice { value }, *span);
+                    }
+                }
             }
         }
     }
@@ -415,6 +421,26 @@ impl<'a> Body<'a> {
                 span,
             );
             return;
+        }
+        let held = Self::holds_slice(self.function.type_of(self.defs[&var]));
+        if held {
+            self.emit_void(
+                InstKind::ReleaseSlice {
+                    value: self.defs[&var],
+                },
+                span,
+            );
+        }
+        let source = value;
+        let source_is_bound = self.defs.values().any(|bound| *bound == source);
+        let value = if held {
+            let ty = self.function.type_of(source).clone();
+            self.emit(InstKind::KeepAlive { value: source }, ty, span)
+        } else {
+            source
+        };
+        if held && !source_is_bound {
+            self.emit_void(InstKind::ReleaseSlice { value: source }, span);
         }
         self.defs.insert(var, value);
         if let Some(slot) = self.slots.get(&var).copied() {
@@ -802,12 +828,47 @@ impl<'a> Body<'a> {
             self.bind_cell(name, held, Some(value), span);
             return;
         }
+        let held = Self::holds_slice(self.function.type_of(value));
+        let source = value;
+        let source_is_bound = self.defs.values().any(|bound| *bound == source);
+        let value = if held {
+            let ty = self.function.type_of(source).clone();
+            self.emit(InstKind::KeepAlive { value: source }, ty, span)
+        } else {
+            source
+        };
+        if held && !source_is_bound {
+            self.emit_void(InstKind::ReleaseSlice { value: source }, span);
+        }
         let var = self.declare(name);
         self.defs.insert(var, value);
+        if held {
+            self.deferred
+                .last_mut()
+                .expect("a scope is open")
+                .push(Cleanup::Slice(var, span));
+        }
         if self.context.facts.addressed(name) {
             let slot = self.function.add_slot(self.function.type_of(value).clone());
             self.slots.insert(var, slot);
             self.emit_void(InstKind::SlotSet { slot, value }, span);
+        }
+    }
+
+    fn holds_slice(ty: &Ty) -> bool {
+        match ty {
+            Ty::Builtin {
+                kind: Builtin::Slice,
+                ..
+            } => true,
+            Ty::Optional(inner) => matches!(
+                inner.as_ref(),
+                Ty::Builtin {
+                    kind: Builtin::Slice,
+                    ..
+                }
+            ),
+            _ => false,
         }
     }
 

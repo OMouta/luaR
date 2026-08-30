@@ -32,11 +32,12 @@ const OWNED: MemFlags = MemFlags::trusted();
 const FOREIGN: MemFlags = MemFlags::new();
 
 /// The trap kinds, in the order the handler table holds them.
-pub(crate) const TRAPS: [Trap; 4] = [
+pub(crate) const TRAPS: [Trap; 5] = [
     Trap::IntegerOverflow,
     Trap::DivisionByZero,
     Trap::Bounds,
     Trap::Unreachable,
+    Trap::BorrowedMutation,
 ];
 
 /// Where `trap`'s handler sits in that table.
@@ -89,6 +90,8 @@ pub(crate) struct Translator<'a, 'b> {
     pub handlers: [FuncRef; TRAPS.len()],
     /// Where managed aggregate storage comes from (LR29).
     pub allocate: FuncRef,
+    pub collect: FuncRef,
+    pub slice_finalizer: FuncRef,
     pub concat: FuncRef,
     pub text_equal: FuncRef,
     pub hash_bytes: FuncRef,
@@ -416,6 +419,11 @@ impl Translator<'_, '_> {
                 range,
                 inclusive,
             } => self.make_checked_slice(*receiver, *range, *inclusive, inst.result),
+            InstKind::KeepAlive { value } => Some(self.value(*value)),
+            InstKind::ReleaseSlice { value } => {
+                self.unroot(*value);
+                None
+            }
             InstKind::ListPush { receiver, value } => {
                 self.list_push(*receiver, *value);
                 None

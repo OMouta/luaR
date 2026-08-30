@@ -393,6 +393,10 @@ impl Emitter<'_> {
             let allocate = self
                 .runtime
                 .allocate_in(&mut self.module, &mut context.func);
+            let collect = self.runtime.collect_in(&mut self.module, &mut context.func);
+            let slice_finalizer = self
+                .runtime
+                .slice_finalizer_in(&mut self.module, &mut context.func);
             let concat = self.runtime.concat_in(&mut self.module, &mut context.func);
             let text_equal = self
                 .runtime
@@ -443,6 +447,8 @@ impl Emitter<'_> {
                 texts,
                 handlers,
                 allocate,
+                collect,
+                slice_finalizer,
                 concat,
                 text_equal,
                 hash_bytes,

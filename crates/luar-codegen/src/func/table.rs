@@ -34,6 +34,9 @@ impl Translator<'_, '_> {
         self.builder
             .ins()
             .store(OWNED, zero, header, layout::BUFFER);
+        self.builder
+            .ins()
+            .store(OWNED, zero, header, layout::BORROWS);
         for (key, value) in entries {
             let bucket = self.map_insert(header, *key, text)?;
             let written = self.value(*value);
@@ -66,6 +69,9 @@ impl Translator<'_, '_> {
         self.builder
             .ins()
             .store(OWNED, zero, header, layout::BUFFER);
+        self.builder
+            .ins()
+            .store(OWNED, zero, header, layout::BORROWS);
         for value in values {
             self.map_insert(header, *value, text)?;
         }
@@ -152,7 +158,7 @@ impl Translator<'_, '_> {
             Ty::Builtin {
                 kind: Builtin::List,
                 ..
-            } => {}
+            } => self.check_unborrowed(table),
             // At zero capacity `find` misses and the next insert allocates.
             Ty::Builtin {
                 kind: Builtin::Map | Builtin::Set,

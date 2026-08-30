@@ -748,7 +748,12 @@ impl<'a> Body<'a> {
         let held = self.function.type_of(value).clone();
         match wanted {
             Ty::Optional(inner) if held == **inner => {
-                self.emit(InstKind::MakeSome { value }, wanted.clone(), span)
+                let source_is_bound = self.defs.values().any(|bound| *bound == value);
+                let optional = self.emit(InstKind::MakeSome { value }, wanted.clone(), span);
+                if Self::holds_slice(&held) && !source_is_bound {
+                    self.emit_void(InstKind::ReleaseSlice { value }, span);
+                }
+                optional
             }
             // LR6.3, LR17.2, LR25.3: what a value is is not written down, so
             // it carries it.

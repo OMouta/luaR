@@ -1,0 +1,17 @@
+--- expect: run
+--- exit: 0
+--- stdout: "1\n4\n"
+--- spec: LR38
+function firstTwo(values: List<int>): Slice<int>
+    return values[0..<2]
+end
+
+export function main()
+    local values = [1, 2, 3]
+    if true then
+        local window = firstTwo(values)
+        print(window[0])
+    end
+    values:push(4)
+    print(values[3])
+end

@@ -1,0 +1,14 @@
+--- expect: run
+--- exit: 101
+--- trap: borrowed-mutation
+--- spec: LR38
+function replace(values: List<int>)
+    values[0] = 4
+end
+
+export function main()
+    local values = [1, 2, 3]
+    local window = values[0..<2]
+    print(window[0])
+    replace(values)
+end

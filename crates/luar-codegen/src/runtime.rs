@@ -40,6 +40,8 @@ pub(crate) struct Runtime {
     pub handlers: [ModuleFuncId; TRAPS.len()],
     /// Where managed aggregate storage comes from (LR29).
     pub allocate: ModuleFuncId,
+    pub collect: ModuleFuncId,
+    pub slice_finalizer: ModuleFuncId,
     /// Primitive string operations (LR11.2, LR11.3, LR35).
     pub concat: ModuleFuncId,
     pub text_equal: ModuleFuncId,
@@ -83,6 +85,7 @@ impl Runtime {
             .map_err(|error| Error::Cranelift(error.to_string()))?;
 
         let collector = gc::emit(module, pointer, call_conv)?;
+        let slice_finalizer = define_slice_finalizer(module, pointer, call_conv)?;
         let concat = define_concat(module, pointer, call_conv, collector.allocate)?;
         define_bytes_of(module, pointer, call_conv)?;
         define_string_from_bytes(module, pointer, call_conv, collector.allocate)?;
@@ -107,6 +110,8 @@ impl Runtime {
                 .try_into()
                 .expect("one handler was emitted per trap kind"),
             allocate: collector.allocate,
+            collect: collector.collect,
+            slice_finalizer,
             concat,
             text_equal,
             hash_bytes,
@@ -163,6 +168,22 @@ impl Runtime {
         function: &mut cranelift_codegen::ir::Function,
     ) -> FuncRef {
         module.declare_func_in_func(self.allocate, function)
+    }
+
+    pub fn collect_in(
+        &self,
+        module: &mut ObjectModule,
+        function: &mut cranelift_codegen::ir::Function,
+    ) -> FuncRef {
+        module.declare_func_in_func(self.collect, function)
+    }
+
+    pub fn slice_finalizer_in(
+        &self,
+        module: &mut ObjectModule,
+        function: &mut cranelift_codegen::ir::Function,
+    ) -> FuncRef {
+        module.declare_func_in_func(self.slice_finalizer, function)
     }
 
     pub fn concat_in(
@@ -246,6 +267,49 @@ impl Runtime {
     }
 }
 
+fn define_slice_finalizer(
+    module: &mut ObjectModule,
+    pointer: types::Type,
+    call_conv: CallConv,
+) -> Result<ModuleFuncId, Error> {
+    let mut signature = Signature::new(call_conv);
+    signature.params.push(AbiParam::new(pointer));
+    signature.returns.push(AbiParam::new(types::I8));
+    let declared = module
+        .declare_function("luar_slice_finalize", Linkage::Local, &signature)
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
+
+    let mut context = Context::new();
+    let mut frame = FunctionBuilderContext::new();
+    context.func.signature = signature;
+    let mut builder = FunctionBuilder::new(&mut context.func, &mut frame);
+    let entry = builder.create_block();
+    builder.append_block_params_for_function_params(entry);
+    builder.switch_to_block(entry);
+    let slice = builder.block_params(entry)[0];
+    let owner = builder
+        .ins()
+        .load(pointer, MemFlags::trusted(), slice, crate::layout::BUFFER);
+    let borrows = builder
+        .ins()
+        .load(pointer, MemFlags::trusted(), owner, crate::layout::BORROWS);
+    let remaining = builder.ins().iadd_imm(borrows, -1);
+    builder.ins().store(
+        MemFlags::trusted(),
+        remaining,
+        owner,
+        crate::layout::BORROWS,
+    );
+    let zero = builder.ins().iconst(types::I8, 0);
+    builder.ins().return_(&[zero]);
+    builder.seal_all_blocks();
+    builder.finalize();
+    module
+        .define_function(declared, &mut context)
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
+    Ok(declared)
+}
+
 /// Process arguments live for the life of the process (LR45).
 fn define_arguments(
     module: &mut ObjectModule,
@@ -319,6 +383,13 @@ fn define_arguments(
     builder
         .ins()
         .store(MemFlags::trusted(), buffer, list, crate::layout::BUFFER);
+    let no_borrows = builder.ins().iconst(pointer, 0);
+    builder.ins().store(
+        MemFlags::trusted(),
+        no_borrows,
+        list,
+        crate::layout::BORROWS,
+    );
     let zero = builder.ins().iconst(types::I32, 0);
     builder
         .ins()

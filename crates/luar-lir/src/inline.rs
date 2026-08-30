@@ -214,6 +214,8 @@ fn remap_inst(inst: &mut InstKind, map: &HashMap<Value, Value>, slots: &HashMap<
         | InstKind::Buckets { receiver: held }
         | InstKind::IsSome { value: held }
         | InstKind::Unwrap { value: held }
+        | InstKind::KeepAlive { value: held }
+        | InstKind::ReleaseSlice { value: held }
         | InstKind::Load { pointer: held } => value(map, held),
         InstKind::Assert { condition, message } => {
             value(map, condition);

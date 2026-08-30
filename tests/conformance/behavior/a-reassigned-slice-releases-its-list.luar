@@ -1,0 +1,15 @@
+--- expect: run
+--- exit: 0
+--- stdout: "4\n"
+--- spec: LR38
+function append(values: List<int>)
+    values:push(4)
+end
+
+export function main()
+    local values = [1, 2, 3]
+    local window: Slice<int>? = values[0..<2]
+    window = nil
+    append(values)
+    print(values[3])
+end

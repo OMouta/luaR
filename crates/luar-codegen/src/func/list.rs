@@ -158,6 +158,14 @@ impl Translator<'_, '_> {
             (source, zero)
         };
         let absolute_start = self.builder.ins().iadd(source_start, start);
+        let borrows = self
+            .builder
+            .ins()
+            .load(self.pointer, OWNED, owner, layout::BORROWS);
+        let borrowed = self.builder.ins().iadd_imm(borrows, 1);
+        self.builder
+            .ins()
+            .store(OWNED, borrowed, owner, layout::BORROWS);
         let slice = self.allocate(ty, 0)?;
         self.builder
             .ins()
@@ -168,6 +176,9 @@ impl Translator<'_, '_> {
         self.builder
             .ins()
             .store(OWNED, owner, slice, layout::BUFFER);
+        self.builder
+            .ins()
+            .store(OWNED, zero, slice, layout::BORROWS);
         Some(slice)
     }
 
@@ -205,6 +216,10 @@ impl Translator<'_, '_> {
         self.builder
             .ins()
             .store(OWNED, buffer, header, layout::BUFFER);
+        let zero = self.builder.ins().iconst(self.pointer, 0);
+        self.builder
+            .ins()
+            .store(OWNED, zero, header, layout::BORROWS);
         Some(header)
     }
 
@@ -378,11 +393,35 @@ impl Translator<'_, '_> {
         self.builder.ins().iadd(buffer, offset)
     }
 
+    pub(super) fn check_unborrowed(&mut self, list: ir::Value) {
+        let borrows = self
+            .builder
+            .ins()
+            .load(self.pointer, OWNED, list, layout::BORROWS);
+        let borrowed = self.builder.ins().icmp_imm(IntCC::NotEqual, borrows, 0);
+        let collect = self.builder.create_block();
+        let ready = self.builder.create_block();
+        self.builder.ins().brif(borrowed, collect, &[], ready, &[]);
+
+        self.builder.switch_to_block(collect);
+        self.builder.ins().call(self.collect, &[]);
+        let borrows = self
+            .builder
+            .ins()
+            .load(self.pointer, OWNED, list, layout::BORROWS);
+        let borrowed = self.builder.ins().icmp_imm(IntCC::NotEqual, borrows, 0);
+        self.trap_if(borrowed, Trap::BorrowedMutation);
+        self.builder.ins().jump(ready, &[]);
+
+        self.builder.switch_to_block(ready);
+    }
+
     pub(super) fn list_push(&mut self, receiver: Value, value: Value) {
         let Some(machine) = self.mutable_list_element(receiver) else {
             return;
         };
         let list = self.value(receiver);
+        self.check_unborrowed(list);
         let length = self
             .builder
             .ins()
@@ -493,6 +532,7 @@ impl Translator<'_, '_> {
             return None;
         };
         let list = self.value(receiver);
+        self.check_unborrowed(list);
         let length = self
             .builder
             .ins()
@@ -530,7 +570,17 @@ impl Translator<'_, '_> {
         let held = self.function.type_of(receiver).clone();
         match &held {
             Ty::Builtin {
-                kind: Builtin::List | Builtin::Slice,
+                kind: Builtin::List,
+                ..
+            } => {
+                let list = self.value(receiver);
+                self.check_unborrowed(list);
+                let address = self.element_address(receiver, index, checked);
+                let written = self.value(value);
+                self.builder.ins().store(OWNED, written, address, 0);
+            }
+            Ty::Builtin {
+                kind: Builtin::Slice,
                 ..
             } => {
                 let address = self.element_address(receiver, index, checked);

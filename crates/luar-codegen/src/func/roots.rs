@@ -123,6 +123,19 @@ impl Translator<'_, '_> {
         self.builder.ins().store(OWNED, machine, frame, offset);
     }
 
+    pub(super) fn unroot(&mut self, value: Value) {
+        let Some(offset) = self.root_offsets.get(&value).copied() else {
+            return;
+        };
+        let frame = self.builder.ins().stack_addr(
+            self.pointer,
+            self.root_frame.expect("root frame exists"),
+            0,
+        );
+        let zero = self.builder.ins().iconst(self.pointer, 0);
+        self.builder.ins().store(OWNED, zero, frame, offset);
+    }
+
     pub(super) fn root_temporary(&mut self, index: u32, machine: ir::Value) {
         let Some(offset) = self.temporary_roots.get(index as usize).copied() else {
             return;

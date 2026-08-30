@@ -16,6 +16,7 @@ pub(crate) const ROOT_FRAME_HEADER: i32 = 4;
 
 pub(crate) struct Collector {
     pub allocate: FuncId,
+    pub collect: FuncId,
     pub roots: DataId,
 }
 
@@ -107,7 +108,11 @@ pub(crate) fn emit(
         malloc,
     )?;
 
-    Ok(Collector { allocate, roots })
+    Ok(Collector {
+        allocate,
+        collect,
+        roots,
+    })
 }
 
 fn zero(module: &mut ObjectModule, name: &str, pointer: Type) -> Result<DataId, Error> {

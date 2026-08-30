@@ -119,6 +119,8 @@ pub enum Trap {
     Bounds,
     /// `unreachable()` was reached (LR50).
     Unreachable,
+    /// A list changed while a slice borrowed its storage (LR38).
+    BorrowedMutation,
 }
 
 impl Trap {
@@ -129,6 +131,7 @@ impl Trap {
             Self::DivisionByZero => "division-by-zero",
             Self::Bounds => "bounds",
             Self::Unreachable => "unreachable",
+            Self::BorrowedMutation => "borrowed-mutation",
         }
     }
 }
@@ -321,6 +324,13 @@ pub enum InstKind {
         range: Value,
         inclusive: bool,
     },
+    KeepAlive {
+        value: Value,
+    },
+    /// Ends a lexical slice borrow before its value becomes unreachable (LR38).
+    ReleaseSlice {
+        value: Value,
+    },
     ListPush {
         receiver: Value,
         value: Value,
@@ -499,6 +509,7 @@ impl InstKind {
             | Self::Unwrap { .. }
             | Self::MakeDyn { .. }
             | Self::DynValue { .. }
+            | Self::KeepAlive { .. }
             | Self::AddressOf { .. }
             | Self::FieldAddress { .. }
             | Self::Offset { .. }
@@ -528,6 +539,7 @@ impl InstKind {
             | Self::MapRemove { .. }
             | Self::SetRemove { .. }
             | Self::Clear { .. }
+            | Self::ReleaseSlice { .. }
             | Self::Length { .. }
             | Self::Buckets { .. }
             | Self::Occupied { .. }

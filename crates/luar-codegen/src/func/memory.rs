@@ -2,7 +2,7 @@
 
 use cranelift_codegen::ir::{self, InstBuilder, types};
 use luar_lir::inst::Value;
-use luar_lir::ty::Ty;
+use luar_lir::ty::{Builtin, Ty};
 
 use crate::layout::{self, TAG_TYPE};
 use crate::ty::machine;
@@ -26,9 +26,18 @@ impl Translator<'_, '_> {
         temporary: u32,
     ) -> Option<ir::Value> {
         let size = self.builder.ins().iconst(self.pointer, i64::from(size));
-        let finalizer = match self.finalizers.get(ty).copied() {
-            Some(function) => self.builder.ins().func_addr(self.pointer, function),
-            None => self.builder.ins().iconst(self.pointer, 0),
+        let finalizer = match ty {
+            Ty::Builtin {
+                kind: Builtin::Slice,
+                ..
+            } => self
+                .builder
+                .ins()
+                .func_addr(self.pointer, self.slice_finalizer),
+            _ => match self.finalizers.get(ty).copied() {
+                Some(function) => self.builder.ins().func_addr(self.pointer, function),
+                None => self.builder.ins().iconst(self.pointer, 0),
+            },
         };
         let call = self.builder.ins().call(self.allocate, &[size, finalizer]);
         let allocated = self.builder.inst_results(call).first().copied()?;
