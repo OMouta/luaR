@@ -411,6 +411,11 @@ impl Translator<'_, '_> {
                 range,
                 inclusive,
             } => self.make_slice(*receiver, *range, *inclusive, inst.result),
+            InstKind::MakeCheckedSlice {
+                receiver,
+                range,
+                inclusive,
+            } => self.make_checked_slice(*receiver, *range, *inclusive, inst.result),
             InstKind::ListPush { receiver, value } => {
                 self.list_push(*receiver, *value);
                 None

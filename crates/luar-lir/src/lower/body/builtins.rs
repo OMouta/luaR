@@ -39,6 +39,7 @@ impl<'a> Body<'a> {
                 self.emit(InstKind::Freeze { value }, ty, span)
             }
             Builtin::CheckedIndex => self.checked_index(callee, args, span),
+            Builtin::CheckedSlice => self.checked_slice(callee, args, span),
             Builtin::Contains => self.contains(callee, args, span),
             Builtin::ReverseRange => self.reverse_range(callee, span),
             Builtin::ListPush
@@ -290,6 +291,31 @@ impl<'a> Body<'a> {
         self.emit(InstKind::GetCheckedIndex { receiver, index }, result, span)
     }
 
+    fn checked_slice(&mut self, callee: &Expr, args: &[Argument], span: Span) -> Value {
+        let receiver = self.expr(callee, None);
+        let [argument] = args else {
+            return self.missing(span, "a checked slice without one range");
+        };
+        let range = self.expr(&argument.value, None);
+        let inclusive = matches!(
+            self.function.type_of(range),
+            Ty::Builtin {
+                kind: ty::Builtin::RangeInclusive,
+                ..
+            }
+        );
+        let result = self.recorded(span);
+        self.emit(
+            InstKind::MakeCheckedSlice {
+                receiver,
+                range,
+                inclusive,
+            },
+            result,
+            span,
+        )
+    }
+
     fn unchecked_index(
         &mut self,
         kind: Builtin,
@@ -301,7 +327,7 @@ impl<'a> Body<'a> {
         let held = self.function.type_of(receiver).clone();
         let element = match held {
             Ty::Builtin {
-                kind: ty::Builtin::List | ty::Builtin::FrozenList,
+                kind: ty::Builtin::List | ty::Builtin::FrozenList | ty::Builtin::Slice,
                 args,
             } => args.first().cloned(),
             Ty::Array(element, _) => Some(*element),

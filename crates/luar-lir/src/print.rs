@@ -286,6 +286,16 @@ fn instruction(inst: &Inst, function: &Function) -> String {
             name(*range),
             if *inclusive { " inclusive" } else { "" }
         ),
+        InstKind::MakeCheckedSlice {
+            receiver,
+            range,
+            inclusive,
+        } => format!(
+            "slice checked {} {}{}",
+            name(*receiver),
+            name(*range),
+            if *inclusive { " inclusive" } else { "" }
+        ),
         InstKind::Overflowing {
             mode,
             op,

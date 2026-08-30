@@ -181,6 +181,11 @@ fn remap_inst(inst: &mut InstKind, map: &HashMap<Value, Value>, slots: &HashMap<
             range: right,
             ..
         }
+        | InstKind::MakeCheckedSlice {
+            receiver: left,
+            range: right,
+            ..
+        }
         | InstKind::Offset {
             pointer: left,
             count: right,

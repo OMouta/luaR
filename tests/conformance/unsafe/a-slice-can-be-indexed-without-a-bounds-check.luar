@@ -1,0 +1,15 @@
+--- expect: run
+--- exit: 0
+--- stdout: "20\t30\n70\n"
+--- spec: LR29.2
+--- spec: LR38
+--- spec: LR70
+export function main()
+    local values = [10, 20, 30]
+    local window = values[1..<3]
+    unsafe
+        print(window:unchecked(0), window:unchecked(1))
+        window:uncheckedSet(1, 70)
+    end
+    print(values[2])
+end

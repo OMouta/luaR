@@ -20,6 +20,56 @@ impl Translator<'_, '_> {
     ) -> Option<ir::Value> {
         let ty = self.function.type_of(result?).clone();
         let source_ty = self.function.type_of(receiver).clone();
+        let (source, start, end, outside, zero) = self.slice_bounds(receiver, range, inclusive);
+        self.trap_if(outside, Trap::Bounds);
+        self.slice_value(&ty, &source_ty, source, start, end, zero)
+    }
+
+    pub(super) fn make_checked_slice(
+        &mut self,
+        receiver: Value,
+        range: Value,
+        inclusive: bool,
+        result: Option<Value>,
+    ) -> Option<ir::Value> {
+        let optional = self.function.type_of(result?).clone();
+        let Ty::Optional(slice_ty) = &optional else {
+            self.gap("a checked slice that is not optional");
+            return None;
+        };
+        let slice_ty = slice_ty.as_ref().clone();
+        let source_ty = self.function.type_of(receiver).clone();
+        let (source, start, end, outside, zero) = self.slice_bounds(receiver, range, inclusive);
+        let valid = self.builder.ins().icmp_imm(IntCC::Equal, outside, 0);
+        let present = self.builder.create_block();
+        let absent = self.builder.create_block();
+        let join = self.builder.create_block();
+        self.builder.append_block_param(join, self.pointer);
+        self.builder.ins().brif(valid, present, &[], absent, &[]);
+
+        self.builder.switch_to_block(present);
+        let slice = self.slice_value(&slice_ty, &source_ty, source, start, end, zero)?;
+        let some = self.allocate(&optional, 0)?;
+        let one = self.builder.ins().iconst(layout::TAG_TYPE, 1);
+        self.builder.ins().store(OWNED, one, some, layout::TAG);
+        self.builder.ins().store(OWNED, slice, some, layout::CELL);
+        self.builder.ins().jump(join, &[ir::BlockArg::Value(some)]);
+
+        self.builder.switch_to_block(absent);
+        let none = self.allocate(&optional, 0)?;
+        self.builder.ins().store(OWNED, zero, none, layout::TAG);
+        self.builder.ins().jump(join, &[ir::BlockArg::Value(none)]);
+
+        self.builder.switch_to_block(join);
+        Some(self.builder.block_params(join)[0])
+    }
+
+    fn slice_bounds(
+        &mut self,
+        receiver: Value,
+        range: Value,
+        inclusive: bool,
+    ) -> (ir::Value, ir::Value, ir::Value, ir::Value, ir::Value) {
         let source = self.value(receiver);
         let range = self.value(range);
         let length = self
@@ -74,8 +124,19 @@ impl Translator<'_, '_> {
             .icmp(IntCC::UnsignedGreaterThan, start, end);
         let outside = self.builder.ins().bor(start_outside, end_outside);
         let outside = self.builder.ins().bor(outside, reversed);
-        self.trap_if(outside, Trap::Bounds);
 
+        (source, start, end, outside, zero)
+    }
+
+    fn slice_value(
+        &mut self,
+        ty: &Ty,
+        source_ty: &Ty,
+        source: ir::Value,
+        start: ir::Value,
+        end: ir::Value,
+        zero: ir::Value,
+    ) -> Option<ir::Value> {
         let slice_length = self.builder.ins().isub(end, start);
         let (owner, source_start) = if matches!(
             source_ty,
@@ -97,7 +158,7 @@ impl Translator<'_, '_> {
             (source, zero)
         };
         let absolute_start = self.builder.ins().iadd(source_start, start);
-        let slice = self.allocate(&ty, 0)?;
+        let slice = self.allocate(ty, 0)?;
         self.builder
             .ins()
             .store(OWNED, slice_length, slice, layout::LENGTH);

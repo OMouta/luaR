@@ -1,0 +1,22 @@
+--- expect: run
+--- exit: 0
+--- stdout: "20\t30\n10\ntrue\ntrue\n"
+--- spec: LR38
+export function main()
+    local values = [10, 20, 30]
+    local middle = values:slice(1..<3)
+    if middle ~= nil then
+        print(middle[0], middle[1])
+    end
+
+    local all = values:slice(..<)
+    if all ~= nil then
+        print(all[0])
+    end
+
+    local missing = values:slice(0..<4)
+    print(missing == nil)
+
+    local inclusivePastEnd = values:slice(1..=3)
+    print(inclusivePastEnd == nil)
+end

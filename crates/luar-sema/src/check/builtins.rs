@@ -142,6 +142,23 @@ pub(super) fn builtin_method(
                     vec![param("index", int)],
                     arg(args, 0).optional(),
                 ),
+                (Kind::List | Kind::Slice, "slice") => (
+                    Builtin::CheckedSlice,
+                    vec![param(
+                        "range",
+                        Type::Union(vec![
+                            Type::Builtin {
+                                kind: Kind::RangeExclusive,
+                                args: vec![int.clone()],
+                            },
+                            Type::Builtin {
+                                kind: Kind::RangeInclusive,
+                                args: vec![int.clone()],
+                            },
+                        ]),
+                    )],
+                    frozen(Kind::Slice).optional(),
+                ),
                 (Kind::Map | Kind::FrozenMap, "get") => (
                     Builtin::CheckedIndex,
                     vec![param("key", arg(args, 0))],
@@ -186,10 +203,10 @@ pub(super) fn builtin_method(
                     Type::BOOL,
                 ),
                 (Kind::List | Kind::Map | Kind::Set, "clear") => (Builtin::Clear, Vec::new(), unit),
-                (Kind::List | Kind::FrozenList, "unchecked") => {
+                (Kind::List | Kind::FrozenList | Kind::Slice, "unchecked") => {
                     (Builtin::Unchecked, vec![param("index", int)], arg(args, 0))
                 }
-                (Kind::List, "uncheckedSet") => (
+                (Kind::List | Kind::Slice, "uncheckedSet") => (
                     Builtin::UncheckedSet,
                     vec![param("index", int), param("value", arg(args, 0))],
                     unit,

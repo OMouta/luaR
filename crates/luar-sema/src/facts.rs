@@ -33,6 +33,7 @@ pub enum Builtin {
     Identical,
     Freeze,
     CheckedIndex,
+    CheckedSlice,
     Contains,
     ListPush,
     ListPop,

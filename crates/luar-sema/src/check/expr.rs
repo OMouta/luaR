@@ -363,6 +363,12 @@ impl Checker<'_> {
                         .as_ref()
                         .and_then(|expected| match expected {
                             Type::Builtin { args, .. } => args.first().cloned(),
+                            Type::Union(members) => {
+                                members.iter().find_map(|member| match member {
+                                    Type::Builtin { args, .. } => args.first().cloned(),
+                                    _ => None,
+                                })
+                            }
                             _ => None,
                         })
                         .unwrap_or(Type::Unresolved),

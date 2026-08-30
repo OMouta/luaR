@@ -315,6 +315,12 @@ pub enum InstKind {
         range: Value,
         inclusive: bool,
     },
+    /// The same view, or nothing where the range is out of bounds (LR38).
+    MakeCheckedSlice {
+        receiver: Value,
+        range: Value,
+        inclusive: bool,
+    },
     ListPush {
         receiver: Value,
         value: Value,
@@ -506,6 +512,7 @@ impl InstKind {
                 }
             }
             Self::GetIndex { .. } | Self::MakeSlice { .. } => Effect::Trap,
+            Self::MakeCheckedSlice { .. } => Effect::None,
             Self::Assert { .. } | Self::Panic { .. } => Effect::Trap,
 
             Self::Call { .. }
