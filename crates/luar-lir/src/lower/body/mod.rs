@@ -469,6 +469,55 @@ impl<'a> Body<'a> {
         }
     }
 
+    /// LR57: a value the checker proved holds `to`, read as that: what an
+    /// optional holds, or the member a union or a dynamic value carries.
+    fn narrow_value(&mut self, value: Value, to: Ty, span: Span) -> Value {
+        match self.function.type_of(value) {
+            Ty::Optional(_) => self.emit(InstKind::Unwrap { value }, to, span),
+            Ty::Union(_) | Ty::Dynamic => self.emit(InstKind::DynValue { value }, to, span),
+            _ => value,
+        }
+    }
+
+    /// Whether a value of type `held` the checker gave `recorded` at a read
+    /// is narrowed there (LR57).
+    fn narrows(held: &Ty, recorded: &Ty) -> bool {
+        match held {
+            Ty::Optional(inner) => inner.as_ref() == recorded,
+            Ty::Union(members) => members.contains(recorded),
+            Ty::Dynamic => *recorded != Ty::Dynamic,
+            _ => false,
+        }
+    }
+
+    /// `value` read at `span`, narrowed where the checker narrowed it (LR57).
+    fn narrowed(&mut self, value: Value, span: Span) -> Value {
+        let held = self.function.type_of(value).clone();
+        match self.maybe_recorded(span) {
+            Some(recorded) if Self::narrows(&held, &recorded) => {
+                self.narrow_value(value, recorded, span)
+            }
+            _ => value,
+        }
+    }
+
+    /// A stored value declared as `declared` and proved to hold `result`,
+    /// read with `read` and narrowed (LR57). `None` where it is not narrowed.
+    fn narrowed_from(
+        &mut self,
+        declared: Option<Ty>,
+        result: &Ty,
+        read: InstKind,
+        span: Span,
+    ) -> Option<Value> {
+        let declared = declared?;
+        if !Self::narrows(&declared, result) {
+            return None;
+        }
+        let stored = self.emit(read, declared, span);
+        Some(self.narrow_value(stored, result.clone(), span))
+    }
+
     fn missing_type(&mut self, span: Span, what: impl Into<String>) -> Ty {
         self.gap(span, what);
         Ty::Never
@@ -483,10 +532,10 @@ impl<'a> Body<'a> {
             let held = self.var_type(var);
             // LR57: a name the checker proved holds something reads as
             // what it holds.
-            if let Ty::Optional(inner) = &held
-                && self.maybe_recorded(expr.span).as_ref() == Some(inner.as_ref())
+            if let Some(recorded) = self.maybe_recorded(expr.span)
+                && Self::narrows(&held, &recorded)
             {
-                return Some(inner.as_ref().clone());
+                return Some(recorded);
             }
             return Some(held);
         }

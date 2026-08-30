@@ -466,7 +466,8 @@ impl Checker<'_> {
             }
             ExprKind::TypeTest { value, ty } => {
                 self.expr(value);
-                self.resolve(ty);
+                let tested = self.resolve(ty);
+                self.facts.record_type(ty.span, tested);
                 Type::BOOL
             }
             ExprKind::AddressOf { mutable, operand } => {

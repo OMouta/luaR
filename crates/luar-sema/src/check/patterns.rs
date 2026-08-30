@@ -116,6 +116,7 @@ impl Checker<'_> {
             }
             PatternKind::Typed { inner, ty } => {
                 let tested = self.resolve(ty);
+                self.facts.record_type(ty.span, tested.clone());
                 if matches!(tested, Type::Unresolved) {
                     self.pattern(inner, &Type::Unresolved);
                     return (Type::Unresolved, open(span));

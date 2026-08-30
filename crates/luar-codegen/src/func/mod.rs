@@ -337,7 +337,7 @@ impl Translator<'_, '_> {
             }
             InstKind::DynValue { value } => self.read(*value, 1, inst.result),
             InstKind::IsType { value, ty } => {
-                if *self.function.type_of(*value) != Ty::Dynamic {
+                if !matches!(self.function.type_of(*value), Ty::Dynamic | Ty::Union(_)) {
                     self.gap("a type test on a value that is not dynamic");
                     None
                 } else if let Some(descriptor) = self.descriptors.get(ty).copied() {

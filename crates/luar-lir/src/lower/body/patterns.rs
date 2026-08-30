@@ -195,6 +195,41 @@ impl<'a> Body<'a> {
                 None => self.gap(span, "a literal pattern the compiler could not compare"),
             },
 
+            // LR16.2, LR57: `p is T` matches where the value carries a `T`,
+            // and `p` then sees that `T`.
+            PatternKind::Typed { inner, ty } => {
+                let tested = self.recorded(ty.span);
+                let held = self.function.type_of(subject).clone();
+                let narrowed = match held {
+                    Ty::Union(_) | Ty::Dynamic => {
+                        let test = self.emit(
+                            InstKind::IsType {
+                                value: subject,
+                                ty: tested.clone(),
+                            },
+                            Ty::Bool,
+                            span,
+                        );
+                        let matched = self.function.add_block();
+                        self.terminate(Terminator::Branch {
+                            condition: test,
+                            then: Target::to(matched),
+                            otherwise: Target::to(fail),
+                        });
+                        self.switch_to(matched);
+                        self.emit(InstKind::DynValue { value: subject }, tested, span)
+                    }
+                    held if held == tested => subject,
+                    _ => {
+                        self.terminate(Terminator::Jump(Target::to(fail)));
+                        let unreached = self.function.add_block();
+                        self.switch_to(unreached);
+                        subject
+                    }
+                };
+                self.test(narrowed, inner, fail);
+            }
+
             PatternKind::Error => {}
             _ => self.gap(span, "a pattern"),
         }

@@ -1,0 +1,18 @@
+--- expect: run
+--- exit: 42
+--- spec: LR16.2
+--- spec: LR17.2
+--- spec: LR57
+function describe(id: string | int): int
+    match id
+        case value is int
+            return value * 10
+        case value is string
+            return value.byteLength
+    end
+end
+
+export function main(): int
+    local ids: List<string | int> = [4, "ab"]
+    return describe(ids[0]) + describe(ids[1])
+end

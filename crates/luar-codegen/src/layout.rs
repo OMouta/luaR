@@ -105,7 +105,7 @@ pub fn size(program: &Program, ty: &Ty, pointer: Type) -> Option<i32> {
         // Whether it holds anything, and what it holds.
         Ty::Optional(_) => 2,
         // What it is, and then what it holds (LR18.1, LR25.3).
-        Ty::Dynamic => 2,
+        Ty::Dynamic | Ty::Union(_) => 2,
         _ => return None,
     };
     // Storage for something that holds nothing still has an address, and two
@@ -270,6 +270,7 @@ pub fn is_aggregate(ty: &Ty) -> bool {
             | Ty::Error
             | Ty::Function { .. }
             | Ty::Dynamic
+            | Ty::Union(_)
             | Ty::Named { .. }
             | Ty::Tuple(_)
             | Ty::Record(_)

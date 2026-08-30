@@ -1,0 +1,20 @@
+--- expect: run
+--- exit: 36
+--- spec: LR17.2
+--- spec: LR57
+function weigh(id: string | int): int
+    if id is string then
+        return id.byteLength * 10
+    else
+        return id
+    end
+end
+
+export function main(): int
+    local plain = 3
+    local known = 0
+    if plain is int then
+        known = 1
+    end
+    return weigh("abc") + weigh(7) - known
+end

@@ -162,18 +162,12 @@ impl<'a> Body<'a> {
             let declared = self
                 .fields_of(&held)
                 .and_then(|fields| fields.get(index as usize).map(|(_, ty)| ty.clone()));
-            if let Some(Ty::Optional(inner)) = declared
-                && *inner == result
-            {
-                let stored = self.emit(
-                    InstKind::GetField {
-                        object,
-                        field: index,
-                    },
-                    Ty::Optional(inner),
-                    span,
-                );
-                return self.emit(InstKind::Unwrap { value: stored }, result, span);
+            let read = InstKind::GetField {
+                object,
+                field: index,
+            };
+            if let Some(narrowed) = self.narrowed_from(declared, &result, read, span) {
+                return narrowed;
             }
 
             return self.emit(
@@ -393,6 +387,22 @@ impl<'a> Body<'a> {
                 span,
             );
             return self.emit(InstKind::Unwrap { value: stored }, result, span);
+        }
+
+        let element = match &held {
+            Ty::Builtin {
+                kind: Builtin::List | Builtin::FrozenList,
+                args,
+            } => args.first().cloned(),
+            Ty::Array(element, _) => Some(element.as_ref().clone()),
+            _ => None,
+        };
+        let read = InstKind::GetIndex {
+            receiver: container,
+            index,
+        };
+        if let Some(narrowed) = self.narrowed_from(element, &result, read, span) {
+            return narrowed;
         }
 
         self.emit(

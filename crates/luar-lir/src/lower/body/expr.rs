@@ -89,14 +89,7 @@ impl<'a> Body<'a> {
             ExprKind::Name(name) => match self.lookup(name) {
                 Some(var) => {
                     let value = self.read_var(var, span);
-                    // LR57: a name the checker proved holds something reads
-                    // as what it holds.
-                    if let Ty::Optional(inner) = self.function.type_of(value).clone()
-                        && self.maybe_recorded(span).as_ref() == Some(inner.as_ref())
-                    {
-                        return self.emit(InstKind::Unwrap { value }, *inner, span);
-                    }
-                    value
+                    self.narrowed(value, span)
                 }
                 None => self.constant(name, wanted, span),
             },
@@ -210,6 +203,18 @@ impl<'a> Body<'a> {
             ExprKind::Try(inner) => self.propagate(inner, span),
             ExprKind::Await(_) => self.missing(span, "await"),
 
+            // LR17.2, LR57: `is` asks a union or a dynamic value which member
+            // it carries. Anything else already says what it is.
+            ExprKind::TypeTest { value, ty } => {
+                let tested = self.recorded(ty.span);
+                let value = self.expr(value, None);
+                match self.function.type_of(value).clone() {
+                    Ty::Union(_) | Ty::Dynamic => {
+                        self.emit(InstKind::IsType { value, ty: tested }, Ty::Bool, span)
+                    }
+                    held => self.emit(InstKind::Const(Const::Bool(held == tested)), Ty::Bool, span),
+                }
+            }
             ExprKind::Cast { value, .. } => {
                 // LR33: `as` converts between numeric types, and the type it
                 // converts to is the type of the whole expression.
@@ -277,18 +282,19 @@ impl<'a> Body<'a> {
                 otherwise,
             } => self.if_expr(branches, otherwise, span),
             ExprKind::Error => self.missing(span, "an expression that did not parse"),
-
-            _ => self.missing(span, "an expression"),
         }
     }
 
     /// The type a numeric literal takes: what context asked for, or what the
     /// checker settled it to where nothing did (LR39).
+    /// The type a numeric literal takes: the number type asked for, or what
+    /// the checker gave it where something else is asked for and the
+    /// literal is converted to it afterwards (LR39).
     fn numeric(&mut self, wanted: Option<&Ty>, span: Span) -> Ty {
         match wanted {
-            Some(Ty::Optional(inner)) => (**inner).clone(),
-            Some(wanted) => wanted.clone(),
-            None => self.recorded(span),
+            Some(Ty::Optional(inner)) => self.numeric(Some(inner), span),
+            Some(wanted @ (Ty::Int(_) | Ty::Float(_))) => wanted.clone(),
+            _ => self.recorded(span),
         }
     }
 
@@ -325,7 +331,9 @@ impl<'a> Body<'a> {
     pub(super) fn display(&mut self, value: Value, span: Span) -> Value {
         match self.function.type_of(value).clone() {
             Ty::Str => value,
-            Ty::Int(_) | Ty::Char => self.emit(InstKind::DisplayValue { value }, Ty::Str, span),
+            Ty::Int(_) | Ty::Float(_) | Ty::Char => {
+                self.emit(InstKind::DisplayValue { value }, Ty::Str, span)
+            }
             Ty::Nil => self.emit(InstKind::Const(Const::Str("nil".to_owned())), Ty::Str, span),
             // LR35: `T?` displays what it holds, or `nil`.
             Ty::Optional(inner) => {
@@ -736,14 +744,22 @@ impl<'a> Body<'a> {
             Ty::Optional(inner) if held == **inner => {
                 self.emit(InstKind::MakeSome { value }, wanted.clone(), span)
             }
-            // LR6.3, LR25.3: what a value is is not written down, so it
-            // carries it.
+            // LR6.3, LR17.2, LR25.3: what a value is is not written down, so
+            // it carries it.
             Ty::Dynamic if held != Ty::Dynamic => self.emit(
                 InstKind::MakeDyn {
                     interface: None,
                     value,
                 },
                 Ty::Dynamic,
+                span,
+            ),
+            Ty::Union(members) if members.contains(&held) => self.emit(
+                InstKind::MakeDyn {
+                    interface: None,
+                    value,
+                },
+                wanted.clone(),
                 span,
             ),
             // LR18.1: a value used through an interface carries which

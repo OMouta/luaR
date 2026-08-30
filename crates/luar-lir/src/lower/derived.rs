@@ -384,7 +384,7 @@ impl Lowering<'_> {
                     args: Vec::new(),
                 },
             },
-            Ty::Str | Ty::Int(_) | Ty::Char => InstKind::DisplayValue { value },
+            Ty::Str | Ty::Int(_) | Ty::Float(_) | Ty::Char => InstKind::DisplayValue { value },
             Ty::Nil => InstKind::Const(Const::Str("nil".to_owned())),
             Ty::Bool | Ty::Optional(_) => {
                 let then = function.add_block();
