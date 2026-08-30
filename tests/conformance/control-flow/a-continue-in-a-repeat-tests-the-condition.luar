@@ -1,0 +1,15 @@
+--- expect: run
+--- exit: 0
+--- stdout: "1\n3\n4\n"
+--- spec: LR10.3
+--- spec: LR10.6
+export function main()
+    local i = 0
+    repeat
+        i = i + 1
+        if i == 2 then
+            continue
+        end
+        print(i)
+    until i >= 4
+end

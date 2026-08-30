@@ -43,6 +43,9 @@ struct Loop {
     /// Where `continue` goes. Absent for a `repeat`, whose condition is part
     /// of its body and so has no block of its own (LR10.3).
     again: Option<BlockId>,
+    /// The `until` of a `repeat`, and the block its body starts in, which
+    /// is what a `continue` in it tests and where it goes back to (LR10.3).
+    condition: Option<(Expr, BlockId)>,
     /// Where `break` goes.
     exit: BlockId,
     /// The bindings both of those pass along.
@@ -493,12 +496,29 @@ impl<'a> Body<'a> {
         };
         let carried = found.carried.clone();
         let depth = found.depth;
+        let condition = found.condition.clone();
+        let exit_block = found.exit;
 
         let Some(block) = block else {
-            // LR10.3: a `repeat` condition reads what the body declared, so it
-            // is lowered at the end of the body rather than in a block a
-            // `continue` could jump to.
-            self.gap(span, "`continue` inside `repeat`");
+            let Some((until, inside)) = condition else {
+                self.gap(span, "`continue` inside a loop with no condition");
+                return;
+            };
+            // LR10.3: a `repeat` condition reads what the body declared, so
+            // it is tested here, in the body's scope, rather than in a block
+            // of its own. The checker proved it reads nothing this
+            // `continue` skipped.
+            self.unwind_from(depth + 1);
+            let inner = self.scopes.split_off(depth + 1);
+            let condition = self.expr(&until, Some(&Ty::Bool));
+            self.scopes.extend(inner);
+            self.unwind(depth);
+            let leaving: Vec<Value> = carried.iter().map(|var| self.defs[var]).collect();
+            self.terminate(Terminator::Branch {
+                condition,
+                then: Target::new(exit_block, leaving.clone()),
+                otherwise: Target::new(inside, leaving),
+            });
             return;
         };
         // LR26: leaving a loop leaves every scope inside it, so each one runs

@@ -393,6 +393,7 @@ impl<'a> Body<'a> {
         }
         self.loops.push(Loop {
             label: label.map(ToOwned::to_owned),
+            condition: None,
             again: Some(step),
             exit,
             carried: carried.clone(),

@@ -190,6 +190,7 @@ impl<'a> Body<'a> {
         self.defs = entering.clone();
         self.loops.push(Loop {
             label: label.map(ToOwned::to_owned),
+            condition: None,
             again: Some(header),
             exit,
             carried: carried.clone(),
@@ -227,6 +228,7 @@ impl<'a> Body<'a> {
         self.loops.push(Loop {
             label: label.map(ToOwned::to_owned),
             again: None,
+            condition: Some((until.clone(), inside)),
             exit,
             carried: carried.clone(),
             depth,
