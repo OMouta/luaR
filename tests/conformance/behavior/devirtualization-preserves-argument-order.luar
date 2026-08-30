@@ -1,0 +1,25 @@
+--- expect: run
+--- exit: 123
+--- spec: LR18.1
+--- spec: LR55
+interface Step
+    function next(self): int
+end
+
+ref struct Counter implements Step
+    value: int
+
+    function next(self): int
+        self.value += 1
+        return self.value
+    end
+end
+
+function digits(a: int, b: int, c: int): int
+    return a * 100 + b * 10 + c
+end
+
+export function main(): int
+    local step: Step = Counter { value = 0 }
+    return digits(step:next(), step:next(), step:next())
+end

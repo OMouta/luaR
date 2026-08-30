@@ -1,0 +1,17 @@
+--- expect: run
+--- exit: 0
+--- stdout: "1\n2\n3\n"
+--- spec: LR9.4
+--- spec: LR55
+function mark(digit: int): int
+    print(digit)
+    return digit
+end
+
+function gather(written: int, first: int = mark(2), second: int = mark(3)): int
+    return written + first + second
+end
+
+export function main()
+    gather(mark(1))
+end

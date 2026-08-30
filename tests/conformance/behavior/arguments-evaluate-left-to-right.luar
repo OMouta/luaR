@@ -1,11 +1,14 @@
 --- expect: run
 --- exit: 123
+--- spec: LR19
+--- spec: LR23.2
 --- spec: LR55
 ref struct Counter
     value: int
 end
 
-function next(counter: Counter): int
+@inline
+function next<T>(counter: Counter, value: T): int
     counter.value += 1
     return counter.value
 end
@@ -16,5 +19,5 @@ end
 
 export function main(): int
     local counter = Counter { value = 0 }
-    return digits(next(counter), next(counter), next(counter))
+    return digits(next(counter, "a"), next(counter, 2), next(counter, false))
 end

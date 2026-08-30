@@ -1,0 +1,23 @@
+--- expect: run
+--- exit: 129
+--- spec: LR55
+ref struct Counter
+    value: int
+end
+
+function index(counter: Counter): int
+    counter.value = counter.value * 10 + 1
+    return 0
+end
+
+function compute(counter: Counter): int
+    counter.value = counter.value * 10 + 2
+    return 9
+end
+
+export function main(): int
+    local counter = Counter { value = 0 }
+    local values = [0]
+    values[index(counter)] = compute(counter)
+    return counter.value * 10 + values[0]
+end

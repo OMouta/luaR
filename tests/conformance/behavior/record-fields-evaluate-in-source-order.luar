@@ -1,0 +1,17 @@
+--- expect: run
+--- exit: 21
+--- spec: LR55
+ref struct Counter
+    value: int
+end
+
+function mark(counter: Counter, digit: int): int
+    counter.value = counter.value * 10 + digit
+    return digit
+end
+
+export function main(): int
+    local counter = Counter { value = 0 }
+    local record = { second = mark(counter, 2), first = mark(counter, 1) }
+    return counter.value
+end
