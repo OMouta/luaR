@@ -2724,8 +2724,6 @@ Portable code should query or declare required capabilities through package/buil
 
 ## 48. Conditional Compilation
 
-Compile-time target checks use a restricted condition syntax.
-
 ```lua
 #if target.os == "windows"
     ...
@@ -2736,18 +2734,18 @@ Compile-time target checks use a restricted condition syntax.
 #end
 ```
 
+A condition is decided while compiling, before any name is resolved. The items or statements of the first branch whose condition holds stand where the `#if` is written, in the scope around it; the other branches are parsed and nothing more.
+
+A condition is made of these, joined with `and`, `or`, `not`, and parentheses:
+
+- `target.os == "..."` and `target.os ~= "..."`, where the operating system is `"windows"`, `"macos"`, or `"linux"`;
+- `target.arch == "..."` and `target.arch ~= "..."`, where the architecture is `"x86_64"` or `"aarch64"`;
+- `target.family == "..."` and `target.family ~= "..."`, where the family is `"windows"` or `"unix"`;
+- `target.debug` and `target.release`, which say which compilation mode the program is built in (LR49).
+
+Anything else in a condition is an error. Package features belong to package metadata (LR22), and testing one is defined there.
+
 Conditional compilation should be used sparingly.
-
-Feature declarations belong to package/build metadata rather than arbitrary environment variables.
-
-Conditions may test:
-
-- operating system;
-- architecture;
-- target family;
-- enabled package features;
-- debug/release mode;
-- compiler-defined capabilities.
 
 ---
 
