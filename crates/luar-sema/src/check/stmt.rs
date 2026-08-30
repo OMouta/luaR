@@ -38,9 +38,11 @@ impl Checker<'_> {
                         .map_or(Type::Unresolved, |(value, _)| settle(value.clone())),
                 };
                 let held = self.closure_binding(held, value_type.as_ref().map(|(value, _)| value));
+                let slice_origin = value.as_ref().and_then(|value| self.slice_origin(value));
 
                 self.facts.record_binding(stmt.span, held.clone());
                 self.declare(binding, held, stmt.span);
+                self.bind_slice_origin(binding, slice_origin);
 
                 // LR5.1: a binding declared with no value holds nothing until
                 // something writes to it.
@@ -66,14 +68,21 @@ impl Checker<'_> {
                     None => settle(initialized.clone()),
                 };
                 let held = self.closure_binding(held, Some(&initialized));
+                let slice_origin = self.slice_origin(value);
 
                 self.facts.record_binding(stmt.span, held.clone());
                 self.declare(binding, held, stmt.span);
+                self.bind_slice_origin(binding, slice_origin);
                 self.bind_constant(binding);
                 self.types.bind_constant(binding, value);
                 self.evaluable(value);
             }
             StmtKind::Assign { target, op, value } => {
+                if let ExprKind::Index { receiver, .. } = &target.kind
+                    && let ExprKind::Name(name) = &receiver.kind
+                {
+                    self.reject_borrowed_mutation(name, target.span);
+                }
                 // LR57: what a branch proved narrows what the name reads as,
                 // and never what may be written to it.
                 let wanted = match &target.kind {
@@ -449,6 +458,79 @@ impl Checker<'_> {
             }
             StmtKind::Continue(label) => self.record_continue(label.as_deref()),
             StmtKind::Break(_) | StmtKind::Error => {}
+        }
+    }
+
+    fn slice_origin(&self, value: &Expr) -> Option<String> {
+        let sliced = match self.facts.type_of(value.span)? {
+            Type::Builtin {
+                kind: Builtin::Slice,
+                ..
+            } => true,
+            Type::Optional(inner) => matches!(
+                inner.as_ref(),
+                Type::Builtin {
+                    kind: Builtin::Slice,
+                    ..
+                }
+            ),
+            _ => false,
+        };
+        if !sliced {
+            return None;
+        }
+        let receiver = match &value.kind {
+            ExprKind::Index { receiver, .. } => receiver.as_ref(),
+            ExprKind::Call {
+                callee,
+                method: Some(method),
+                ..
+            } if method == "slice" => callee.as_ref(),
+            _ => return None,
+        };
+        let ExprKind::Name(name) = &receiver.kind else {
+            return None;
+        };
+        self.slice_borrows
+            .iter()
+            .rev()
+            .find_map(|scope| scope.get(name))
+            .cloned()
+            .or_else(|| {
+                matches!(
+                    self.facts.type_of(receiver.span),
+                    Some(Type::Builtin {
+                        kind: Builtin::List,
+                        ..
+                    })
+                )
+                .then(|| name.clone())
+            })
+    }
+
+    fn bind_slice_origin(&mut self, binding: &luar_ast::Binding, origin: Option<String>) {
+        if let (luar_ast::Binding::Name(name), Some(origin)) = (binding, origin) {
+            self.slice_borrows
+                .last_mut()
+                .expect("a scope is open")
+                .insert(name.clone(), origin);
+        }
+    }
+
+    pub(super) fn reject_borrowed_mutation(&mut self, name: &str, span: luar_diagnostics::Span) {
+        if self
+            .slice_borrows
+            .iter()
+            .any(|scope| scope.values().any(|origin| origin == name))
+        {
+            self.diagnostics.push(
+                Diagnostic::error(
+                    codes::BORROWED_LIST_MUTATION,
+                    span,
+                    format!("`{name}` is borrowed by a slice in this scope"),
+                )
+                .note("A list is not mutated while a slice of it is live (LR38)."),
+            );
         }
     }
 

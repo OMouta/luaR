@@ -1,0 +1,8 @@
+--- expect: compile-error
+--- code: LR0216
+--- span: 7:5
+--- spec: LR38
+function replace(values: List<int>)
+    local window = values[1..<3]
+    values[1] = window[0]
+end

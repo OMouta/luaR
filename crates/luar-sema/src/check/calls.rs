@@ -326,6 +326,23 @@ impl Checker<'_> {
             return Type::Unresolved;
         };
 
+        if method.is_some_and(|name| {
+            matches!(
+                name,
+                "push"
+                    | "pop"
+                    | "clear"
+                    | "insert"
+                    | "removeAt"
+                    | "reverse"
+                    | "pushAll"
+                    | "uncheckedSet"
+            )
+        }) && let ExprKind::Name(name) = &callee.kind
+        {
+            self.reject_borrowed_mutation(name, span);
+        }
+
         // LR29.2, LR46: an `unsafe` function makes a promise the compiler
         // cannot check, so the call site says out loud that it is keeping it.
         if signature.unsafe_ && self.unsafely == 0 {

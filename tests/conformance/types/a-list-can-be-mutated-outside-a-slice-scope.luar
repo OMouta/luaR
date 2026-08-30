@@ -1,0 +1,10 @@
+--- expect: compile-ok
+--- spec: LR38
+function replace(values: List<int>)
+    values:push(1)
+    if true then
+        local window = values[0..<1]
+        print(window[0])
+    end
+    values:push(2)
+end

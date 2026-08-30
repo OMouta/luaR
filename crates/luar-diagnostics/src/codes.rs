@@ -288,6 +288,8 @@ registry! {
         "A compile-time condition tests the target and the compilation mode.";
     active 215 => ENTRYPOINT_SIGNATURE, "LR45",
         "The entrypoint has one of the accepted signatures.";
+    active 216 => BORROWED_LIST_MUTATION, "LR38",
+        "A list is not mutated while a slice borrows its storage.";
 }
 
 #[cfg(test)]

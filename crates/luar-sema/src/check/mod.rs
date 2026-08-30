@@ -169,6 +169,7 @@ fn walk(
             scope: id,
             values: vec![HashMap::new()],
             constants: vec![HashSet::new()],
+            slice_borrows: vec![HashMap::new()],
             unwritten: HashSet::new(),
             loops: Vec::new(),
             unsafely: 0,
@@ -209,6 +210,9 @@ struct Checker<'a> {
     /// Which of them `const` bound, scope for scope alongside `values`
     /// (LR5.2).
     constants: Vec<HashSet<String>>,
+    /// Slice binding to the directly visible list whose storage it borrows,
+    /// scope for scope alongside `values` (LR38).
+    slice_borrows: Vec<HashMap<String, String>>,
     /// Bindings declared with a type and no value, which nothing has written
     /// to yet (LR5.1).
     unwritten: HashSet<String>,
@@ -877,12 +881,14 @@ impl Checker<'_> {
     fn push(&mut self) {
         self.values.push(HashMap::new());
         self.constants.push(HashSet::new());
+        self.slice_borrows.push(HashMap::new());
         self.types.push_constants();
     }
 
     fn pop(&mut self) {
         self.values.pop();
         self.constants.pop();
+        self.slice_borrows.pop();
         self.types.pop_constants();
     }
 }
