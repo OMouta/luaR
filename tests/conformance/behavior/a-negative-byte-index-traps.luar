@@ -1,0 +1,9 @@
+--- expect: run
+--- exit: 101
+--- trap: bounds
+--- spec: LR4.7
+--- spec: LR70
+export function main(): int
+    local bytes = b"abc"
+    return bytes[-1] as int
+end

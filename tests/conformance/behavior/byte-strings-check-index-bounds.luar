@@ -1,0 +1,13 @@
+--- expect: run
+--- exit: 101
+--- trap: bounds
+--- spec: LR4.7
+--- spec: LR70
+export function main(): int
+    local bytes = b"abc"
+    local first: u8 = bytes[0]
+    if first ~= 97 then
+        return 1
+    end
+    return bytes[3] as int
+end

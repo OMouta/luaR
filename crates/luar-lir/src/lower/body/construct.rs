@@ -352,7 +352,7 @@ impl<'a> Body<'a> {
         let held = self.function.type_of(container).clone();
         let key = match &held {
             Ty::Builtin { args, .. } => args.first().cloned(),
-            Ty::Array(..) => Some(Ty::INT),
+            Ty::Array(..) | Ty::Bytes => Some(Ty::INT),
             _ => return self.missing(span, "indexing something the compiler cannot index"),
         };
 
@@ -395,6 +395,7 @@ impl<'a> Body<'a> {
                 args,
             } => args.first().cloned(),
             Ty::Array(element, _) => Some(element.as_ref().clone()),
+            Ty::Bytes => Some(Ty::Int(crate::ty::IntTy::U8)),
             _ => None,
         };
         let read = InstKind::GetIndex {

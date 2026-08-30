@@ -811,6 +811,10 @@ impl Checker<'_> {
                 Some(Type::Primitive(Primitive::I64)),
                 element.as_ref().clone(),
             ),
+            Type::Primitive(Primitive::Bytes) => (
+                Some(Type::Primitive(Primitive::I64)),
+                Type::Primitive(Primitive::U8),
+            ),
             // LR36: every other type is indexed through `Index`.
             other => {
                 return self.overloaded("[]", "Index", "index", other, Some((key, key_span)), span);
