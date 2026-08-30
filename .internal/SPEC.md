@@ -2665,7 +2665,9 @@ export async function main(): Result<(), Error>
 end
 ```
 
-The exact accepted signatures are standardized.
+`main` may take no parameters or one `List<string>` parameter. It may return
+`()`, an integer type, or `Result<(), Error>`. An async `main` has the same
+parameter and result forms.
 
 Returning an integer maps to the process exit code.
 
