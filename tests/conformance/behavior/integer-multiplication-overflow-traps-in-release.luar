@@ -1,0 +1,10 @@
+--- expect: run
+--- exit: 101
+--- trap: integer-overflow
+--- mode: release
+--- spec: LR4.3
+export function main(): int
+    local value: u8 = 16
+    local product: u8 = value * value
+    return product as int
+end

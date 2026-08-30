@@ -1,0 +1,12 @@
+--- expect: run
+--- exit: 101
+--- trap: integer-overflow
+--- spec: LR4.3
+--- spec: LR11.1
+export function main(): int
+    local near: i8 = -127
+    local one: i8 = 1
+    local least: i8 = near - one
+    local negativeOne: i8 = -1
+    return (least // negativeOne) as int
+end
