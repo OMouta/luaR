@@ -85,7 +85,18 @@ impl<'a> Body<'a> {
         // LR12.2: `receiver:method(x)` is `Type.method(receiver, x)` written
         // short, so the receiver is the first argument either way.
         let receiver = method.map(|_| self.expr(callee, None));
+        self.call_declared(declaration, receiver, args, span)
+    }
 
+    /// A call to the declaration the checker resolved at `span`, with its
+    /// receiver already evaluated where it has one.
+    pub(super) fn call_declared(
+        &mut self,
+        declaration: Span,
+        receiver: Option<Value>,
+        args: &[Argument],
+        span: Span,
+    ) -> Value {
         if let Some(virtual_) = self.context.virtuals.get(&declaration).copied() {
             return self.dispatch(virtual_, receiver, args, span);
         }

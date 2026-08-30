@@ -1,0 +1,35 @@
+--- expect: run
+--- exit: 45
+--- spec: LR5.4
+--- spec: LR36
+--- spec: LR43
+struct Money
+    cents: int
+end
+
+function Money.add(self, other: Money): Money
+    return Money { cents = self.cents + other.cents }
+end
+
+ref struct Account
+    held: Money
+    writes: int
+
+    property balance: Money
+        get
+            return self.held
+        end
+
+        set(written)
+            self.held = written
+            self.writes += 1
+        end
+    end
+end
+
+export function main(): int
+    local account = Account { held = Money { cents = 2 }, writes = 0 }
+    account.balance += Money { cents = 3 }
+    account.balance += Money { cents = 20 }
+    return account.balance.cents + account.writes * 10
+end

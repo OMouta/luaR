@@ -1,0 +1,41 @@
+--- expect: run
+--- exit: 237
+--- spec: LR5.4
+--- spec: LR36
+--- spec: LR55
+struct Money
+    cents: int
+end
+
+function Money.add(self, other: Money): Money
+    return Money { cents = self.cents + other.cents }
+end
+
+ref struct Account
+    balance: Money
+end
+
+ref struct Bank
+    visits: int
+    accounts: List<Account>
+end
+
+function Bank.pick(self): Account
+    self.visits += 1
+    return self.accounts[0]
+end
+
+function Bank.slot(self): int
+    self.visits += 1
+    return 0
+end
+
+export function main(): int
+    local bank = Bank { visits = 0, accounts = [Account { balance = Money { cents = 1 } }] }
+    bank:pick().balance += Money { cents = 2 }
+
+    local wallets = [Money { cents = 3 }]
+    wallets[bank:slot()] += Money { cents = 4 }
+
+    return bank.visits * 100 + bank.accounts[0].balance.cents * 10 + wallets[0].cents
+end

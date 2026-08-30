@@ -1,7 +1,8 @@
 //! Lowering statements.
 
 use luar_ast::{
-    ArmBody, BinaryOp as AstBinary, Block, Branch, CatchClause, Expr, ExprKind, Stmt, StmtKind,
+    Argument, ArmBody, BinaryOp as AstBinary, Block, Branch, CatchClause, Expr, ExprKind, Stmt,
+    StmtKind,
 };
 use luar_diagnostics::Span;
 use luar_sema::check::protocol_of;
@@ -412,17 +413,6 @@ impl<'a> Body<'a> {
     /// LR55: an assignment evaluates its target before its value, and a
     /// compound assignment evaluates the target once.
     fn assign(&mut self, target: &Expr, op: Option<AstBinary>, value: &Expr, span: Span) {
-        // LR55: reaching the method would read the target a second time, and
-        // only a plain name can be read twice for nothing.
-        if !matches!(target.kind, ExprKind::Name(_)) && self.overloading(op, target.span).is_some()
-        {
-            self.gap(
-                span,
-                "a compound assignment through a protocol on this target",
-            );
-            return;
-        }
-
         match &target.kind {
             ExprKind::Name(name) => {
                 let Some(var) = self.lookup(name) else {
@@ -430,15 +420,8 @@ impl<'a> Body<'a> {
                     return;
                 };
                 let held = self.read_var(var, target.span);
-
-                // LR5.4, LR36: `a += b` is `a = a:add(b)` where the operator
-                // went through a protocol.
-                let written = match self.overloading(op, target.span) {
-                    Some((protocol, method, op)) => {
-                        self.through_protocol(protocol, method, op, target, value, target.span)
-                    }
-                    None => self.written(held, op, value, span),
-                };
+                let wanted = self.function.type_of(held).clone();
+                let written = self.written_into(Some(held), &wanted, op, value, target.span, span);
                 self.defs.insert(var, written);
                 if let Some(slot) = self.slots.get(&var).copied() {
                     self.emit_void(
@@ -463,7 +446,7 @@ impl<'a> Body<'a> {
 
                 // LR43: writing a property runs its setter, where it has one.
                 if self.property(&held, name).is_some() {
-                    self.write_property(object, &held, name, op, value, span);
+                    self.write_property(object, &held, name, op, value, target.span, span);
                     return;
                 }
 
@@ -485,7 +468,7 @@ impl<'a> Body<'a> {
                         span,
                     )
                 });
-                let written = self.written_into(read, &ty, op, value, span);
+                let written = self.written_into(read, &ty, op, value, target.span, span);
                 self.emit_void(
                     InstKind::SetField {
                         object,
@@ -536,7 +519,7 @@ impl<'a> Body<'a> {
                         span,
                     )
                 });
-                let written = self.written_into(read, &element, op, value, span);
+                let written = self.written_into(read, &element, op, value, target.span, span);
                 self.emit_void(
                     InstKind::SetIndex {
                         receiver: container,
@@ -554,6 +537,7 @@ impl<'a> Body<'a> {
     /// LR43: writing a property runs its setter. A compound assignment reads
     /// through the getter first, which is the same target evaluated once
     /// (LR5.4, LR55).
+    #[allow(clippy::too_many_arguments)]
     fn write_property(
         &mut self,
         object: Value,
@@ -561,6 +545,7 @@ impl<'a> Body<'a> {
         name: &str,
         op: Option<AstBinary>,
         value: &Expr,
+        target: Span,
         span: Span,
     ) {
         let Some((get, ty)) = self.getter(held, name) else {
@@ -583,7 +568,7 @@ impl<'a> Body<'a> {
                 span,
             )
         });
-        let written = self.written_into(read, &ty, op, value, span);
+        let written = self.written_into(read, &ty, op, value, target, span);
         self.emit_void(
             InstKind::Call {
                 callee: set,
@@ -595,33 +580,30 @@ impl<'a> Body<'a> {
     }
 
     /// What an assignment writes: the value, or what the operator makes of
-    /// what the target already held and the value (LR5.4).
-    fn written(&mut self, held: Value, op: Option<AstBinary>, value: &Expr, span: Span) -> Value {
-        let wanted = self.function.type_of(held).clone();
-        self.written_into(Some(held), &wanted, op, value, span)
-    }
-
-    /// The protocol an operator went through, where the checker sent it to one
-    /// (LR36).
-    fn overloading(
-        &self,
-        op: Option<AstBinary>,
-        at: Span,
-    ) -> Option<(&'static str, &'static str, AstBinary)> {
-        let op = op?;
-        self.context.facts.call(at)?;
-        let (_, protocol, method) = protocol_of(op)?;
-        Some((protocol, method, op))
-    }
-
+    /// what the target already held and the value (LR5.4). `a += b` is
+    /// `a = a:add(b)` where the operator went through a protocol, called on
+    /// the one read of the target (LR36, LR55).
     fn written_into(
         &mut self,
         held: Option<Value>,
         wanted: &Ty,
         op: Option<AstBinary>,
         value: &Expr,
+        target: Span,
         span: Span,
     ) -> Value {
+        if let (Some(left), Some(op)) = (held, op)
+            && let Some(declaration) = self.context.facts.call(target)
+            && protocol_of(op).is_some()
+        {
+            let args = [Argument {
+                name: None,
+                value: value.clone(),
+                span: value.span,
+            }];
+            return self.call_declared(declaration, Some(left), &args, target);
+        }
+
         let right = self.stored(value, Some(wanted));
         let (Some(left), Some(op)) = (held, op) else {
             return right;
