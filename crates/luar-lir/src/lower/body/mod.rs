@@ -20,11 +20,11 @@ use luar_sema::types::Type;
 
 use crate::inst::MethodId;
 use crate::inst::{Const, Inst, InstKind, Target, Terminator, Trap, Value};
+use crate::lower::names::{self, assigned};
 use crate::lower::types::{self, Ids};
 use crate::lower::{Callee, CompilationMode, Gap, Property};
 use crate::program::{BlockId, FuncId, Function, Program, SlotId};
 use crate::ty::{Builtin, Ty, TypeId};
-use stmt::assigned;
 
 /// A binding, told apart from every other one with its name (LR53).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -135,8 +135,13 @@ pub(super) struct Body<'a> {
     declared: Ty,
     /// Whether an exception can escape this function (LR25.3).
     throws: bool,
-    /// The value each binding currently holds.
+    /// The value each binding currently holds, or the cell it lives in.
     defs: HashMap<Var, Value>,
+    /// The bindings a closure captured and something assigns to, which live
+    /// in a cell every holder reads and writes (LR9.8).
+    cells: HashSet<Var>,
+    /// The names of this body's bindings that go in a cell when declared.
+    shared: Vec<String>,
     /// The stack slot a binding whose address is taken lives in (LR72).
     slots: HashMap<Var, SlotId>,
     /// The module-level constants being read, outermost first (LR24).
@@ -177,6 +182,8 @@ impl<'a> Body<'a> {
             declared,
             throws,
             defs: HashMap::new(),
+            cells: HashSet::new(),
+            shared: Vec::new(),
             slots: HashMap::new(),
             expanding: Vec::new(),
             next_var: 0,
@@ -198,6 +205,7 @@ impl<'a> Body<'a> {
         block: &Block,
     ) -> (Function, Vec<(FuncId, Function)>, Vec<Gap>) {
         assigned(block, &mut self.mutated);
+        self.shared = names::shared(block);
         let mut params: Vec<Value> = self.function.block(self.function.entry).params.clone();
         if let Some(captured) = captured {
             let closure = params.remove(0);
@@ -211,7 +219,14 @@ impl<'a> Body<'a> {
                     ty.clone(),
                     block.span,
                 );
-                self.bind_value(&Binding::Name(name.clone()), value, block.span);
+                // A captured cell is the same cell here (LR9.8).
+                if matches!(ty, Ty::Cell(_)) {
+                    let var = self.declare(name);
+                    self.defs.insert(var, value);
+                    self.cells.insert(var);
+                } else {
+                    self.bind_name(name, value, block.span);
+                }
             }
         }
         for (binding, value) in bindings.iter().zip(params) {
@@ -366,12 +381,50 @@ impl<'a> Body<'a> {
     /// What `var` holds now: its slot's contents where it has one, and its
     /// value otherwise (LR72).
     fn read_var(&mut self, var: Var, span: Span) -> Value {
-        match self.slots.get(&var).copied() {
-            Some(slot) => {
-                let ty = self.function.slot_type(slot).clone();
-                self.emit(InstKind::SlotGet { slot }, ty, span)
-            }
-            None => self.defs[&var],
+        if let Some(slot) = self.slots.get(&var).copied() {
+            let ty = self.function.slot_type(slot).clone();
+            return self.emit(InstKind::SlotGet { slot }, ty, span);
+        }
+        let held = self.defs[&var];
+        if !self.cells.contains(&var) {
+            return held;
+        }
+        let ty = self.var_type(var);
+        self.emit(
+            InstKind::GetField {
+                object: held,
+                field: 0,
+            },
+            ty,
+            span,
+        )
+    }
+
+    /// LR9.8: a binding in a cell is written through it, and one anywhere
+    /// else is given its next value.
+    fn write_var(&mut self, var: Var, value: Value, span: Span) {
+        if self.cells.contains(&var) {
+            self.emit_void(
+                InstKind::SetField {
+                    object: self.defs[&var],
+                    field: 0,
+                    value,
+                },
+                span,
+            );
+            return;
+        }
+        self.defs.insert(var, value);
+        if let Some(slot) = self.slots.get(&var).copied() {
+            self.emit_void(InstKind::SlotSet { slot, value }, span);
+        }
+    }
+
+    /// The type the binding holds, inside its cell where it has one.
+    fn var_type(&self, var: Var) -> Ty {
+        match self.function.type_of(self.defs[&var]) {
+            Ty::Cell(inner) if self.cells.contains(&var) => inner.as_ref().clone(),
+            other => other.clone(),
         }
     }
 
@@ -423,9 +476,9 @@ impl<'a> Body<'a> {
     fn known_type(&mut self, expr: &Expr) -> Option<Ty> {
         if let ExprKind::Name(name) = &expr.kind
             && let Some(var) = self.lookup(name)
-            && let Some(value) = self.defs.get(&var)
+            && self.defs.contains_key(&var)
         {
-            let held = self.function.type_of(*value).clone();
+            let held = self.var_type(var);
             // LR57: a name the checker proved holds something reads as
             // what it holds.
             if let Ty::Optional(inner) = &held
@@ -660,22 +713,56 @@ impl<'a> Body<'a> {
             None => {
                 // LR5.1: nothing has been written yet, and the checker proved
                 // nothing reads it before something does.
-                self.declare_binding(binding);
+                if let Binding::Name(name) = binding
+                    && let Some(held) = declared
+                    && self.goes_in_a_cell(name)
+                {
+                    self.bind_cell(name, held, None, span);
+                } else {
+                    self.declare_binding(binding);
+                }
             }
+        }
+    }
+
+    fn goes_in_a_cell(&self, name: &str) -> bool {
+        self.shared.iter().any(|shared| shared == name) && !self.context.facts.addressed(name)
+    }
+
+    /// LR9.8: a fresh cell for `name`, holding `value` where it has one yet.
+    fn bind_cell(&mut self, name: &str, held: Ty, value: Option<Value>, span: Span) {
+        let ty = Ty::Cell(Box::new(held));
+        let cell = self.emit(
+            InstKind::MakeStruct {
+                ty: ty.clone(),
+                fields: value.into_iter().collect(),
+            },
+            ty,
+            span,
+        );
+        let var = self.declare(name);
+        self.defs.insert(var, cell);
+        self.cells.insert(var);
+    }
+
+    fn bind_name(&mut self, name: &str, value: Value, span: Span) {
+        if self.goes_in_a_cell(name) {
+            let held = self.function.type_of(value).clone();
+            self.bind_cell(name, held, Some(value), span);
+            return;
+        }
+        let var = self.declare(name);
+        self.defs.insert(var, value);
+        if self.context.facts.addressed(name) {
+            let slot = self.function.add_slot(self.function.type_of(value).clone());
+            self.slots.insert(var, slot);
+            self.emit_void(InstKind::SlotSet { slot, value }, span);
         }
     }
 
     fn bind_value(&mut self, binding: &Binding, value: Value, span: Span) {
         match binding {
-            Binding::Name(name) => {
-                let var = self.declare(name);
-                self.defs.insert(var, value);
-                if self.context.facts.addressed(name) {
-                    let slot = self.function.add_slot(self.function.type_of(value).clone());
-                    self.slots.insert(var, slot);
-                    self.emit_void(InstKind::SlotSet { slot, value }, span);
-                }
-            }
+            Binding::Name(name) => self.bind_name(name, value, span),
             Binding::Record(fields) => {
                 let held = self.function.type_of(value).clone();
                 let Some(declared) = self.fields_of(&held) else {

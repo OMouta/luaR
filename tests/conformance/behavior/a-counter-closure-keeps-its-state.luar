@@ -1,0 +1,22 @@
+--- expect: run
+--- exit: 14
+--- spec: LR9.8
+function counter(): () -> int
+    local value = 0
+
+    return function(): int
+        value += 1
+        return value
+    end
+end
+
+export function main(): int
+    local first = counter()
+    local second = counter()
+    first()
+    first()
+    first()
+    second()
+    second()
+    return first() * 10 - second() * 10 + second()
+end

@@ -1,8 +1,7 @@
 //! Lowering statements.
 
 use luar_ast::{
-    Argument, ArmBody, BinaryOp as AstBinary, Block, Branch, CatchClause, Expr, ExprKind, Stmt,
-    StmtKind,
+    Argument, BinaryOp as AstBinary, Block, Branch, CatchClause, Expr, ExprKind, Stmt, StmtKind,
 };
 use luar_diagnostics::Span;
 use luar_sema::check::protocol_of;
@@ -374,8 +373,7 @@ impl<'a> Body<'a> {
 
             let saved = self.defs.clone();
             self.open();
-            let var = self.declare(&clause.name);
-            self.defs.insert(var, caught);
+            self.bind_name(&clause.name, caught, clause.span);
             for stmt in &clause.body.stmts {
                 if self.left {
                     break;
@@ -422,16 +420,7 @@ impl<'a> Body<'a> {
                 let held = self.read_var(var, target.span);
                 let wanted = self.function.type_of(held).clone();
                 let written = self.written_into(Some(held), &wanted, op, value, target.span, span);
-                self.defs.insert(var, written);
-                if let Some(slot) = self.slots.get(&var).copied() {
-                    self.emit_void(
-                        InstKind::SlotSet {
-                            slot,
-                            value: written,
-                        },
-                        span,
-                    );
-                }
+                self.write_var(var, written, span);
             }
 
             // LR12.2, LR59: writing a field of a mutable struct.
@@ -643,52 +632,5 @@ impl<'a> Body<'a> {
             ty,
             span,
         )
-    }
-}
-
-/// The names `block` assigns to, anywhere inside it.
-pub(super) fn assigned(block: &Block, out: &mut Vec<String>) {
-    for stmt in &block.stmts {
-        match &stmt.kind {
-            StmtKind::Assign { target, .. } => {
-                if let ExprKind::Name(name) = &target.kind {
-                    out.push(name.clone());
-                }
-            }
-            StmtKind::If {
-                branches,
-                otherwise,
-            } => {
-                for branch in branches {
-                    assigned(&branch.body, out);
-                }
-                if let Some(otherwise) = otherwise {
-                    assigned(otherwise, out);
-                }
-            }
-            StmtKind::While { body, .. }
-            | StmtKind::Repeat { body, .. }
-            | StmtKind::For { body, .. }
-            | StmtKind::Unsafe(body) => assigned(body, out),
-            StmtKind::Match { arms, .. } => {
-                for arm in arms {
-                    if let ArmBody::Block(body) = &arm.body {
-                        assigned(body, out);
-                    }
-                }
-            }
-            StmtKind::Conditional {
-                branches,
-                otherwise,
-            } => {
-                for (_, body) in branches {
-                    assigned(body, out);
-                }
-                if let Some(otherwise) = otherwise {
-                    assigned(otherwise, out);
-                }
-            }
-            _ => {}
-        }
     }
 }

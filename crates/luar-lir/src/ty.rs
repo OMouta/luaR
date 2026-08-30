@@ -183,6 +183,9 @@ pub enum Ty {
         params: Vec<Ty>,
         result: Box<Ty>,
     },
+    /// The one place a binding lives when a closure captured it and something
+    /// assigns to it, which every holder reads and writes (LR9.8).
+    Cell(Box<Ty>),
     /// A type parameter of the function or type being lowered (LR19).
     Parameter(String),
 }
@@ -241,6 +244,7 @@ impl Ty {
             Self::Tuple(members) => Self::Tuple(each(members)),
             Self::Union(members) => Self::Union(each(members)),
             Self::Optional(inner) => Self::Optional(Box::new(inner.substitute(params, args))),
+            Self::Cell(inner) => Self::Cell(Box::new(inner.substitute(params, args))),
             Self::Array(element, length) => {
                 Self::Array(Box::new(element.substitute(params, args)), *length)
             }
@@ -270,7 +274,7 @@ impl Ty {
             }
             Self::Tuple(members) => members.iter().any(Self::is_generic),
             Self::Record(fields) => fields.iter().any(|(_, ty)| ty.is_generic()),
-            Self::Optional(inner) | Self::Array(inner, _) => inner.is_generic(),
+            Self::Optional(inner) | Self::Cell(inner) | Self::Array(inner, _) => inner.is_generic(),
             Self::Pointer { target, .. } => target.is_generic(),
             Self::Function { params, result } => {
                 params.iter().any(Self::is_generic) || result.is_generic()
@@ -318,6 +322,7 @@ impl fmt::Display for Ty {
                 f.write_str(")")
             }
             Self::Optional(inner) => write!(f, "{inner}?"),
+            Self::Cell(inner) => write!(f, "cell<{inner}>"),
             Self::Union(members) => join(f, members, " | "),
             Self::Array(element, length) => write!(f, "[{element}; {length}]"),
             Self::Pointer { mutable, target } => {

@@ -1,0 +1,14 @@
+--- expect: run
+--- exit: 7
+--- spec: LR9.8
+export function main(): int
+    local total = 0
+
+    local add = function(amount: int)
+        total += amount
+    end
+
+    add(3)
+    add(4)
+    return total
+end

@@ -242,7 +242,9 @@ fn infer(
             }
             Some(())
         }
-        (Ty::Optional(a), Ty::Optional(b)) => infer(params, a, b, inferred),
+        (Ty::Optional(a), Ty::Optional(b)) | (Ty::Cell(a), Ty::Cell(b)) => {
+            infer(params, a, b, inferred)
+        }
         (Ty::Array(a, left), Ty::Array(b, right)) if left == right => infer(params, a, b, inferred),
         (
             Ty::Pointer {

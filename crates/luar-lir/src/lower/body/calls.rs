@@ -5,9 +5,9 @@ use luar_diagnostics::Span;
 
 use crate::inst::MethodId;
 use crate::inst::{BinaryOp, Const, InstKind, Target, Terminator, Value};
-use crate::lower::body::stmt::assigned;
 use crate::lower::body::{Body, Var};
 use crate::lower::names;
+use crate::lower::names::assigned;
 use crate::lower::thrown_or;
 use crate::lower::throws;
 use crate::lower::types;
@@ -68,11 +68,13 @@ impl<'a> Body<'a> {
             }
         }
 
-        // LR9.2: a name holding a function value is called through the value,
-        // and reaches no declaration.
+        // LR9.2: a function value is called through the value, and reaches
+        // no declaration.
         if method.is_none()
+            && self.context.facts.call(span).is_none()
             && self
                 .known_type(callee)
+                .or_else(|| self.maybe_recorded(callee.span))
                 .is_some_and(|ty| matches!(ty, Ty::Function { .. }))
         {
             return self.through(callee, args, span);
@@ -389,7 +391,10 @@ impl<'a> Body<'a> {
             if !self.defs.contains_key(&var) || captures.iter().any(|(_, held)| *held == var) {
                 continue;
             }
-            if self.mutated.contains(&name) || inside.contains(&name) {
+            // LR9.8: one something assigns to is captured as its cell.
+            if !self.cells.contains(&var)
+                && (self.mutated.contains(&name) || inside.contains(&name))
+            {
                 return None;
             }
             captures.push((name, var));

@@ -101,6 +101,7 @@ pub fn size(program: &Program, ty: &Ty, pointer: Type) -> Option<i32> {
         Ty::Tuple(members) => u32::try_from(members.len()).ok()?,
         Ty::Record(fields) => u32::try_from(fields.len()).ok()?,
         Ty::Array(_, length) => u32::try_from(*length).ok()?,
+        Ty::Cell(_) => 1,
         // Whether it holds anything, and what it holds.
         Ty::Optional(_) => 2,
         // What it is, and then what it holds (LR18.1, LR25.3).
@@ -213,6 +214,7 @@ pub fn parts(program: &Program, ty: &Ty) -> Option<Vec<Ty>> {
             element.as_ref().clone();
             usize::try_from(*length).ok()?
         ]),
+        Ty::Cell(inner) => Some(vec![inner.as_ref().clone()]),
         _ => None,
     }
 }
@@ -273,6 +275,7 @@ pub fn is_aggregate(ty: &Ty) -> bool {
             | Ty::Record(_)
             | Ty::Array(..)
             | Ty::Optional(_)
+            | Ty::Cell(_)
             | Ty::Builtin {
                 kind: Builtin::Result
                     | Builtin::List

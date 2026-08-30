@@ -115,10 +115,7 @@ impl<'a> Body<'a> {
         let span = pattern.span;
         match &pattern.kind {
             PatternKind::Wildcard => {}
-            PatternKind::Binding(name) => {
-                let var = self.declare(name);
-                self.defs.insert(var, subject);
-            }
+            PatternKind::Binding(name) => self.bind_name(name, subject, span),
 
             PatternKind::Or(alternatives) => {
                 let mut held: Option<Value> = None;
@@ -370,8 +367,7 @@ impl<'a> Body<'a> {
             Some(pattern) => self.test(value, pattern, fail),
             None => {
                 let name = written.bound_as.as_ref().unwrap_or(&written.field);
-                let var = self.declare(name);
-                self.defs.insert(var, value);
+                self.bind_name(name, value, written.span);
             }
         }
     }

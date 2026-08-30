@@ -1,0 +1,22 @@
+--- expect: run
+--- exit: 61
+--- spec: LR9.8
+export function main(): int
+    local shared = 1
+
+    local read = () => shared
+    local bump = function()
+        shared += 10
+    end
+    local nested = function()
+        local inner = function()
+            shared *= 2
+        end
+        inner()
+    end
+
+    shared = 20
+    bump()
+    nested()
+    return read() + 1
+end
