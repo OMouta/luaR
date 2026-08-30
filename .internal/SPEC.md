@@ -2447,7 +2447,7 @@ values[10..<]
 values[..<]
 ```
 
-A slice of a list is a view rather than a copy. `Slice<T>` borrows its backing storage, and mutating the list while a slice of it is live is a compile-time error where the compiler can see it and a panic where it cannot.
+A slice of a list is a view rather than a copy. `Slice<T>` borrows its backing storage, and mutating the list while a slice of it is live is a compile-time error where the compiler can see it and a panic where it cannot. A slice held by a local binding is live through the end of that binding's lexical scope. A slice that escapes its declaring scope is live while it remains reachable.
 
 Strings are not sliced with `[]`, on the same reasoning as LR37: a byte range is not a meaningful unit of text, and `text[0..<10]` invites treating one for the other. String subranges come from explicit APIs that name their unit and their failure mode:
 
