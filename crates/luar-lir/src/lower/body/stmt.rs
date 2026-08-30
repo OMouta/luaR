@@ -110,6 +110,60 @@ impl<'a> Body<'a> {
         self.join(arrivals, join);
     }
 
+    /// LR10.1: the expression form, whose branches each produce the value
+    /// the `if` is used at.
+    pub(super) fn if_expr(
+        &mut self,
+        branches: &[(Expr, Expr)],
+        otherwise: &Expr,
+        span: Span,
+    ) -> Value {
+        let ty = self.recorded(span);
+        let join = self.function.add_block();
+        let mut arrivals = Vec::new();
+
+        for (condition, value) in branches {
+            let condition = self.expr(condition, Some(&Ty::Bool));
+            let then = self.function.add_block();
+            let next = self.function.add_block();
+            self.terminate(Terminator::Branch {
+                condition,
+                then: Target::to(then),
+                otherwise: Target::to(next),
+            });
+
+            let saved = self.defs.clone();
+            self.switch_to(then);
+            let value = self.expr(value, Some(&ty));
+            if !self.left {
+                arrivals.push((
+                    Arrival {
+                        block: self.current,
+                        defs: self.defs.clone(),
+                    },
+                    Some(value),
+                ));
+            }
+
+            self.defs = saved;
+            self.switch_to(next);
+        }
+
+        let value = self.expr(otherwise, Some(&ty));
+        if !self.left {
+            arrivals.push((
+                Arrival {
+                    block: self.current,
+                    defs: self.defs.clone(),
+                },
+                Some(value),
+            ));
+        }
+
+        self.join_carrying(arrivals, join, Some(ty))
+            .expect("a value was carried")
+    }
+
     /// LR10.2: the condition is tested before each pass.
     fn while_stmt(&mut self, label: Option<&str>, condition: &Expr, body: &Block) {
         let carried = self.carried(body);

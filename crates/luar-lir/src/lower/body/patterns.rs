@@ -46,6 +46,51 @@ impl<'a> Body<'a> {
         self.join(arrivals, join);
     }
 
+    /// LR16.1: the expression form, whose cases each produce the value the
+    /// match is used at.
+    pub(super) fn match_expr(&mut self, scrutinee: &Expr, arms: &[MatchArm], span: Span) -> Value {
+        let ty = self.recorded(span);
+        let subject = self.expr(scrutinee, None);
+        let join = self.function.add_block();
+        let entering = self.defs.clone();
+        let mut arrivals = Vec::new();
+
+        for arm in arms {
+            let next = self.function.add_block();
+            self.open();
+            self.arm(subject, arm, next);
+
+            let value = match &arm.body {
+                ArmBody::Expr(value) => Some(self.expr(value, Some(&ty))),
+                ArmBody::Block(body) => {
+                    self.block(body);
+                    None
+                }
+            };
+            if !self.left
+                && let Some(value) = value
+            {
+                arrivals.push((
+                    Arrival {
+                        block: self.current,
+                        defs: self.defs.clone(),
+                    },
+                    Some(value),
+                ));
+            }
+
+            self.close();
+            self.switch_to(next);
+            self.defs = entering.clone();
+        }
+
+        // LR16.4: the checker proved the cases cover every value, so control
+        // cannot reach past the last one.
+        self.terminate(Terminator::Trap(Trap::Unreachable));
+        self.join_carrying(arrivals, join, Some(ty))
+            .expect("a value was carried")
+    }
+
     /// Tests one case, and where it does not hold leaves for `next`.
     fn arm(&mut self, subject: Value, arm: &MatchArm, next: BlockId) {
         self.test(subject, &arm.pattern, next);

@@ -22,8 +22,16 @@ type DestructuredField = (Type, Option<(Option<Visibility>, ModuleId, String)>);
 
 impl Checker<'_> {
     /// Checks one case against `held`, the type of `scrutinee`, and gives
-    /// back what its pattern covers.
-    pub(super) fn arm(&mut self, arm: &MatchArm, held: &Type, scrutinee: &Expr) -> Pat {
+    /// back what its pattern covers and what its expression produces, where
+    /// it has one, checked at `wanted` where the match is used at a type
+    /// (LR16.1).
+    pub(super) fn arm(
+        &mut self,
+        arm: &MatchArm,
+        held: &Type,
+        scrutinee: &Expr,
+        wanted: Option<&Type>,
+    ) -> (Pat, Option<Type>) {
         self.push();
         let (matched, pat) = self.pattern(&arm.pattern, held);
 
@@ -45,18 +53,19 @@ impl Checker<'_> {
         if let Some(guard) = &arm.guard {
             self.condition(guard);
         }
-        match &arm.body {
-            ArmBody::Block(block) => self.block(block),
-            ArmBody::Expr(expr) => {
-                self.expr(expr);
+        let produced = match &arm.body {
+            ArmBody::Block(block) => {
+                self.block(block);
+                None
             }
-        }
+            ArmBody::Expr(expr) => Some(self.expr_maybe_wanting(expr, wanted)),
+        };
 
         if narrowed {
             self.widen();
         }
         self.pop();
-        pat
+        (pat, produced)
     }
 
     /// Checks `pattern` against `held`, binds what it binds at the types it

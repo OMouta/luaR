@@ -402,7 +402,7 @@ impl Checker<'_> {
                 let rows: Vec<Row> = arms
                     .iter()
                     .map(|arm| Row {
-                        pat: self.arm(arm, &held, scrutinee),
+                        pat: self.arm(arm, &held, scrutinee, None).0,
                         guarded: arm.guard.is_some(),
                         span: arm.pattern.span,
                     })

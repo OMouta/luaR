@@ -1,0 +1,9 @@
+--- expect: run
+--- exit: 0
+--- stdout: "pass\n"
+--- spec: LR10.1
+export function main()
+    local score = 70
+    local label = if score >= 50 then "pass" else "fail"
+    print(label)
+end

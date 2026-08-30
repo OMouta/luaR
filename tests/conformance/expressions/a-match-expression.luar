@@ -1,0 +1,12 @@
+--- expect: run
+--- exit: 0
+--- stdout: "even\n"
+--- spec: LR16.1
+export function main()
+    local n = 4
+    local label = match n % 2
+        case 0 => "even"
+        case _ => "odd"
+    end
+    print(label)
+end

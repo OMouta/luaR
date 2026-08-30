@@ -1,0 +1,10 @@
+--- expect: compile-ok
+--- spec: LR10.1
+--- spec: LR57
+struct User
+    name: string
+end
+
+export function label(user: User?): string
+    return if user ~= nil then user.name else "nobody"
+end

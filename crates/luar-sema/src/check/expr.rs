@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use luar_ast::{Expr, ExprKind, FieldInit, FunctionBody, InterpolationPart, MapKey, Visibility};
-use luar_diagnostics::{Diagnostic, Span, codes};
+use luar_diagnostics::{Code, Diagnostic, Span, codes};
 
 use crate::aliases::substitute;
 use crate::modules::ModuleId;
@@ -18,7 +18,7 @@ use super::interfaces::same_signature;
 use super::narrow::Place;
 use super::operators::{settle, unify};
 use super::stmt::assigned_function;
-use super::{Checker, ClosureCaptures, ThreadMarker};
+use super::{Checker, ClosureCaptures, Narrowing, ThreadMarker};
 
 impl Checker<'_> {
     /// The type of an expression, recorded for the stages after this one.
@@ -78,6 +78,24 @@ impl Checker<'_> {
             let ty = self.call(callee, None, &receiver, &written, args, expr.span);
             self.facts.record_type(expr.span, ty.clone());
             return ty;
+        }
+        // LR16.1, LR10.1: every case or branch is checked at the type the
+        // whole expression is used at.
+        match &expr.kind {
+            ExprKind::Match { scrutinee, arms } => {
+                let ty = self.match_expr(scrutinee, arms, Some(wanted));
+                self.facts.record_type(expr.span, ty.clone());
+                return ty;
+            }
+            ExprKind::If {
+                branches,
+                otherwise,
+            } => {
+                let ty = self.if_expr(branches, otherwise, Some(wanted));
+                self.facts.record_type(expr.span, ty.clone());
+                return ty;
+            }
+            _ => {}
         }
         // LR19: a type argument nothing passes is read from the type the
         // result is used at.
@@ -166,6 +184,111 @@ impl Checker<'_> {
             params: types,
             result: Box::new(returns),
         }
+    }
+
+    /// An expression checked at `wanted` where there is one (LR19, LR25.1).
+    pub(super) fn expr_maybe_wanting(&mut self, expr: &Expr, wanted: Option<&Type>) -> Type {
+        match wanted {
+            Some(wanted) => self.expr_wanting(expr, wanted),
+            None => self.expr(expr),
+        }
+    }
+
+    /// LR16.1: a `match` expression produces what its cases produce, which
+    /// is one type, or the type the expression is used at.
+    pub(super) fn match_expr(
+        &mut self,
+        scrutinee: &Expr,
+        arms: &[luar_ast::MatchArm],
+        wanted: Option<&Type>,
+    ) -> Type {
+        let held = self.expr(scrutinee);
+        let mut produced = wanted.cloned();
+        let mut rows = Vec::with_capacity(arms.len());
+
+        for arm in arms {
+            let (pat, value) = self.arm(arm, &held, scrutinee, produced.as_ref());
+            rows.push(Row {
+                pat,
+                guarded: arm.guard.is_some(),
+                span: arm.pattern.span,
+            });
+            if let (Some(value), luar_ast::ArmBody::Expr(expr)) = (value, &arm.body) {
+                produced = Some(self.agree(produced, value, expr.span, codes::MATCH_ARM_TYPE));
+            }
+        }
+
+        self.exhaustive(&held, &rows, scrutinee.span);
+        produced.unwrap_or(Type::Unresolved)
+    }
+
+    /// LR10.1: an `if` expression produces what its branches produce, which
+    /// is one type, or the type the expression is used at. Each branch is
+    /// checked knowing what its condition proved (LR57).
+    pub(super) fn if_expr(
+        &mut self,
+        branches: &[(Expr, Expr)],
+        otherwise: &Expr,
+        wanted: Option<&Type>,
+    ) -> Type {
+        let mut produced = wanted.cloned();
+        let mut failed: Vec<Narrowing> = Vec::new();
+
+        for (condition, value) in branches {
+            self.narrow(&failed, false);
+            self.condition(condition);
+            let facts = self.facts(condition);
+
+            self.narrow(&facts, true);
+            let held = self.expr_maybe_wanting(value, produced.as_ref());
+            self.widen();
+            self.widen();
+
+            produced = Some(self.agree(produced, held, value.span, codes::IF_BRANCH_TYPE));
+            failed.extend(facts);
+        }
+
+        self.narrow(&failed, false);
+        let held = self.expr_maybe_wanting(otherwise, produced.as_ref());
+        self.widen();
+        produced = Some(self.agree(produced, held, otherwise.span, codes::IF_BRANCH_TYPE));
+
+        produced.unwrap_or(Type::Unresolved)
+    }
+
+    /// The type two branches of one expression agree on, reporting `code` at
+    /// `span` where they do not (LR10.1, LR16.1).
+    fn agree(&mut self, running: Option<Type>, held: Type, span: Span, code: Code) -> Type {
+        let Some(running) = running else {
+            return held;
+        };
+        if matches!(running, Type::Unresolved) || matches!(held, Type::Unresolved) {
+            return Type::Unresolved;
+        }
+
+        let unified = unify(running.clone(), held.clone());
+        if !matches!(unified, Type::Unresolved) {
+            return unified;
+        }
+        if self.accepts(&running, &held) {
+            return running;
+        }
+        if self.accepts(&held, &running) {
+            return held;
+        }
+
+        self.diagnostics.push(
+            Diagnostic::error(
+                code,
+                span,
+                format!(
+                    "this produces {}, and the branches before it produce `{running}`",
+                    article(&held)
+                ),
+            )
+            .note("Every branch of one expression produces a compatible type (LR10.1, LR16.1)."),
+        );
+        running
     }
 
     fn expr_type(&mut self, expr: &Expr) -> Type {
@@ -412,30 +535,11 @@ impl Checker<'_> {
                 }
             }
             ExprKind::Function { .. } => self.function_expr(expr, &[]),
-            ExprKind::Match { scrutinee, arms } => {
-                let held = self.expr(scrutinee);
-                let rows: Vec<Row> = arms
-                    .iter()
-                    .map(|arm| Row {
-                        pat: self.arm(arm, &held, scrutinee),
-                        guarded: arm.guard.is_some(),
-                        span: arm.pattern.span,
-                    })
-                    .collect();
-                self.exhaustive(&held, &rows, scrutinee.span);
-                Type::Unresolved
-            }
+            ExprKind::Match { scrutinee, arms } => self.match_expr(scrutinee, arms, None),
             ExprKind::If {
                 branches,
                 otherwise,
-            } => {
-                for (condition, value) in branches {
-                    self.condition(condition);
-                    self.expr(value);
-                }
-                self.expr(otherwise);
-                Type::Unresolved
-            }
+            } => self.if_expr(branches, otherwise, None),
             ExprKind::Error => Type::Unresolved,
         }
     }

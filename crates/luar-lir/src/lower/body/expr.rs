@@ -271,6 +271,11 @@ impl<'a> Body<'a> {
                 _ => self.missing(span, "an address of an element"),
             },
 
+            ExprKind::Match { scrutinee, arms } => self.match_expr(scrutinee, arms, span),
+            ExprKind::If {
+                branches,
+                otherwise,
+            } => self.if_expr(branches, otherwise, span),
             ExprKind::Error => self.missing(span, "an expression that did not parse"),
 
             _ => self.missing(span, "an expression"),

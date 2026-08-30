@@ -1,0 +1,12 @@
+--- expect: run
+--- exit: 0
+--- stdout: "false\n"
+--- spec: LR16.1
+export function main()
+    local n = 4
+    local value: int? = match n
+        case 0 => nil
+        case _ => n
+    end
+    print(value == nil)
+end

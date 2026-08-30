@@ -280,6 +280,10 @@ registry! {
         "The alternatives of an or-pattern bind the same names at the same types.";
     active 211 => TYPE_ARGUMENT_UNKNOWN, "LR19",
         "A type argument is written, passed, or read from the type the result is used at.";
+    active 212 => MATCH_ARM_TYPE, "LR16.1",
+        "Every case of a `match` expression produces a compatible type.";
+    active 213 => IF_BRANCH_TYPE, "LR10.1",
+        "Every branch of an `if` expression produces a compatible type.";
 }
 
 #[cfg(test)]

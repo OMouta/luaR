@@ -531,11 +531,29 @@ impl<'a> Body<'a> {
 
     /// Merges the paths that reached the end of a construct into `join`.
     fn join(&mut self, arrivals: Vec<Arrival>, join: BlockId) {
+        let arrivals = arrivals
+            .into_iter()
+            .map(|arrival| (arrival, None))
+            .collect();
+        self.join_carrying(arrivals, join, None);
+    }
+
+    /// Joins `arrivals` at `join`, each bringing a value of type `carried`
+    /// where there is one, which the join block takes as its first parameter
+    /// (LR10.1, LR16.1).
+    fn join_carrying(
+        &mut self,
+        arrivals: Vec<(Arrival, Option<Value>)>,
+        join: BlockId,
+        carried: Option<Ty>,
+    ) -> Option<Value> {
+        let carried = carried.map(|ty| self.function.add_block_param(join, ty));
+
         if arrivals.is_empty() {
             // LR50: every path left, so nothing after this runs.
             self.switch_to(join);
             self.terminate(Terminator::Trap(Trap::Unreachable));
-            return;
+            return carried;
         }
 
         let visible: Vec<Var> = self
@@ -546,15 +564,18 @@ impl<'a> Body<'a> {
             .filter(|var| {
                 arrivals
                     .iter()
-                    .all(|arrival| arrival.defs.contains_key(var))
+                    .all(|(arrival, _)| arrival.defs.contains_key(var))
             })
             .collect();
 
         let mut merged = HashMap::new();
         let mut parameters = Vec::new();
         for var in visible {
-            let first = arrivals[0].defs[&var];
-            if arrivals.iter().all(|arrival| arrival.defs[&var] == first) {
+            let first = arrivals[0].0.defs[&var];
+            if arrivals
+                .iter()
+                .all(|(arrival, _)| arrival.defs[&var] == first)
+            {
                 merged.insert(var, first);
             } else {
                 let ty = self.function.type_of(first).clone();
@@ -564,14 +585,16 @@ impl<'a> Body<'a> {
             }
         }
 
-        for arrival in &arrivals {
-            let args = parameters.iter().map(|var| arrival.defs[var]).collect();
+        for (arrival, value) in &arrivals {
+            let mut args: Vec<Value> = value.iter().copied().collect();
+            args.extend(parameters.iter().map(|var| arrival.defs[var]));
             self.function.block_mut(arrival.block).term =
                 Some(Terminator::Jump(Target::new(join, args)));
         }
 
         self.switch_to(join);
         self.defs = merged;
+        carried
     }
 
     /// The bindings a loop body may write to, which are the ones its blocks
