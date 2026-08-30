@@ -42,8 +42,80 @@ pub use operators::protocol_of;
 #[must_use]
 pub fn check(graph: &Graph, names: &Names, table: &Table) -> (Facts, Vec<Diagnostic>) {
     let mut diagnostics = Vec::new();
+    check_entrypoint(graph, table, &mut diagnostics);
     let (_, facts) = walk(graph, names, table, &mut diagnostics);
     (facts, diagnostics)
+}
+
+fn check_entrypoint(graph: &Graph, table: &Table, diagnostics: &mut Vec<Diagnostic>) {
+    let entries: HashSet<Span> = graph
+        .module(graph.root())
+        .ast
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Function(function)
+                if function.exported && function.name.as_slice() == ["main"] =>
+            {
+                Some(function.span)
+            }
+            _ => None,
+        })
+        .collect();
+    if entries.is_empty() {
+        return;
+    }
+    let Some(Decl::Function(overloads)) = table.get(graph.root(), "main") else {
+        return;
+    };
+
+    for signature in overloads
+        .iter()
+        .filter(|signature| entries.contains(&signature.span))
+    {
+        let parameter = match signature.params.as_slice() {
+            [] => true,
+            [param] => {
+                !param.optional
+                    && !param.variadic
+                    && matches!(
+                        &param.ty,
+                        Type::Builtin {
+                            kind: Builtin::List,
+                            args,
+                        } if args.as_slice() == [Type::STRING]
+                    )
+            }
+            _ => false,
+        };
+        let result = matches!(&signature.result, Type::Tuple(items) if items.is_empty())
+            || matches!(&signature.result, Type::Primitive(primitive) if primitive.is_integer())
+            || result_entrypoint(&signature.result);
+
+        if !signature.type_params.is_empty()
+            || signature.unsafe_
+            || !parameter
+            || !result
+            || entries.len() != 1
+        {
+            diagnostics.push(Diagnostic::error(
+                codes::ENTRYPOINT_SIGNATURE,
+                signature.span,
+                "`main` does not have an accepted entrypoint signature",
+            ));
+        }
+    }
+}
+
+fn result_entrypoint(ty: &Type) -> bool {
+    let Type::Builtin {
+        kind: Builtin::Result,
+        args,
+    } = ty
+    else {
+        return false;
+    };
+    matches!(args.as_slice(), [Type::Tuple(ok), Type::Builtin { kind: Builtin::Error, args: error }] if ok.is_empty() && error.is_empty())
 }
 
 /// Works out the result of every function that writes none down (LR7).

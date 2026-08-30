@@ -286,6 +286,8 @@ registry! {
         "Every branch of an `if` expression produces a compatible type.";
     active 214 => CONDITION_NOT_TESTABLE, "LR48",
         "A compile-time condition tests the target and the compilation mode.";
+    active 215 => ENTRYPOINT_SIGNATURE, "LR45",
+        "The entrypoint has one of the accepted signatures.";
 }
 
 #[cfg(test)]

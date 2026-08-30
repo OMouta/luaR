@@ -153,6 +153,12 @@ pub struct Graph {
 }
 
 impl Graph {
+    /// The module compilation started from.
+    #[must_use]
+    pub fn root(&self) -> ModuleId {
+        ModuleId(0)
+    }
+
     /// Adds a module read from `path`, and returns its id.
     ///
     /// # Panics
