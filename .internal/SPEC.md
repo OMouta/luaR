@@ -558,7 +558,7 @@ local double = (value: int) => value * 2
 
 Multiple statements require a normal function body.
 
-A closure written where a function type is asked for, as an argument or the value of an annotated binding, takes the parameter types it does not write from that type. An arrow closure with no written result returns what its expression is (LR7).
+A closure written where a function type is asked for, as an argument or the value of an annotated binding, takes the parameter types it does not write from that type. A closure with no written result returns what its body returns, like a declared function (LR7): an arrow closure returns what its expression is, and a block body with no `return` value returns nothing (LR9.1).
 
 ### 9.3 Function Types
 
