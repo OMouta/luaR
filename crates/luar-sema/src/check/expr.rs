@@ -150,14 +150,22 @@ impl Checker<'_> {
 
         self.returns.push(declared.clone());
         self.asynchronously.push(*asynchronous);
-        self.bodies.push(None);
+        // LR7: a block body with no written result is worked out from what
+        // it returns, collected under the closure's own span.
+        self.bodies.push(declared.is_none().then_some(expr.span));
 
         let produced = match body.as_ref() {
             FunctionBody::Block(block) => {
                 for stmt in &block.stmts {
                     self.stmt(stmt);
                 }
-                None
+                self.collected
+                    .remove(&expr.span)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(settle)
+                    .reduce(unify)
+                    .or_else(|| Some(Type::Tuple(Vec::new())))
             }
             FunctionBody::Expr(expr) => Some(self.expr(expr)),
         };

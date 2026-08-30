@@ -1,0 +1,16 @@
+--- expect: run
+--- exit: 6
+--- spec: LR9.2
+--- spec: LR7
+export function main(): int
+    local double = function(value: int)
+        return value * 2
+    end
+
+    local nothing = function()
+        return
+    end
+
+    nothing()
+    return double(3)
+end
