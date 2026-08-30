@@ -55,6 +55,10 @@ impl Translator<'_, '_> {
                 let call = self.builder.ins().call(formatter, &[widened]);
                 self.builder.inst_results(call).first().copied()
             }
+            Ty::Char => {
+                let call = self.builder.ins().call(self.display_char, &[value]);
+                self.builder.inst_results(call).first().copied()
+            }
             _ => {
                 self.gap(format!("displaying a value of type `{ty}`"));
                 None

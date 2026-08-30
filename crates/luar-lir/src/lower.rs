@@ -76,6 +76,7 @@ pub fn lower_in_mode(
         properties: HashMap::new(),
         bodies: Vec::new(),
         derived: Vec::new(),
+        displays: HashMap::new(),
         throwing: HashSet::new(),
         constants: HashMap::new(),
         gaps: Vec::new(),
@@ -90,6 +91,7 @@ pub fn lower_in_mode(
     lowering.declare_finalizers();
     lowering.declare_properties();
     lowering.declare_derived();
+    lowering.find_displays();
     lowering.build_vtables();
     lowering.lower_bodies();
     lowering.write_derived();
@@ -125,6 +127,8 @@ struct Lowering<'a> {
     bodies: Vec<Pending>,
     /// The members `@derive` wrote, waiting for a body (LR75).
     derived: Vec<(FuncId, Span, Type, String)>,
+    /// The `display` of each struct and enum that has one (LR35).
+    displays: HashMap<TypeId, FuncId>,
     /// The declarations an exception can escape, by the span of each
     /// (LR25.3).
     throwing: HashSet<Span>,
@@ -838,6 +842,7 @@ impl Lowering<'_> {
                 virtuals: &self.virtuals,
                 defaults: &self.defaults,
                 properties: &self.properties,
+                displays: &self.displays,
                 throwing: &self.throwing,
                 program: &self.program,
                 module: pending.module,

@@ -94,6 +94,7 @@ pub(crate) struct Translator<'a, 'b> {
     pub hash_bytes: FuncRef,
     pub display_signed: FuncRef,
     pub display_unsigned: FuncRef,
+    pub display_char: FuncRef,
     pub print: FuncRef,
     pub abort: FuncRef,
     /// The bucket a map holds a key in, and the bucket it will (LR13.2).
@@ -622,6 +623,10 @@ impl Translator<'_, '_> {
         let ty = result.map_or(types::I8, |value| self.machine_or_gap(value));
         let value = match literal {
             Const::Unit => self.builder.ins().iconst(types::I8, 0),
+            // LR4.1: `nil` as its own type holds nothing, like `()`.
+            Const::Nil if result.is_some_and(|value| *self.function.type_of(value) == Ty::Nil) => {
+                self.builder.ins().iconst(types::I8, 0)
+            }
             Const::Bool(set) => self.builder.ins().iconst(types::I8, i64::from(*set)),
             // The bits are the bits of the value's own type, and Cranelift
             // reads the width from the type it is given here.

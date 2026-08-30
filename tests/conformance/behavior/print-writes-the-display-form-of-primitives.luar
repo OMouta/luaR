@@ -1,0 +1,9 @@
+--- expect: run
+--- exit: 0
+--- stdout: "A\té\t€\t😀\tnil\ttrue\t-7\n"
+--- spec: LR35
+--- spec: LR54.1
+export function main()
+    local wide: char = '😀'
+    print('A', 'é', '€', wide, nil, true, -7)
+end

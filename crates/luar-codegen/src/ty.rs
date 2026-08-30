@@ -14,7 +14,7 @@ use crate::layout::is_aggregate;
 #[must_use]
 pub fn machine(ty: &Ty, pointer: Type) -> Option<Type> {
     let machine = match ty {
-        Ty::Unit | Ty::Bool => types::I8,
+        Ty::Unit | Ty::Nil | Ty::Bool => types::I8,
         Ty::Int(int) => integer(*int, pointer),
         Ty::Pointer { .. } => pointer,
         Ty::Char => types::I32,

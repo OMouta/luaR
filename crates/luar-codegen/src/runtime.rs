@@ -46,6 +46,7 @@ pub(crate) struct Runtime {
     pub hash_bytes: ModuleFuncId,
     pub display_signed: ModuleFuncId,
     pub display_unsigned: ModuleFuncId,
+    pub display_char: ModuleFuncId,
     pub print: ModuleFuncId,
     pub abort: ModuleFuncId,
     /// The bucket a map holds a key in, and the bucket it will (LR13.2).
@@ -89,6 +90,7 @@ impl Runtime {
             define_display_integer(module, pointer, call_conv, collector.allocate, true)?;
         let display_unsigned =
             define_display_integer(module, pointer, call_conv, collector.allocate, false)?;
+        let display_char = define_display_char(module, pointer, call_conv, collector.allocate)?;
         let print = define_print(module, pointer, call_conv, write)?;
         let abort = define_abort(module, pointer, call_conv, exit, write, collector.roots)?;
         let table = map::emit(module, pointer, call_conv, collector.allocate, text_equal)?;
@@ -107,6 +109,7 @@ impl Runtime {
             hash_bytes,
             display_signed,
             display_unsigned,
+            display_char,
             print,
             abort,
             map_find: table.find,
@@ -188,6 +191,14 @@ impl Runtime {
         function: &mut cranelift_codegen::ir::Function,
     ) -> FuncRef {
         module.declare_func_in_func(self.display_signed, function)
+    }
+
+    pub fn display_char_in(
+        &self,
+        module: &mut ObjectModule,
+        function: &mut cranelift_codegen::ir::Function,
+    ) -> FuncRef {
+        module.declare_func_in_func(self.display_char, function)
     }
 
     pub fn display_unsigned_in(
@@ -1159,6 +1170,117 @@ fn handler(
     builder.seal_all_blocks();
     builder.finalize();
 
+    module
+        .define_function(declared, &mut context)
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
+    Ok(declared)
+}
+
+/// `luar_display_char`: a scalar value as the string of its UTF-8 encoding
+/// (LR6.1, LR35).
+fn define_display_char(
+    module: &mut ObjectModule,
+    pointer: types::Type,
+    call_conv: CallConv,
+    allocate: ModuleFuncId,
+) -> Result<ModuleFuncId, Error> {
+    let mut signature = Signature::new(call_conv);
+    signature.params.push(AbiParam::new(types::I32));
+    signature.returns.push(AbiParam::new(pointer));
+    let declared = module
+        .declare_function("luar_display_char", Linkage::Local, &signature)
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
+
+    let mut context = Context::new();
+    let mut frame = FunctionBuilderContext::new();
+    context.func.signature = signature;
+    let allocate = module.declare_func_in_func(allocate, &mut context.func);
+    let mut builder = FunctionBuilder::new(&mut context.func, &mut frame);
+    let entry = builder.create_block();
+    let not_four = builder.create_block();
+    let not_three = builder.create_block();
+    let blocks = [
+        builder.create_block(),
+        builder.create_block(),
+        builder.create_block(),
+        builder.create_block(),
+    ];
+    builder.append_block_params_for_function_params(entry);
+
+    builder.switch_to_block(entry);
+    let scalar = builder.block_params(entry)[0];
+    let scalar = builder.ins().uextend(types::I64, scalar);
+    let at_least_two = builder
+        .ins()
+        .icmp_imm(IntCC::UnsignedGreaterThanOrEqual, scalar, 0x80);
+    let at_least_three = builder
+        .ins()
+        .icmp_imm(IntCC::UnsignedGreaterThanOrEqual, scalar, 0x800);
+    let four = builder
+        .ins()
+        .icmp_imm(IntCC::UnsignedGreaterThanOrEqual, scalar, 0x10000);
+    let mut length = builder.ins().iconst(types::I64, 1);
+    for more in [at_least_two, at_least_three, four] {
+        let more = builder.ins().uextend(types::I64, more);
+        length = builder.ins().iadd(length, more);
+    }
+    // The length cell, and one cell holding at most four bytes.
+    let bytes = builder.ins().iconst(types::I64, 16);
+    let bytes = integer_width(&mut builder, bytes, pointer);
+    let no_finalizer = builder.ins().iconst(pointer, 0);
+    let call = builder.ins().call(allocate, &[bytes, no_finalizer]);
+    let string = builder.inst_results(call)[0];
+    builder.ins().store(MemFlags::trusted(), length, string, 0);
+    builder.ins().brif(four, blocks[3], &[], not_four, &[]);
+
+    builder.switch_to_block(not_four);
+    builder
+        .ins()
+        .brif(at_least_three, blocks[2], &[], not_three, &[]);
+
+    builder.switch_to_block(not_three);
+    builder
+        .ins()
+        .brif(at_least_two, blocks[1], &[], blocks[0], &[]);
+
+    // One byte for each block, with the lead byte marking how many follow.
+    for (index, block) in blocks.into_iter().enumerate() {
+        builder.switch_to_block(block);
+        let count = index + 1;
+        let lead = match count {
+            1 => 0x00,
+            2 => 0xC0,
+            3 => 0xE0,
+            _ => 0xF0,
+        };
+        for position in 0..count {
+            let shift = i64::try_from(6 * (count - 1 - position)).expect("shift fits");
+            let part = builder.ins().ushr_imm(scalar, shift);
+            let (mask, marker) = if position == 0 {
+                (
+                    if count == 1 {
+                        0x7F
+                    } else {
+                        0xFF >> (count + 1)
+                    },
+                    lead,
+                )
+            } else {
+                (0x3F, 0x80)
+            };
+            let part = builder.ins().band_imm(part, mask);
+            let part = builder.ins().bor_imm(part, marker);
+            let byte = builder.ins().ireduce(types::I8, part);
+            let offset = 8 + i32::try_from(position).expect("offset fits");
+            builder
+                .ins()
+                .store(MemFlags::trusted(), byte, string, offset);
+        }
+        builder.ins().return_(&[string]);
+    }
+
+    builder.seal_all_blocks();
+    builder.finalize();
     module
         .define_function(declared, &mut context)
         .map_err(|error| Error::Cranelift(error.to_string()))?;

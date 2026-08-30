@@ -1,0 +1,32 @@
+--- expect: run
+--- exit: 0
+--- stdout: "Point { x = 1, y = nil }\tShape.Dot\t<3>\t<3>\n"
+--- spec: LR35
+--- spec: LR75
+--- spec: LR4.6
+@derive(Display)
+struct Point
+    x: int
+    y: int?
+end
+
+@derive(Display)
+enum Shape
+    Dot
+    Line(int)
+end
+
+struct Tagged implements Display
+    id: int
+
+    function display(self): string
+        return `<{self.id}>`
+    end
+end
+
+export function main()
+    local point = Point { x = 1, y = nil }
+    local tagged = Tagged { id = 3 }
+    local shown: Display = tagged
+    print(point, Shape.Dot, tagged, `{shown}`)
+end

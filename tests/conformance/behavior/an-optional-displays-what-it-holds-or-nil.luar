@@ -1,0 +1,17 @@
+--- expect: run
+--- exit: 0
+--- stdout: "5\tnil\tnil\tsome\n"
+--- spec: LR35
+--- spec: LR4.6
+function pick(present: bool): int?
+    if present then
+        return 5
+    end
+    return nil
+end
+
+export function main()
+    local held: string? = nil
+    local text: string? = "some"
+    print(pick(true), pick(false), `{held}`, text)
+end

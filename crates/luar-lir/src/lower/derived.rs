@@ -5,7 +5,7 @@ use luar_diagnostics::Span;
 use luar_sema::table::Decl;
 use luar_sema::types::Type;
 
-use crate::inst::{BinaryOp, Const, Inst, InstKind, Target, Terminator, Trap, Value};
+use crate::inst::{BinaryOp, Const, Inst, InstKind, MethodId, Target, Terminator, Trap, Value};
 use crate::lower::{Callee, Lowering, Parameter};
 use crate::program::{BlockId, Enum, FuncId, Function, Shape, Struct};
 use crate::ty::{IntTy, Ty, TypeId};
@@ -220,7 +220,7 @@ impl Lowering<'_> {
         let [value] = *function.block(function.entry).params else {
             return;
         };
-        let block = function.entry;
+        let mut block = function.entry;
         let name = short_name(&self.program.nominal(owner).name);
         let mut text = string(
             &mut function,
@@ -255,7 +255,8 @@ impl Lowering<'_> {
                 field.ty.clone(),
                 span,
             );
-            let Some(displayed) = self.display(&mut function, block, held, &field.ty, span) else {
+            let Some(displayed) = self.display(&mut function, &mut block, held, &field.ty, span)
+            else {
                 self.gap(span, "a derived `display` over a field it cannot display");
                 return;
             };
@@ -286,7 +287,7 @@ impl Lowering<'_> {
 
         for (at, variant) in enumeration.variants.iter().enumerate() {
             let index = u32::try_from(at).expect("variant count fits in u32");
-            let block = function.add_block();
+            let mut block = function.add_block();
             cases.push((at as u64, Target::new(block, Vec::new())));
             let tuple = !variant.fields.is_empty()
                 && variant
@@ -330,7 +331,8 @@ impl Lowering<'_> {
                     field.ty.clone(),
                     span,
                 );
-                let Some(displayed) = self.display(&mut function, block, held, &field.ty, span)
+                let Some(displayed) =
+                    self.display(&mut function, &mut block, held, &field.ty, span)
                 else {
                     self.gap(span, "a derived `display` over a payload it cannot display");
                     return;
@@ -359,24 +361,92 @@ impl Lowering<'_> {
         *self.program.function_mut(id) = function;
     }
 
+    /// The `Display` form of `value`, emitted from `block` onward; `block`
+    /// is left at the block the text is in (LR35).
     fn display(
         &self,
         function: &mut Function,
-        block: BlockId,
+        block: &mut BlockId,
         value: Value,
         ty: &Ty,
         span: Span,
     ) -> Option<Value> {
         let kind = match ty {
-            Ty::Named { id, args } => InstKind::Call {
-                callee: self.member_of(*id, "display")?,
-                type_args: args.clone(),
-                args: vec![value],
+            Ty::Named { id, args } => match self.member_of(*id, "display") {
+                Some(callee) => InstKind::Call {
+                    callee,
+                    type_args: args.clone(),
+                    args: vec![value],
+                },
+                None => InstKind::CallVirtual {
+                    method: self.display_slot(*id)?,
+                    receiver: value,
+                    args: Vec::new(),
+                },
             },
-            Ty::Str | Ty::Int(_) => InstKind::DisplayValue { value },
+            Ty::Str | Ty::Int(_) | Ty::Char => InstKind::DisplayValue { value },
+            Ty::Nil => InstKind::Const(Const::Str("nil".to_owned())),
+            Ty::Bool | Ty::Optional(_) => {
+                let then = function.add_block();
+                let otherwise = function.add_block();
+                let join = function.add_block();
+                let held = match ty {
+                    Ty::Optional(inner) => Some(inner.as_ref()),
+                    _ => None,
+                };
+                let condition = match held {
+                    Some(_) => emit(function, *block, InstKind::IsSome { value }, Ty::Bool, span),
+                    None => value,
+                };
+                function.block_mut(*block).term = Some(Terminator::Branch {
+                    condition,
+                    then: Target::new(then, Vec::new()),
+                    otherwise: Target::new(otherwise, Vec::new()),
+                });
+
+                let mut current = then;
+                let text = match held {
+                    Some(inner) => {
+                        let held = emit(
+                            function,
+                            current,
+                            InstKind::Unwrap { value },
+                            inner.clone(),
+                            span,
+                        );
+                        self.display(function, &mut current, held, inner, span)?
+                    }
+                    None => string(function, current, "true".to_owned(), span),
+                };
+                function.block_mut(current).term =
+                    Some(Terminator::Jump(Target::new(join, vec![text])));
+
+                let absent = if held.is_some() { "nil" } else { "false" };
+                let text = string(function, otherwise, absent.to_owned(), span);
+                function.block_mut(otherwise).term =
+                    Some(Terminator::Jump(Target::new(join, vec![text])));
+
+                *block = join;
+                return Some(function.add_block_param(join, Ty::Str));
+            }
             _ => return None,
         };
-        Some(emit(function, block, kind, Ty::Str, span))
+        Some(emit(function, *block, kind, Ty::Str, span))
+    }
+
+    /// The slot `display` has in an interface's method table (LR18.1, LR35).
+    fn display_slot(&self, id: TypeId) -> Option<MethodId> {
+        let Shape::Interface(interface) = &self.program.nominal(id).shape else {
+            return None;
+        };
+        let slot = interface
+            .methods
+            .iter()
+            .position(|method| method.name == "display")?;
+        Some(MethodId {
+            interface: id,
+            slot: u32::try_from(slot).expect("method count fits in u32"),
+        })
     }
 
     /// LR75: `Eq` compares every field, and the first that differs answers.
@@ -569,6 +639,18 @@ impl Lowering<'_> {
     /// The `eq` a named type reaches, written by hand or derived (LR76).
     fn eq_of(&self, owner: TypeId) -> Option<FuncId> {
         self.member_of(owner, "eq")
+    }
+
+    /// LR35: which function displays each struct and enum, declared or
+    /// derived, once every one has an id.
+    pub(super) fn find_displays(&mut self) {
+        let found: Vec<(TypeId, FuncId)> = self
+            .program
+            .types()
+            .filter(|(_, nominal)| !matches!(nominal.shape, Shape::Interface(_)))
+            .filter_map(|(id, _)| Some((id, self.member_of(id, "display")?)))
+            .collect();
+        self.displays.extend(found);
     }
 
     fn member_of(&self, owner: TypeId, member: &str) -> Option<FuncId> {

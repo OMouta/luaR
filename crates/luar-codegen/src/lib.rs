@@ -406,6 +406,9 @@ impl Emitter<'_> {
             let display_unsigned = self
                 .runtime
                 .display_unsigned_in(&mut self.module, &mut context.func);
+            let display_char = self
+                .runtime
+                .display_char_in(&mut self.module, &mut context.func);
             let print = self.runtime.print_in(&mut self.module, &mut context.func);
             let abort = self.runtime.abort_in(&mut self.module, &mut context.func);
             let map_find = self
@@ -445,6 +448,7 @@ impl Emitter<'_> {
                 hash_bytes,
                 display_signed,
                 display_unsigned,
+                display_char,
                 print,
                 abort,
                 map_find,

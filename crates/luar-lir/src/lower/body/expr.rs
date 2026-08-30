@@ -6,7 +6,7 @@ use luar_ast::{
 use luar_diagnostics::Span;
 use luar_sema::check::protocol_of;
 
-use crate::inst::{BinaryOp, Const, InstKind, Target, Terminator, UnaryOp, Value};
+use crate::inst::{BinaryOp, Const, InstKind, MethodId, Target, Terminator, UnaryOp, Value};
 use crate::lower::body::Body;
 use crate::program::Shape;
 use crate::ty::{Builtin, IntTy, Ty, TypeId};
@@ -321,10 +321,73 @@ impl<'a> Body<'a> {
         joined
     }
 
+    /// The `Display` form of `value` (LR35).
     pub(super) fn display(&mut self, value: Value, span: Span) -> Value {
         match self.function.type_of(value).clone() {
             Ty::Str => value,
-            Ty::Int(_) => self.emit(InstKind::DisplayValue { value }, Ty::Str, span),
+            Ty::Int(_) | Ty::Char => self.emit(InstKind::DisplayValue { value }, Ty::Str, span),
+            Ty::Nil => self.emit(InstKind::Const(Const::Str("nil".to_owned())), Ty::Str, span),
+            // LR35: `T?` displays what it holds, or `nil`.
+            Ty::Optional(inner) => {
+                let present = self.emit(InstKind::IsSome { value }, Ty::Bool, span);
+                let some = self.function.add_block();
+                let none = self.function.add_block();
+                let join = self.function.add_block();
+                self.terminate(Terminator::Branch {
+                    condition: present,
+                    then: Target::to(some),
+                    otherwise: Target::to(none),
+                });
+
+                self.switch_to(some);
+                let held = self.emit(InstKind::Unwrap { value }, *inner, span);
+                let text = self.display(held, span);
+                self.terminate(Terminator::Jump(Target::new(join, vec![text])));
+
+                self.switch_to(none);
+                let text = self.emit(InstKind::Const(Const::Str("nil".to_owned())), Ty::Str, span);
+                self.terminate(Terminator::Jump(Target::new(join, vec![text])));
+
+                self.switch_to(join);
+                self.function.add_block_param(join, Ty::Str)
+            }
+            // LR35: a user-defined type displays what its `display` returns,
+            // reached directly or through an interface's table (LR18.1).
+            Ty::Named { id, args } => {
+                if let Some(callee) = self.context.displays.get(&id).copied() {
+                    return self.emit(
+                        InstKind::Call {
+                            callee,
+                            type_args: args,
+                            args: vec![value],
+                        },
+                        Ty::Str,
+                        span,
+                    );
+                }
+                if let Shape::Interface(interface) = &self.context.program.nominal(id).shape
+                    && let Some(slot) = interface
+                        .methods
+                        .iter()
+                        .position(|method| method.name == "display")
+                {
+                    let method = MethodId {
+                        interface: id,
+                        slot: u32::try_from(slot).expect("method count fits in u32"),
+                    };
+                    return self.emit(
+                        InstKind::CallVirtual {
+                            method,
+                            receiver: value,
+                            args: Vec::new(),
+                        },
+                        Ty::Str,
+                        span,
+                    );
+                }
+                let ty = Ty::Named { id, args };
+                self.missing(span, format!("displaying `{ty}`"))
+            }
             Ty::Bool => {
                 let yes = self.function.add_block();
                 let no = self.function.add_block();
