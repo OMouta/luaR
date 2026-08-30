@@ -152,6 +152,8 @@ pub enum Builtin {
     FrozenList,
     FrozenMap,
     FrozenSet,
+    /// A view into contiguous collection storage (LR38).
+    Slice,
     RangeExclusive,
     RangeInclusive,
     ReversedRangeExclusive,
@@ -172,6 +174,7 @@ impl Builtin {
             "FrozenList" => Self::FrozenList,
             "FrozenMap" => Self::FrozenMap,
             "FrozenSet" => Self::FrozenSet,
+            "Slice" => Self::Slice,
             "Task" => Self::Task,
             _ => return None,
         };
@@ -189,6 +192,7 @@ impl Builtin {
             Self::FrozenList => "FrozenList",
             Self::FrozenMap => "FrozenMap",
             Self::FrozenSet => "FrozenSet",
+            Self::Slice => "Slice",
             Self::RangeExclusive => "range",
             Self::RangeInclusive => "range",
             Self::ReversedRangeExclusive => "reversed range",

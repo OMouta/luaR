@@ -1,6 +1,7 @@
 --- expect: compile-ok
 --- spec: LR54.1
 --- spec: LR13
+--- spec: LR38
 --- spec: LR59
 export function main()
     local names: List<string> = ["ada"]
@@ -9,7 +10,8 @@ export function main()
     local frozenNames: FrozenList<string> = unreachable()
     local frozenAges: FrozenMap<string, int> = unreachable()
     local frozenSeen: FrozenSet<int> = unreachable()
+    local window: Slice<int> = unreachable()
     local loaded: Result<int, string> = Result.Ok(1)
 
-    print(names, ages, seen, frozenNames, frozenAges, frozenSeen, loaded)
+    print(names, ages, seen, frozenNames, frozenAges, frozenSeen, window, loaded)
 end
