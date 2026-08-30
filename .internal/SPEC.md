@@ -1581,6 +1581,8 @@ Multiple constraints:
 where T: Hashable & Display
 ```
 
+A call to a generic function, or a literal of a generic type, takes its type arguments from what it writes, from what it passes, and from the type its result is used at. A type parameter none of those settles is a compile-time error.
+
 Generic specialization strategy is not part of language-level observable semantics. Implementations may monomorphize, share code, or use another representation as long as behavior is preserved.
 
 Generic type parameters are invariant by default unless variance is explicitly supported by the relevant type constructor.
