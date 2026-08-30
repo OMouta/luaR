@@ -359,9 +359,10 @@ impl Type {
             (Self::Optional(inner), Self::Optional(held)) => inner.accepts(held),
             (Self::Optional(inner), _) => inner.accepts(value),
 
-            // A union holds any of its members (LR17.2).
-            (Self::Union(members), _) => members.iter().any(|member| member.accepts(value)),
+            // A union holds any of its members, and a union value is one of
+            // them (LR17.2).
             (_, Self::Union(members)) => members.iter().all(|member| self.accepts(member)),
+            (Self::Union(members), _) => members.iter().any(|member| member.accepts(value)),
 
             (Self::Primitive(target), Self::Primitive(held)) => target == held,
             (
