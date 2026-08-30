@@ -308,11 +308,14 @@ impl Checker<'_> {
                 // so its body reads `self` as that type.
                 let (overloads, receiver) = match function.name.as_slice() {
                     [name] => (self.table.overloads(self.scope, name), None),
-                    [owner, name] => match self.table.structure(self.scope, owner) {
-                        Some(structure) => {
+                    [owner, name] => match self.table.get(self.scope, owner) {
+                        Some(Decl::Struct(structure)) => {
                             (structure.methods.get(name), Some(self.receiver(owner)))
                         }
-                        None => (None, None),
+                        Some(Decl::Enum(enumeration)) => {
+                            (enumeration.methods.get(name), Some(self.receiver(owner)))
+                        }
+                        _ => (None, None),
                     },
                     _ => (None, None),
                 };
@@ -384,14 +387,15 @@ impl Checker<'_> {
     /// The type a member of `name` reads `self` as, which is the type
     /// itself, standing for its own parameters (LR65, LR19).
     fn receiver(&self, name: &str) -> Type {
-        let args = match self.table.structure(self.scope, name) {
-            Some(structure) => structure
-                .type_params
-                .iter()
-                .map(|param| Type::Parameter(param.clone()))
-                .collect(),
-            None => Vec::new(),
+        let params = match self.table.get(self.scope, name) {
+            Some(Decl::Struct(structure)) => structure.type_params.as_slice(),
+            Some(Decl::Enum(enumeration)) => enumeration.type_params.as_slice(),
+            _ => &[],
         };
+        let args = params
+            .iter()
+            .map(|param| Type::Parameter(param.clone()))
+            .collect();
 
         Type::Named {
             module: self.scope,

@@ -91,6 +91,7 @@ impl Checker<'_> {
 
         match self.table.get(*module, declared)? {
             Decl::Struct(structure) => structure.methods.get(name),
+            Decl::Enum(enumeration) => enumeration.methods.get(name),
             Decl::Interface(interface) => interface.methods.get(name),
             _ => None,
         }
@@ -310,6 +311,7 @@ impl Checker<'_> {
                 ..
             } => match self.table.get(*module, declared) {
                 Some(Decl::Struct(structure)) => structure.methods.contains_key(name),
+                Some(Decl::Enum(enumeration)) => enumeration.methods.contains_key(name),
                 Some(Decl::Interface(interface)) => interface.methods.contains_key(name),
                 _ => false,
             },
@@ -372,10 +374,12 @@ impl Checker<'_> {
                 name: declared,
                 ..
             } => {
-                let Some(structure) = self.table.structure(*module, declared) else {
-                    return;
+                let has = match self.table.get(*module, declared) {
+                    Some(Decl::Struct(structure)) => structure.has_member(name),
+                    Some(Decl::Enum(enumeration)) => enumeration.methods.contains_key(name),
+                    _ => false,
                 };
-                if !structure.has_member(name) {
+                if !has {
                     return;
                 }
                 declared.clone()

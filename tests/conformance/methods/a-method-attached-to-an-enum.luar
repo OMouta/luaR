@@ -1,0 +1,30 @@
+--- expect: run
+--- exit: 0
+--- stdout: "hi\nmessage: hi\n"
+--- spec: LR20
+--- spec: LR76
+enum Message
+    Quit
+    Write(string)
+end
+
+function Message.label(self): string
+    match self
+        case Message.Quit
+            return "quit"
+        case Message.Write(text)
+            return text
+    end
+end
+
+extend Describe for Message
+    function describe(self): string
+        return "message: " .. self:label()
+    end
+end
+
+export function main()
+    local message = Message.Write("hi")
+    print(message:label())
+    print(message:describe())
+end

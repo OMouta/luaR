@@ -1014,25 +1014,35 @@ fn attach(
         }
 
         let signature = signature(function, None, resolver, diagnostics);
-        let Some(Decl::Struct(structure)) = decls.get_mut(&(module, owner.clone())) else {
-            continue;
+        let methods = match decls.get_mut(&(module, owner.clone())) {
+            Some(Decl::Struct(structure)) => {
+                // LR12.2: attaching a method the type already has declares
+                // one member twice, however far apart the two are written.
+                let stored = structure.fields.iter().any(|field| field.name == *name)
+                    || structure
+                        .properties
+                        .iter()
+                        .any(|property| property.name == *name);
+                if stored {
+                    diagnostics.push(duplicate(owner, name, function.span, None));
+                    continue;
+                }
+                &mut structure.methods
+            }
+            // LR15.3: a variant is reached through the enum the way a method
+            // is, so the two share the enum's namespace.
+            Some(Decl::Enum(enumeration)) => {
+                if enumeration.variants.contains_key(name) {
+                    diagnostics.push(duplicate(owner, name, function.span, None));
+                    continue;
+                }
+                &mut enumeration.methods
+            }
+            _ => continue,
         };
 
-        // LR12.2: attaching a method the type already has declares one member
-        // twice, however far apart the two are written.
-        let stored = structure.fields.iter().any(|field| field.name == *name)
-            || structure
-                .properties
-                .iter()
-                .any(|property| property.name == *name);
-
-        if stored {
-            diagnostics.push(duplicate(owner, name, function.span, None));
-            continue;
-        }
-
         overload(
-            structure.methods.entry(name.clone()).or_default(),
+            methods.entry(name.clone()).or_default(),
             name,
             signature,
             branching,
