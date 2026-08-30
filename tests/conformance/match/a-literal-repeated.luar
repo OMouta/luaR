@@ -1,0 +1,15 @@
+--- expect: compile-error
+--- code: LR0165
+--- span: 9:14
+--- spec: LR16.4
+function describe(count: int): string
+    match count
+        case 1
+            return "one"
+        case 1
+            return "again"
+        case _
+            return "many"
+    end
+    return "?"
+end

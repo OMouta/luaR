@@ -1,0 +1,18 @@
+--- expect: run
+--- exit: 0
+--- stdout: "lit\n"
+--- spec: LR16.4
+--- spec: LR16.2
+struct Switch
+    lit: bool
+end
+
+export function main()
+    local switch = Switch { lit = true }
+    match switch
+        case Switch { lit = true }
+            print("lit")
+        case Switch { lit = false }
+            print("dark")
+    end
+end

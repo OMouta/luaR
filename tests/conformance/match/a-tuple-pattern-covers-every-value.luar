@@ -1,0 +1,12 @@
+--- expect: run
+--- exit: 0
+--- stdout: "3\n"
+--- spec: LR16.2
+--- spec: LR16.4
+export function main()
+    local pair = (1, 2)
+    match pair
+        case (a, b)
+            print(a + b)
+    end
+end

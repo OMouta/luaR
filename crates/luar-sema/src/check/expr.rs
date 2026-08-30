@@ -12,6 +12,7 @@ use crate::types::{Builtin, Primitive, Type};
 
 use super::builtins::{article, is_collection};
 use super::calls::{against, filled, infer};
+use super::exhaustive::Row;
 use super::interfaces::same_signature;
 use super::narrow::Place;
 use super::operators::{settle, unify};
@@ -386,10 +387,15 @@ impl Checker<'_> {
             ExprKind::Function { .. } => self.function_expr(expr, &[]),
             ExprKind::Match { scrutinee, arms } => {
                 let held = self.expr(scrutinee);
-                for arm in arms {
-                    self.arm(arm, &held, scrutinee);
-                }
-                self.exhaustive(&held, arms, scrutinee.span);
+                let rows: Vec<Row> = arms
+                    .iter()
+                    .map(|arm| Row {
+                        pat: self.arm(arm, &held, scrutinee),
+                        guarded: arm.guard.is_some(),
+                        span: arm.pattern.span,
+                    })
+                    .collect();
+                self.exhaustive(&held, &rows, scrutinee.span);
                 Type::Unresolved
             }
             ExprKind::If {

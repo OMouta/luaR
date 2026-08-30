@@ -1,0 +1,21 @@
+--- expect: run
+--- exit: 0
+--- stdout: "on\n"
+--- spec: LR16.4
+--- spec: LR15.2
+enum Flag
+    Set(bool)
+    Clear
+end
+
+export function main()
+    local flag = Flag.Set(true)
+    match flag
+        case Flag.Set(true)
+            print("on")
+        case Flag.Set(false)
+            print("off")
+        case Flag.Clear
+            print("clear")
+    end
+end

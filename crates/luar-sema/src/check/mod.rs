@@ -25,6 +25,7 @@ use stmt::{assigned, assigned_items};
 mod builtins;
 mod calls;
 mod closures;
+mod exhaustive;
 mod expr;
 mod interfaces;
 mod narrow;
@@ -245,14 +246,6 @@ struct Fit {
     slots: Vec<Option<usize>>,
     /// Whether every parameter needing an argument got one, and none spilled.
     counted: bool,
-}
-
-/// What one case of a match covers (LR16.4).
-enum Covers {
-    /// Every value, which is what a wildcard and a bare binding match.
-    Anything,
-    /// One case of a closed type, named as a pattern writes it.
-    Case(String),
 }
 
 /// An extension block a module can use, under the name that module knows it

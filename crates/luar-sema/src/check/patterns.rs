@@ -1,10 +1,10 @@
-//! Patterns, match arms, and exhaustiveness (LR16.2, LR16.4).
+//! Patterns and match arms (LR16.2).
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 
 use luar_ast::{
     ArmBody, Binding, Expr, ExprKind, FieldPattern, MatchArm, Pattern, PatternKind, Payload,
-    Visibility,
+    UnaryOp, Visibility,
 };
 use luar_diagnostics::{Diagnostic, Span, codes};
 
@@ -14,173 +14,18 @@ use crate::names::bound;
 use crate::table::{Decl, Field, Variant};
 use crate::types::{Builtin, Primitive, Type};
 
+use super::exhaustive::{Ctor, Pat};
 use super::operators::{opaque, settle, unify};
-use super::{Checker, Covers, Narrowing};
+use super::{Checker, Narrowing};
 
 type DestructuredField = (Type, Option<(Option<Visibility>, ModuleId, String)>);
 
-/// What `pattern` covers, where that is something this stage can name.
-fn covers(pattern: &Pattern) -> Option<Covers> {
-    match &pattern.kind {
-        PatternKind::Wildcard | PatternKind::Binding(_) => Some(Covers::Anything),
-        PatternKind::Path { segments, payload } => {
-            let bound = match payload {
-                None => true,
-                Some(Payload::Tuple(patterns)) => patterns.iter().all(irrefutable),
-                // A field left out is a field not tested, so what decides it
-                // is whether the listed ones rule anything out.
-                Some(Payload::Record { fields, .. }) => {
-                    fields.iter().all(|field| match &field.pattern {
-                        Some(pattern) => irrefutable(pattern),
-                        None => true,
-                    })
-                }
-            };
-
-            bound.then(|| Covers::Case(segments.join(".")))
-        }
-        // `true` and `false` are the cases of `bool`, and are written as
-        // literals rather than as a path.
-        PatternKind::Literal(literal) => match &literal.kind {
-            ExprKind::Bool(value) => Some(Covers::Case(value.to_string())),
-            _ => None,
-        },
-        _ => None,
-    }
-}
-
-/// Whether `pattern` matches whatever it is given, so that it rules nothing
-/// out (LR16.2).
-fn irrefutable(pattern: &Pattern) -> bool {
-    match &pattern.kind {
-        PatternKind::Wildcard | PatternKind::Binding(_) => true,
-        PatternKind::Tuple(patterns) => patterns.iter().all(irrefutable),
-        _ => false,
-    }
-}
-
 impl Checker<'_> {
-    /// LR16.4: a match over a closed type covers every value it can hold, and
-    /// a case an earlier one already covers never runs.
-    pub(super) fn exhaustive(&mut self, scrutinee: &Type, arms: &[MatchArm], span: Span) {
-        let mut covered: BTreeMap<String, Span> = BTreeMap::new();
-        let mut anything: Option<Span> = None;
-
-        for arm in arms {
-            if let Some(first) = anything {
-                self.diagnostics.push(
-                    Diagnostic::error(
-                        codes::UNREACHABLE_CASE,
-                        arm.pattern.span,
-                        "this case never runs",
-                    )
-                    .label(first, "everything is already covered here")
-                    .note("A case an earlier one covers is an error, not a warning (LR16.4)."),
-                );
-                continue;
-            }
-
-            if arm.guard.is_some() {
-                continue;
-            }
-
-            match covers(&arm.pattern) {
-                Some(Covers::Anything) => anything = Some(arm.pattern.span),
-                Some(Covers::Case(name)) => {
-                    if let Some(first) = covered.get(&name) {
-                        self.diagnostics.push(
-                            Diagnostic::error(
-                                codes::UNREACHABLE_CASE,
-                                arm.pattern.span,
-                                format!("`{name}` is covered already"),
-                            )
-                            .label(*first, "covered here")
-                            .note(
-                                "A case an earlier one covers is an error, not a warning (LR16.4).",
-                            ),
-                        );
-                    } else {
-                        covered.insert(name, arm.pattern.span);
-                    }
-                }
-                None => {}
-            }
-        }
-
-        // A scrutinee this stage cannot type could hold anything, so what a
-        // match over it leaves out is not knowable here.
-        if anything.is_some() || matches!(scrutinee, Type::Unresolved) {
-            return;
-        }
-
-        let Some(closed) = self.closed(scrutinee) else {
-            // LR16.4: what is not closed cannot be covered case by case.
-            self.diagnostics.push(
-                Diagnostic::error(
-                    codes::MATCH_NOT_EXHAUSTIVE,
-                    span,
-                    format!("`{scrutinee}` holds more than this match covers"),
-                )
-                .note("A value that is not one of a fixed set needs `case _` (LR16.4)."),
-            );
-            return;
-        };
-
-        let missing: Vec<String> = closed
-            .into_iter()
-            .filter(|case| !covered.contains_key(case))
-            .collect();
-
-        if missing.is_empty() {
-            return;
-        }
-
-        let spellings: Vec<String> = missing.iter().map(|case| format!("`{case}`")).collect();
-        self.diagnostics.push(
-            Diagnostic::error(
-                codes::MATCH_NOT_EXHAUSTIVE,
-                span,
-                format!("this match does not cover {}", spellings.join(", ")),
-            )
-            .note("A match over a closed type covers every value of it (LR16.4)."),
-        );
-    }
-
-    /// Every case a closed type has, spelled as a pattern writes it (LR16.4).
-    fn closed(&self, scrutinee: &Type) -> Option<Vec<String>> {
-        // LR25.1: `Result` is an enum the language declares for itself.
-        if let Type::Builtin {
-            kind: Builtin::Result,
-            ..
-        } = scrutinee
-        {
-            return Some(vec!["Result.Ok".to_owned(), "Result.Err".to_owned()]);
-        }
-
-        if *scrutinee == Type::BOOL {
-            return Some(vec!["true".to_owned(), "false".to_owned()]);
-        }
-
-        let Type::Named { module, name, .. } = scrutinee else {
-            return None;
-        };
-        let Decl::Enum(enumeration) = self.table.get(*module, name)? else {
-            return None;
-        };
-
-        Some(
-            enumeration
-                .variants
-                .keys()
-                .map(|variant| format!("{name}.{variant}"))
-                .collect(),
-        )
-    }
-
-    /// Checks one case against `held`, the type of `scrutinee`.
-    pub(super) fn arm(&mut self, arm: &MatchArm, held: &Type, scrutinee: &Expr) {
+    /// Checks one case against `held`, the type of `scrutinee`, and gives
+    /// back what its pattern covers.
+    pub(super) fn arm(&mut self, arm: &MatchArm, held: &Type, scrutinee: &Expr) -> Pat {
         self.push();
-        let matched = self.pattern(&arm.pattern, held);
+        let (matched, pat) = self.pattern(&arm.pattern, held);
 
         // LR57: a case that settles which member the value holds narrows the
         // scrutinee for as long as the case lasts.
@@ -211,78 +56,112 @@ impl Checker<'_> {
             self.widen();
         }
         self.pop();
+        pat
     }
 
     /// Checks `pattern` against `held`, binds what it binds at the types it
-    /// matched, and gives back what it matched: the member of a union or an
-    /// optional it settles on, or `held` itself (LR16.2, LR57).
-    fn pattern(&mut self, pattern: &Pattern, held: &Type) -> Type {
+    /// matched, and gives back what it matched and what it covers: the
+    /// member of a union or an optional it settles on, or `held` itself
+    /// (LR16.2, LR16.4, LR57).
+    fn pattern(&mut self, pattern: &Pattern, held: &Type) -> (Type, Pat) {
         let span = pattern.span;
         match &pattern.kind {
-            PatternKind::Wildcard | PatternKind::Error => held.clone(),
+            PatternKind::Wildcard | PatternKind::Error => (held.clone(), Pat::Wild),
             PatternKind::Binding(name) => {
                 self.bind(name, settle(held.clone()));
-                held.clone()
+                (held.clone(), Pat::Wild)
             }
             PatternKind::Literal(literal) => {
                 let value = self.expr(literal);
-                self.settle_on(held, span, |checker, member| {
+                let (matched, member) = self.settle_on(held, span, |checker, member| {
                     checker.accepts(member, &value)
-                })
+                });
+                let pat = match (&literal.kind, &matched) {
+                    (ExprKind::Bool(value), Type::Primitive(Primitive::Bool)) => {
+                        Pat::Ctor(Ctor::Bool(*value), Vec::new())
+                    }
+                    (ExprKind::Nil, Type::Primitive(Primitive::Nil)) => Pat::Wild,
+                    _ => Pat::Ctor(Ctor::Open(spell(literal)), Vec::new()),
+                };
+                (matched, wrap(member, pat))
             }
-            PatternKind::Range { start, end, .. } => {
+            PatternKind::Range {
+                start,
+                end,
+                inclusive,
+            } => {
                 let element = self.range_element(start, end);
-                self.settle_on(held, span, |checker, member| {
+                let (matched, member) = self.settle_on(held, span, |checker, member| {
                     checker.accepts(member, &element)
-                })
+                });
+                let spelling = format!(
+                    "{}{}{}",
+                    spell(start),
+                    if *inclusive { "..=" } else { "..<" },
+                    spell(end)
+                );
+                (
+                    matched,
+                    wrap(member, Pat::Ctor(Ctor::Open(spelling), Vec::new())),
+                )
             }
             PatternKind::Typed { inner, ty } => {
                 let tested = self.resolve(ty);
                 if matches!(tested, Type::Unresolved) {
                     self.pattern(inner, &Type::Unresolved);
-                    return Type::Unresolved;
+                    return (Type::Unresolved, open(span));
                 }
-                let matched = self.settle_on(held, span, |checker, member| {
+                let (matched, member) = self.settle_on(held, span, |checker, member| {
                     *member == tested || checker.accepts(member, &tested)
                 });
-                self.pattern(inner, &tested);
+                let (_, inner) = self.pattern(inner, &tested);
                 if matches!(matched, Type::Unresolved) {
-                    matched
-                } else {
-                    tested
+                    return (matched, open(span));
                 }
+                // A test for the member itself covers all of it; a test for
+                // something narrower covers one value of an open type.
+                let pat = if matched == tested {
+                    wrap(member, inner)
+                } else {
+                    Pat::Ctor(Ctor::Open(format!("is {tested}")), Vec::new())
+                };
+                (tested, pat)
             }
             PatternKind::Path { segments, payload } => {
-                let matched = self.settle_on(held, span, |checker, member| {
+                let (matched, member) = self.settle_on(held, span, |checker, member| {
                     checker.names(segments, member)
                 });
-                self.path_pattern(segments, payload.as_ref(), &matched, span);
-                matched
+                let pat = self.path_pattern(segments, payload.as_ref(), &matched, span);
+                (matched, wrap(member, pat))
             }
             PatternKind::Tuple(patterns) => {
-                let matched = self.settle_on(held, span, |_, member| {
+                let (matched, member) = self.settle_on(held, span, |_, member| {
                     matches!(member, Type::Tuple(items) if items.len() == patterns.len())
                 });
-                match &matched {
+                let pat = match &matched {
                     Type::Tuple(items) => {
-                        for (pattern, item) in patterns.iter().zip(items) {
-                            self.pattern(pattern, item);
-                        }
+                        let pats = patterns
+                            .iter()
+                            .zip(items)
+                            .map(|(pattern, item)| self.pattern(pattern, item).1)
+                            .collect();
+                        Pat::Ctor(Ctor::Product, pats)
                     }
                     _ => {
                         for pattern in patterns {
                             self.pattern(pattern, &Type::Unresolved);
                         }
+                        open(span)
                     }
-                }
-                matched
+                };
+                (matched, wrap(member, pat))
             }
             PatternKind::Sequence {
                 before,
                 rest,
                 after,
             } => {
-                let matched =
+                let (matched, member) =
                     self.settle_on(held, span, |_, member| sequence_element(member).is_some());
                 let element = sequence_element(&matched).unwrap_or(Type::Unresolved);
 
@@ -310,17 +189,19 @@ impl Checker<'_> {
                 if let Some(Some(name)) = rest {
                     self.bind(name, Type::Unresolved);
                 }
-                matched
+                (matched, wrap(member, open(span)))
             }
             PatternKind::Or(alternatives) => {
                 let mut first: Option<(Span, HashMap<String, Type>)> = None;
                 let mut matched: Option<Type> = None;
+                let mut pats = Vec::with_capacity(alternatives.len());
 
                 for alternative in alternatives {
                     self.push();
-                    let matched_here = self.pattern(alternative, held);
+                    let (matched_here, pat) = self.pattern(alternative, held);
                     let bound = self.values.last().cloned().unwrap_or_default();
                     self.pop();
+                    pats.push(pat);
 
                     match &first {
                         None => first = Some((alternative.span, bound)),
@@ -355,27 +236,44 @@ impl Checker<'_> {
                         self.bind(&name, ty);
                     }
                 }
-                matched.unwrap_or_else(|| held.clone())
+                (matched.unwrap_or_else(|| held.clone()), Pat::Or(pats))
             }
         }
     }
 
     /// The member of `held` that `fits`, where `held` is a union or an
-    /// optional, and `held` itself where it is anything else that fits.
-    /// Reports a pattern nothing fits (LR16.2).
-    fn settle_on(&mut self, held: &Type, span: Span, fits: impl Fn(&Self, &Type) -> bool) -> Type {
+    /// optional, and `held` itself where it is anything else that fits, with
+    /// the member's position where there is one. Reports a pattern nothing
+    /// fits (LR16.2).
+    fn settle_on(
+        &mut self,
+        held: &Type,
+        span: Span,
+        fits: impl Fn(&Self, &Type) -> bool,
+    ) -> (Type, Option<usize>) {
         if opaque(held) {
-            return Type::Unresolved;
+            return (Type::Unresolved, None);
         }
 
         let members = match held {
-            Type::Union(members) => members.clone(),
-            Type::Optional(inner) => vec![inner.as_ref().clone(), Type::Primitive(Primitive::Nil)],
-            other => vec![other.clone()],
+            Type::Union(members) => Some(members.clone()),
+            Type::Optional(inner) => Some(vec![
+                inner.as_ref().clone(),
+                Type::Primitive(Primitive::Nil),
+            ]),
+            _ => None,
         };
 
-        match members.into_iter().find(|member| fits(self, member)) {
-            Some(member) => member,
+        let found = match &members {
+            Some(members) => members
+                .iter()
+                .position(|member| fits(self, member))
+                .map(|index| (members[index].clone(), Some(index))),
+            None => fits(self, held).then(|| (held.clone(), None)),
+        };
+
+        match found {
+            Some(found) => found,
             None => {
                 self.diagnostics.push(
                     Diagnostic::error(
@@ -385,7 +283,7 @@ impl Checker<'_> {
                     )
                     .note("A pattern is checked against the type of what it matches (LR16.2)."),
                 );
-                Type::Unresolved
+                (Type::Unresolved, None)
             }
         }
     }
@@ -437,38 +335,39 @@ impl Checker<'_> {
     }
 
     /// Checks the payload of a path pattern against what `matched` carries
-    /// under that path (LR15.2, LR16.2).
+    /// under that path, and gives back what the pattern covers (LR15.2,
+    /// LR16.2).
     fn path_pattern(
         &mut self,
         segments: &[String],
         payload: Option<&Payload>,
         matched: &Type,
         span: Span,
-    ) {
+    ) -> Pat {
         let spelled = segments.join(".");
         match matched {
             Type::Builtin {
                 kind: Builtin::Result,
                 args,
             } => {
-                let index = usize::from(segments.get(1).is_some_and(|case| case == "Err"));
+                let case = segments.get(1).cloned().unwrap_or_default();
+                let index = usize::from(case == "Err");
                 let carried = args.get(index).cloned().unwrap_or(Type::Unresolved);
-                self.payload_pattern(
-                    &Variant::Tuple(vec![carried]),
-                    payload,
-                    &spelled,
-                    span,
-                    None,
-                );
+                let variant = Variant::Tuple(vec![carried]);
+                match self.payload_pattern(&variant, payload, &spelled, span, None) {
+                    Some(args) => Pat::Ctor(Ctor::Variant(case), args),
+                    None => open(span),
+                }
             }
             Type::Named { module, name, args } => match self.table.get(*module, name) {
                 Some(Decl::Enum(enumeration)) => {
-                    let Some(variant) = segments
+                    let Some((case, variant)) = segments
                         .last()
-                        .and_then(|variant| enumeration.variants.get(variant))
+                        .and_then(|variant| enumeration.variants.get_key_value(variant))
                     else {
-                        return;
+                        return open(span);
                     };
+                    let case = case.clone();
                     let variant = match variant {
                         Variant::Unit => Variant::Unit,
                         Variant::Tuple(types) => Variant::Tuple(
@@ -487,7 +386,10 @@ impl Checker<'_> {
                                 .collect(),
                         ),
                     };
-                    self.payload_pattern(&variant, payload, &spelled, span, None);
+                    match self.payload_pattern(&variant, payload, &spelled, span, None) {
+                        Some(args) => Pat::Ctor(Ctor::Variant(case), args),
+                        None => open(span),
+                    }
                 }
                 Some(Decl::Struct(structure)) => {
                     let fields: Vec<Field> = structure
@@ -499,9 +401,16 @@ impl Checker<'_> {
                         })
                         .collect();
                     let owner = Some((*module, name.clone()));
-                    self.payload_pattern(&Variant::Record(fields), payload, &spelled, span, owner);
+                    let variant = Variant::Record(fields);
+                    match self.payload_pattern(&variant, payload, &spelled, span, owner) {
+                        Some(args) => Pat::Ctor(Ctor::Product, args),
+                        None => open(span),
+                    }
                 }
-                _ => self.bind_payload_unresolved(payload),
+                _ => {
+                    self.bind_payload_unresolved(payload);
+                    open(span)
+                }
             },
             Type::Record(fields) => {
                 let fields: Vec<Field> = fields
@@ -513,14 +422,22 @@ impl Checker<'_> {
                         optional: false,
                     })
                     .collect();
-                self.payload_pattern(&Variant::Record(fields), payload, "this record", span, None);
+                let variant = Variant::Record(fields);
+                match self.payload_pattern(&variant, payload, &spelled, span, None) {
+                    Some(args) => Pat::Ctor(Ctor::Product, args),
+                    None => open(span),
+                }
             }
-            _ => self.bind_payload_unresolved(payload),
+            _ => {
+                self.bind_payload_unresolved(payload);
+                open(span)
+            }
         }
     }
 
     /// Checks what a pattern writes after a path against what the path
-    /// carries (LR15.2, LR16.2).
+    /// carries, and gives back what it covers of each value carried, or
+    /// nothing where the payload was wrong (LR15.2, LR16.2).
     fn payload_pattern(
         &mut self,
         carried: &Variant,
@@ -528,77 +445,61 @@ impl Checker<'_> {
         spelled: &str,
         span: Span,
         owner: Option<(ModuleId, String)>,
-    ) {
+    ) -> Option<Vec<Pat>> {
         let Some(payload) = payload else {
-            return;
+            let arity = match carried {
+                Variant::Unit => 0,
+                Variant::Tuple(types) => types.len(),
+                Variant::Record(fields) => fields.len(),
+            };
+            return Some(vec![Pat::Wild; arity]);
+        };
+
+        let wrong = |checker: &mut Self, complaint: String| {
+            checker.diagnostics.push(
+                Diagnostic::error(codes::PATTERN_TYPE, span, complaint)
+                    .note("A pattern matches the payload the variant declares (LR15.2, LR16.2)."),
+            );
+            checker.bind_payload_unresolved(Some(payload));
+            None
         };
 
         match (carried, payload) {
-            (Variant::Unit, _) => {
-                self.diagnostics.push(
-                    Diagnostic::error(
-                        codes::PATTERN_TYPE,
-                        span,
-                        format!("`{spelled}` carries nothing"),
-                    )
-                    .note("A pattern matches the payload the variant declares (LR15.2, LR16.2)."),
-                );
-                self.bind_payload_unresolved(Some(payload));
-            }
+            (Variant::Unit, _) => wrong(self, format!("`{spelled}` carries nothing")),
             (Variant::Tuple(types), Payload::Tuple(patterns)) => {
                 if types.len() != patterns.len() {
-                    self.diagnostics.push(
-                        Diagnostic::error(
-                            codes::PATTERN_TYPE,
-                            span,
-                            format!(
-                                "`{spelled}` carries {} value{}, and this pattern names {}",
-                                types.len(),
-                                if types.len() == 1 { "" } else { "s" },
-                                patterns.len()
-                            ),
-                        )
-                        .note(
-                            "A pattern matches the payload the variant declares (LR15.2, LR16.2).",
+                    return wrong(
+                        self,
+                        format!(
+                            "`{spelled}` carries {} value{}, and this pattern names {}",
+                            types.len(),
+                            if types.len() == 1 { "" } else { "s" },
+                            patterns.len()
                         ),
                     );
-                    self.bind_payload_unresolved(Some(payload));
-                    return;
                 }
-                for (pattern, ty) in patterns.iter().zip(types) {
-                    self.pattern(pattern, ty);
-                }
+                Some(
+                    patterns
+                        .iter()
+                        .zip(types)
+                        .map(|(pattern, ty)| self.pattern(pattern, ty).1)
+                        .collect(),
+                )
             }
             (Variant::Tuple(_), Payload::Record { .. }) => {
-                self.diagnostics.push(
-                    Diagnostic::error(
-                        codes::PATTERN_TYPE,
-                        span,
-                        format!("`{spelled}` carries its values by position"),
-                    )
-                    .note("A pattern matches the payload the variant declares (LR15.2, LR16.2)."),
-                );
-                self.bind_payload_unresolved(Some(payload));
+                wrong(self, format!("`{spelled}` carries its values by position"))
             }
             (Variant::Record(_), Payload::Tuple(_)) => {
-                self.diagnostics.push(
-                    Diagnostic::error(
-                        codes::PATTERN_TYPE,
-                        span,
-                        format!("`{spelled}` carries its values by name"),
-                    )
-                    .note("A pattern matches the payload the variant declares (LR15.2, LR16.2)."),
-                );
-                self.bind_payload_unresolved(Some(payload));
+                wrong(self, format!("`{spelled}` carries its values by name"))
             }
             (Variant::Record(declared), Payload::Record { fields, rest }) => {
-                self.field_patterns(declared, fields, *rest, spelled, span, owner);
+                Some(self.field_patterns(declared, fields, *rest, spelled, span, owner))
             }
         }
     }
 
-    /// Matches the fields a record pattern lists against the ones declared
-    /// (LR16.2).
+    /// Matches the fields a record pattern lists against the ones declared,
+    /// and gives back what it covers of each, in the order declared (LR16.2).
     fn field_patterns(
         &mut self,
         declared: &[Field],
@@ -607,11 +508,13 @@ impl Checker<'_> {
         spelled: &str,
         span: Span,
         owner: Option<(ModuleId, String)>,
-    ) {
+    ) -> Vec<Pat> {
+        let mut pats = vec![Pat::Wild; declared.len()];
+
         for field in written {
-            let Some(found) = declared
+            let Some(index) = declared
                 .iter()
-                .find(|declared| declared.name == field.field)
+                .position(|declared| declared.name == field.field)
             else {
                 self.diagnostics.push(
                     Diagnostic::error(
@@ -625,15 +528,16 @@ impl Checker<'_> {
                 continue;
             };
 
+            let found = &declared[index];
             if let Some((module, name)) = &owner {
                 self.private(found.visibility, *module, name, &field.field, field.span);
             }
             let ty = found.ty.clone();
-            self.field_pattern(field, &ty);
+            pats[index] = self.field_pattern(field, &ty);
         }
 
         if rest {
-            return;
+            return pats;
         }
 
         // LR16.2: without `...`, the pattern lists every field.
@@ -652,18 +556,18 @@ impl Checker<'_> {
                 .note("A record pattern lists every field, or ends with `...` (LR16.2)."),
             );
         }
+        pats
     }
 
     /// One field of a record pattern: matched against a pattern where it has
     /// one, and bound under the name it is written with otherwise (LR16.2).
-    fn field_pattern(&mut self, field: &FieldPattern, ty: &Type) {
+    fn field_pattern(&mut self, field: &FieldPattern, ty: &Type) -> Pat {
         match &field.pattern {
-            Some(pattern) => {
-                self.pattern(pattern, ty);
-            }
+            Some(pattern) => self.pattern(pattern, ty).1,
             None => {
                 let name = field.bound_as.as_ref().unwrap_or(&field.field);
                 self.bind(name, ty.clone());
+                Pat::Wild
             }
         }
     }
@@ -780,4 +684,36 @@ fn same_bindings(expected: &HashMap<String, Type>, bound: &HashMap<String, Type>
                 held == ty || matches!(held, Type::Unresolved) || matches!(ty, Type::Unresolved)
             })
         })
+}
+
+/// What a pattern covers of the member at `index`, or of the whole value
+/// where there is no member to speak of (LR16.4).
+fn wrap(index: Option<usize>, pat: Pat) -> Pat {
+    match index {
+        Some(index) => Pat::Ctor(Ctor::Member(index), vec![pat]),
+        None => pat,
+    }
+}
+
+/// One value among more than can be listed, unlike any other pattern's.
+fn open(span: Span) -> Pat {
+    Pat::Ctor(Ctor::Open(format!("@{}", span.start)), Vec::new())
+}
+
+/// How a literal reads, which is what makes two literal patterns the same
+/// case (LR16.4).
+fn spell(literal: &Expr) -> String {
+    match &literal.kind {
+        ExprKind::Nil => "nil".to_owned(),
+        ExprKind::Bool(value) => value.to_string(),
+        ExprKind::Integer(value) => value.to_string(),
+        ExprKind::Float(value) => value.to_string(),
+        ExprKind::String(text) => format!("{text:?}"),
+        ExprKind::Char(value) => format!("{value:?}"),
+        ExprKind::Unary {
+            op: UnaryOp::Negate,
+            operand,
+        } => format!("-{}", spell(operand)),
+        _ => format!("@{}", literal.span.start),
+    }
 }

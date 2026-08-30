@@ -1,0 +1,14 @@
+--- expect: compile-error
+--- code: LR0164
+--- span: 7:11
+--- spec: LR16.4
+--- spec: LR14
+function pick(a: bool, b: bool): int
+    match (a, b)
+        case (true, true)
+            return 1
+        case (false, _)
+            return 2
+    end
+    return 0
+end

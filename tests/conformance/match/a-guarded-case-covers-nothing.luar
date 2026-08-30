@@ -1,0 +1,19 @@
+--- expect: compile-error
+--- code: LR0164
+--- span: 12:11
+--- spec: LR16.3
+--- spec: LR16.4
+enum Message
+    Quit
+    Write(string)
+end
+
+function handle(message: Message, quiet: bool): string
+    match message
+        case Message.Quit if quiet
+            return "quiet"
+        case Message.Write(text)
+            return text
+    end
+    return "?"
+end
