@@ -110,6 +110,7 @@ fn walk(
             mutations: Vec::new(),
             closures: Vec::new(),
             facts: Facts::default(),
+            expected: None,
             diagnostics,
         };
         checker.module(&node.ast);
@@ -171,6 +172,9 @@ struct Checker<'a> {
     /// What this walk worked out, for lowering to read rather than derive
     /// again.
     facts: Facts,
+    /// The type the call or the literal about to be checked is used at,
+    /// which is where a type argument nothing passes is read from (LR19).
+    expected: Option<Type>,
     diagnostics: &'a mut Vec<Diagnostic>,
 }
 

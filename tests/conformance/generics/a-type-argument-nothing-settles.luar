@@ -1,0 +1,12 @@
+--- expect: compile-error
+--- code: LR0211
+--- span: 10:19
+--- spec: LR19
+function nothing<T>(): T?
+    return nil
+end
+
+export function main()
+    local value = nothing()
+    print(value == nil)
+end

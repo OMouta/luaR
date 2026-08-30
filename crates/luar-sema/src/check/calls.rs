@@ -194,6 +194,10 @@ impl Checker<'_> {
         args: &[Argument],
         span: Span,
     ) -> Type {
+        // LR19: taken before the arguments are checked, because what this
+        // call is used at says nothing about the calls inside them.
+        let used_at = self.expected.take();
+
         if let Some(variant) = result_variant(callee)
             && !self.shadowed("Result")
             && written.len() != 2
@@ -333,8 +337,9 @@ impl Checker<'_> {
         }
 
         // LR19: a generic call takes its type arguments from what it writes
-        // down, and works out the rest from what it passes.
-        let signature = self.specialize(signature, &written, &held, span);
+        // down, and works out the rest from what it passes and from what
+        // its result is used at.
+        let signature = self.specialize(signature, &written, &held, used_at.as_ref(), span);
 
         self.arguments(&signature, args, &held, span);
 
@@ -372,6 +377,7 @@ impl Checker<'_> {
         signature: Signature,
         written: &[Type],
         held: &[Type],
+        expected: Option<&Type>,
         span: Span,
     ) -> Signature {
         if signature.type_params.is_empty() {
@@ -389,11 +395,23 @@ impl Checker<'_> {
             infer(&signature.type_params, &param.ty, held, &mut bound);
         }
 
+        // LR19: what nothing passed settles is read from the type the result
+        // is used at.
+        if let Some(expected) = expected {
+            infer(
+                &signature.type_params,
+                &signature.result,
+                expected,
+                &mut bound,
+            );
+        }
+
         let args: Vec<Type> = signature
             .type_params
             .iter()
             .map(|param| bound.get(param).cloned().unwrap_or(Type::Unresolved))
             .collect();
+        self.unknown_type_args(&signature.type_params, &args, held, span);
 
         // LR19: what fills each parameter is worked out here, and nowhere else
         // knows it.
@@ -457,6 +475,35 @@ impl Checker<'_> {
             type_params: Vec::new(),
             constraints: Vec::new(),
             ..signature
+        }
+    }
+
+    /// LR19: a type parameter nothing settles is reported, unless an
+    /// argument's type is unknown already, in which case the report would
+    /// repeat one made there.
+    pub(super) fn unknown_type_args(
+        &mut self,
+        params: &[String],
+        args: &[Type],
+        held: &[Type],
+        span: Span,
+    ) {
+        if held.iter().any(|held| matches!(held, Type::Unresolved)) {
+            return;
+        }
+        for (param, arg) in params.iter().zip(args) {
+            if matches!(arg, Type::Unresolved) {
+                self.diagnostics.push(
+                    Diagnostic::error(
+                        codes::TYPE_ARGUMENT_UNKNOWN,
+                        span,
+                        format!("nothing here says what `{param}` is"),
+                    )
+                    .note(
+                        "A type argument is written, as in `name<T>(...)`, passed, or read from the type the result is used at (LR19).",
+                    ),
+                );
+            }
         }
     }
 

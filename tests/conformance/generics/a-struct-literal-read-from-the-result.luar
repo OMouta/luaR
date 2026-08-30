@@ -1,0 +1,13 @@
+--- expect: run
+--- exit: 0
+--- stdout: "true\n"
+--- spec: LR19
+--- spec: LR7
+struct Box<T>
+    value: T?
+end
+
+export function main()
+    local box: Box<int> = Box { value = nil }
+    print(box.value == nil)
+end

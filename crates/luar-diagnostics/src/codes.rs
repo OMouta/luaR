@@ -278,6 +278,8 @@ registry! {
         "A pattern matches a value of the type it is checked against.";
     active 210 => OR_PATTERN_BINDINGS, "LR16.2",
         "The alternatives of an or-pattern bind the same names at the same types.";
+    active 211 => TYPE_ARGUMENT_UNKNOWN, "LR19",
+        "A type argument is written, passed, or read from the type the result is used at.";
 }
 
 #[cfg(test)]

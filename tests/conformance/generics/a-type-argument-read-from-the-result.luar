@@ -1,0 +1,13 @@
+--- expect: run
+--- exit: 0
+--- stdout: "true\n"
+--- spec: LR19
+--- spec: LR7
+function nothing<T>(): T?
+    return nil
+end
+
+export function main()
+    local value: int? = nothing()
+    print(value == nil)
+end

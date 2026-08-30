@@ -79,6 +79,19 @@ impl Checker<'_> {
             self.facts.record_type(expr.span, ty.clone());
             return ty;
         }
+        // LR19: a type argument nothing passes is read from the type the
+        // result is used at.
+        let contextual = match &expr.kind {
+            ExprKind::Call { .. } => true,
+            ExprKind::Record { path, .. } => !path.is_empty(),
+            _ => false,
+        };
+        if contextual {
+            self.expected = Some(wanted.clone());
+            let ty = self.expr(expr);
+            self.expected = None;
+            return ty;
+        }
         self.expr(expr)
     }
 
@@ -231,7 +244,11 @@ impl Checker<'_> {
                 args,
             } => {
                 let written: Vec<Type> = type_args.iter().map(|ty| self.resolve(ty)).collect();
+                // The callee is an expression of its own, and what the call
+                // is used at says nothing about it.
+                let expected = self.expected.take();
                 let receiver = self.expr(callee);
+                self.expected = expected;
                 let produced = self.call(
                     callee,
                     method.as_deref(),
@@ -754,11 +771,22 @@ impl Checker<'_> {
                 infer(&params, &declared.ty, value, &mut bound);
             }
         }
+        // LR19: what no field settles is read from the type the literal is
+        // used at.
+        if let Some(expected) = self.expected.take() {
+            let itself = Type::Named {
+                module,
+                name: name.clone(),
+                args: params.iter().cloned().map(Type::Parameter).collect(),
+            };
+            infer(&params, &itself, &expected, &mut bound);
+        }
 
         let args: Vec<Type> = params
             .iter()
             .map(|param| bound.get(param).cloned().unwrap_or(Type::Unresolved))
             .collect();
+        self.unknown_type_args(&params, &args, values, span);
 
         for field in &mut fields {
             field.ty = substitute(&field.ty, &params, &args);
