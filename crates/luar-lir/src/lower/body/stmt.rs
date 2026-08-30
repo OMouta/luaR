@@ -481,7 +481,10 @@ impl<'a> Body<'a> {
                         kind: Builtin::Map | Builtin::FrozenMap,
                         args,
                     } => (args.first().cloned(), args.get(1).cloned()),
-                    Ty::Builtin { args, .. } => (Some(Ty::INT), args.first().cloned()),
+                    Ty::Builtin {
+                        kind: Builtin::List | Builtin::Slice,
+                        args,
+                    } => (Some(Ty::INT), args.first().cloned()),
                     Ty::Array(element, _) => (Some(Ty::INT), Some(element.as_ref().clone())),
                     _ => {
                         self.gap(

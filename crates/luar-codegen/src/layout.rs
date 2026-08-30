@@ -95,7 +95,8 @@ pub fn size(program: &Program, ty: &Ty, pointer: Type) -> Option<i32> {
                 | Builtin::Set
                 | Builtin::FrozenList
                 | Builtin::FrozenMap
-                | Builtin::FrozenSet,
+                | Builtin::FrozenSet
+                | Builtin::Slice,
             ..
         } => COLLECTION_CELLS,
         Ty::Tuple(members) => u32::try_from(members.len()).ok()?,
@@ -285,6 +286,7 @@ pub fn is_aggregate(ty: &Ty) -> bool {
                     | Builtin::FrozenList
                     | Builtin::FrozenMap
                     | Builtin::FrozenSet
+                    | Builtin::Slice
                     | Builtin::RangeExclusive
                     | Builtin::RangeInclusive
                     | Builtin::ReversedRangeExclusive

@@ -176,6 +176,11 @@ fn remap_inst(inst: &mut InstKind, map: &HashMap<Value, Value>, slots: &HashMap<
             receiver: left,
             index: right,
         }
+        | InstKind::MakeSlice {
+            receiver: left,
+            range: right,
+            ..
+        }
         | InstKind::Offset {
             pointer: left,
             count: right,

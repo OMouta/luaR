@@ -11,6 +11,105 @@ use crate::ty::machine;
 use super::{OWNED, Translator};
 
 impl Translator<'_, '_> {
+    pub(super) fn make_slice(
+        &mut self,
+        receiver: Value,
+        range: Value,
+        inclusive: bool,
+        result: Option<Value>,
+    ) -> Option<ir::Value> {
+        let ty = self.function.type_of(result?).clone();
+        let source_ty = self.function.type_of(receiver).clone();
+        let source = self.value(receiver);
+        let range = self.value(range);
+        let length = self
+            .builder
+            .ins()
+            .load(self.pointer, OWNED, source, layout::LENGTH);
+
+        let start_optional = self.builder.ins().load(self.pointer, OWNED, range, 0);
+        let start_tag =
+            self.builder
+                .ins()
+                .load(layout::TAG_TYPE, OWNED, start_optional, layout::TAG);
+        let start_value =
+            self.builder
+                .ins()
+                .load(self.pointer, OWNED, start_optional, layout::CELL);
+        let zero = self.builder.ins().iconst(self.pointer, 0);
+        let has_start = self.builder.ins().icmp_imm(IntCC::NotEqual, start_tag, 0);
+        let start = self.builder.ins().select(has_start, start_value, zero);
+
+        let end_optional = self
+            .builder
+            .ins()
+            .load(self.pointer, OWNED, range, layout::CELL);
+        let end_tag = self
+            .builder
+            .ins()
+            .load(layout::TAG_TYPE, OWNED, end_optional, layout::TAG);
+        let end_value = self
+            .builder
+            .ins()
+            .load(self.pointer, OWNED, end_optional, layout::CELL);
+        let has_end = self.builder.ins().icmp_imm(IntCC::NotEqual, end_tag, 0);
+        let written_end = if inclusive {
+            self.builder.ins().iadd_imm(end_value, 1)
+        } else {
+            end_value
+        };
+        let end = self.builder.ins().select(has_end, written_end, length);
+
+        let start_outside = self
+            .builder
+            .ins()
+            .icmp(IntCC::UnsignedGreaterThan, start, length);
+        let end_outside = self
+            .builder
+            .ins()
+            .icmp(IntCC::UnsignedGreaterThan, end, length);
+        let reversed = self
+            .builder
+            .ins()
+            .icmp(IntCC::UnsignedGreaterThan, start, end);
+        let outside = self.builder.ins().bor(start_outside, end_outside);
+        let outside = self.builder.ins().bor(outside, reversed);
+        self.trap_if(outside, Trap::Bounds);
+
+        let slice_length = self.builder.ins().isub(end, start);
+        let (owner, source_start) = if matches!(
+            source_ty,
+            Ty::Builtin {
+                kind: Builtin::Slice,
+                ..
+            }
+        ) {
+            let owner = self
+                .builder
+                .ins()
+                .load(self.pointer, OWNED, source, layout::BUFFER);
+            let source_start =
+                self.builder
+                    .ins()
+                    .load(self.pointer, OWNED, source, layout::CAPACITY);
+            (owner, source_start)
+        } else {
+            (source, zero)
+        };
+        let absolute_start = self.builder.ins().iadd(source_start, start);
+        let slice = self.allocate(&ty, 0)?;
+        self.builder
+            .ins()
+            .store(OWNED, slice_length, slice, layout::LENGTH);
+        self.builder
+            .ins()
+            .store(OWNED, absolute_start, slice, layout::CAPACITY);
+        self.builder
+            .ins()
+            .store(OWNED, owner, slice, layout::BUFFER);
+        Some(slice)
+    }
+
     /// LR13.1: a list is its header, and then storage holding one cell per
     /// element.
     pub(super) fn make_list(
@@ -58,7 +157,7 @@ impl Translator<'_, '_> {
         let held = self.function.type_of(receiver).clone();
         match &held {
             Ty::Builtin {
-                kind: Builtin::List | Builtin::FrozenList,
+                kind: Builtin::List | Builtin::FrozenList | Builtin::Slice,
                 ..
             } => {
                 let address = self.element_address(receiver, index, checked);
@@ -370,7 +469,7 @@ impl Translator<'_, '_> {
         let held = self.function.type_of(receiver).clone();
         match &held {
             Ty::Builtin {
-                kind: Builtin::List,
+                kind: Builtin::List | Builtin::Slice,
                 ..
             } => {
                 let address = self.element_address(receiver, index, checked);
@@ -447,19 +546,39 @@ impl Translator<'_, '_> {
 
     /// LR70: the cell of element `index`, with a bounds check when requested.
     fn element_address(&mut self, receiver: Value, index: Value, checked: bool) -> ir::Value {
-        let list = self.value(receiver);
+        let held = self.function.type_of(receiver).clone();
+        let collection = self.value(receiver);
         let index = self.value(index);
         if checked {
             let length = self
                 .builder
                 .ins()
-                .load(self.pointer, OWNED, list, layout::LENGTH);
+                .load(self.pointer, OWNED, collection, layout::LENGTH);
             let outside = self
                 .builder
                 .ins()
                 .icmp(IntCC::UnsignedGreaterThanOrEqual, index, length);
             self.trap_if(outside, Trap::Bounds);
         }
+        let (list, index) = if matches!(
+            held,
+            Ty::Builtin {
+                kind: Builtin::Slice,
+                ..
+            }
+        ) {
+            let list = self
+                .builder
+                .ins()
+                .load(self.pointer, OWNED, collection, layout::BUFFER);
+            let start = self
+                .builder
+                .ins()
+                .load(self.pointer, OWNED, collection, layout::CAPACITY);
+            (list, self.builder.ins().iadd(start, index))
+        } else {
+            (collection, index)
+        };
         let buffer = self
             .builder
             .ins()

@@ -276,6 +276,16 @@ fn instruction(inst: &Inst, function: &Function) -> String {
         InstKind::Contains { receiver, value } => {
             format!("contains {} {}", name(*receiver), name(*value))
         }
+        InstKind::MakeSlice {
+            receiver,
+            range,
+            inclusive,
+        } => format!(
+            "slice {} {}{}",
+            name(*receiver),
+            name(*range),
+            if *inclusive { " inclusive" } else { "" }
+        ),
         InstKind::Overflowing {
             mode,
             op,

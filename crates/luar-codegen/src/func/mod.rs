@@ -406,6 +406,11 @@ impl Translator<'_, '_> {
             InstKind::MakeList { values, .. } => self.make_list(inst.result, values),
             InstKind::MakeMap { entries, .. } => self.make_map(inst.result, entries),
             InstKind::MakeSet { values, .. } => self.make_set(inst.result, values),
+            InstKind::MakeSlice {
+                receiver,
+                range,
+                inclusive,
+            } => self.make_slice(*receiver, *range, *inclusive, inst.result),
             InstKind::ListPush { receiver, value } => {
                 self.list_push(*receiver, *value);
                 None

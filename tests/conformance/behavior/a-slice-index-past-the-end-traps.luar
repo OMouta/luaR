@@ -1,0 +1,10 @@
+--- expect: run
+--- exit: 101
+--- trap: bounds
+--- spec: LR38
+--- spec: LR70
+export function main(): int
+    local values = [1, 2, 3]
+    local window = values[1..<3]
+    return window[2]
+end

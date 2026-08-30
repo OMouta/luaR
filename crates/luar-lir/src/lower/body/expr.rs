@@ -134,13 +134,19 @@ impl<'a> Body<'a> {
                     Ty::Builtin { args, .. } => args.first().cloned().unwrap_or(Ty::Never),
                     _ => Ty::Never,
                 };
-                let bound = Ty::Optional(Box::new(element));
+                let bound = Ty::Optional(Box::new(element.clone()));
                 let start = match start {
-                    Some(start) => self.expr(start, Some(&bound)),
+                    Some(start) => {
+                        let value = self.expr(start, Some(&element));
+                        self.emit(InstKind::MakeSome { value }, bound.clone(), start.span)
+                    }
                     None => self.emit(InstKind::Const(Const::Nil), bound.clone(), span),
                 };
                 let end = match end {
-                    Some(end) => self.expr(end, Some(&bound)),
+                    Some(end) => {
+                        let value = self.expr(end, Some(&element));
+                        self.emit(InstKind::MakeSome { value }, bound.clone(), end.span)
+                    }
                     None => self.emit(InstKind::Const(Const::Nil), bound.clone(), span),
                 };
                 self.emit(InstKind::MakeTuple(vec![start, end]), ty, span)

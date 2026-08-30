@@ -309,6 +309,12 @@ pub enum InstKind {
         element: Ty,
         values: Vec<Value>,
     },
+    /// A view over the elements selected by an ascending range (LR38).
+    MakeSlice {
+        receiver: Value,
+        range: Value,
+        inclusive: bool,
+    },
     ListPush {
         receiver: Value,
         value: Value,
@@ -499,7 +505,7 @@ impl InstKind {
                     Effect::None
                 }
             }
-            Self::GetIndex { .. } => Effect::Trap,
+            Self::GetIndex { .. } | Self::MakeSlice { .. } => Effect::Trap,
             Self::Assert { .. } | Self::Panic { .. } => Effect::Trap,
 
             Self::Call { .. }

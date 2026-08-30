@@ -369,6 +369,31 @@ impl<'a> Body<'a> {
         let index = self.expr(index, wanted.as_ref());
         let result = self.recorded(span);
 
+        if matches!(
+            result,
+            Ty::Builtin {
+                kind: Builtin::Slice,
+                ..
+            }
+        ) {
+            let inclusive = matches!(
+                self.function.type_of(index),
+                Ty::Builtin {
+                    kind: Builtin::RangeInclusive,
+                    ..
+                }
+            );
+            return self.emit(
+                InstKind::MakeSlice {
+                    receiver: container,
+                    range: index,
+                    inclusive,
+                },
+                result,
+                span,
+            );
+        }
+
         // LR69: a map gives back `V?`. LR57: an element the checker proved
         // holds something reads as what it holds.
         if let Ty::Builtin {
@@ -391,7 +416,7 @@ impl<'a> Body<'a> {
 
         let element = match &held {
             Ty::Builtin {
-                kind: Builtin::List | Builtin::FrozenList,
+                kind: Builtin::List | Builtin::FrozenList | Builtin::Slice,
                 args,
             } => args.first().cloned(),
             Ty::Array(element, _) => Some(element.as_ref().clone()),

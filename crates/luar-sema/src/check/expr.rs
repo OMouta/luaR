@@ -102,6 +102,7 @@ impl Checker<'_> {
         let contextual = match &expr.kind {
             ExprKind::Call { .. } => true,
             ExprKind::Record { path, .. } => !path.is_empty(),
+            ExprKind::Range { .. } => true,
             _ => false,
         };
         if contextual {
@@ -357,7 +358,14 @@ impl Checker<'_> {
                 let element = match (start.as_deref(), end.as_deref()) {
                     (Some(start), Some(end)) => self.range_element(start, end),
                     (Some(bound), None) | (None, Some(bound)) => settle(self.expr(bound)),
-                    (None, None) => Type::Unresolved,
+                    (None, None) => self
+                        .expected
+                        .as_ref()
+                        .and_then(|expected| match expected {
+                            Type::Builtin { args, .. } => args.first().cloned(),
+                            _ => None,
+                        })
+                        .unwrap_or(Type::Unresolved),
                 };
                 Type::Builtin {
                     kind: if *inclusive {
@@ -430,7 +438,26 @@ impl Checker<'_> {
                 optional,
             } => {
                 let held = self.expr(receiver);
-                let key = self.expr(index);
+                let key = if matches!(
+                    held,
+                    Type::Builtin {
+                        kind: Builtin::List | Builtin::Slice,
+                        ..
+                    }
+                ) && let ExprKind::Range { inclusive, .. } = &index.kind
+                {
+                    let range = Type::Builtin {
+                        kind: if *inclusive {
+                            Builtin::RangeInclusive
+                        } else {
+                            Builtin::RangeExclusive
+                        },
+                        args: vec![Type::Primitive(Primitive::I64)],
+                    };
+                    self.expr_wanting(index, &range)
+                } else {
+                    self.expr(index)
+                };
 
                 // LR57: what a condition proved about this element wins over
                 // what the container gives back.
@@ -792,6 +819,31 @@ impl Checker<'_> {
             return Type::Unresolved;
         }
 
+        if let Type::Builtin {
+            kind: Builtin::RangeExclusive | Builtin::RangeInclusive,
+            args: bounds,
+        } = key
+            && let Type::Builtin {
+                kind: Builtin::List | Builtin::Slice,
+                args,
+            } = container
+        {
+            let int = Type::Primitive(Primitive::I64);
+            if let Some(bound) = bounds.first()
+                && !self.accepts(&int, bound)
+            {
+                self.diagnostics.push(Diagnostic::error(
+                    codes::INDEX_TYPE,
+                    key_span,
+                    format!("a slice range is bounded by `int`, not {}", article(bound)),
+                ));
+            }
+            return Type::Builtin {
+                kind: Builtin::Slice,
+                args: vec![args.first().cloned().unwrap_or(Type::Unresolved)],
+            };
+        }
+
         let (wanted, element) = match container {
             Type::Builtin {
                 kind: Builtin::Map | Builtin::FrozenMap,
@@ -801,7 +853,7 @@ impl Checker<'_> {
                 (args.first().cloned(), value.optional())
             }
             Type::Builtin {
-                kind: Builtin::List | Builtin::FrozenList,
+                kind: Builtin::List | Builtin::FrozenList | Builtin::Slice,
                 args,
             } => (
                 Some(Type::Primitive(Primitive::I64)),
