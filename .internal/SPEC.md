@@ -2443,7 +2443,8 @@ Open-ended ranges are written by omitting a bound:
 
 ```lua
 values[..<10]
-values[10..]
+values[10..<]
+values[..<]
 ```
 
 A slice of a list is a view rather than a copy. `Slice<T>` borrows its backing storage, and mutating the list while a slice of it is live is a compile-time error where the compiler can see it and a panic where it cannot.
