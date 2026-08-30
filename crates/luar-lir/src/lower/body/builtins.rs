@@ -192,15 +192,38 @@ impl<'a> Body<'a> {
             self.emit_void(InstKind::Print { value }, span);
             return self.emit(InstKind::Const(Const::Unit), Ty::Unit, span);
         }
-        if args.len() != 1 {
-            for argument in args {
-                self.expr(&argument.value, None);
-            }
-            return self.missing(span, "`print` with more than one value");
+        // LR54.1: each value in its `Display` form, one tab between them.
+        let mut line: Option<Value> = None;
+        for argument in args {
+            let value = self.expr(&argument.value, None);
+            let text = self.display(value, argument.value.span);
+            line = Some(match line {
+                None => text,
+                Some(line) => {
+                    let tab =
+                        self.emit(InstKind::Const(Const::Str("\t".to_owned())), Ty::Str, span);
+                    let separated = self.emit(
+                        InstKind::Binary {
+                            op: BinaryOp::Concat,
+                            left: line,
+                            right: tab,
+                        },
+                        Ty::Str,
+                        span,
+                    );
+                    self.emit(
+                        InstKind::Binary {
+                            op: BinaryOp::Concat,
+                            left: separated,
+                            right: text,
+                        },
+                        Ty::Str,
+                        span,
+                    )
+                }
+            });
         }
-        let argument = &args[0];
-        let value = self.expr(&argument.value, None);
-        let value = self.display(value, argument.value.span);
+        let value = line.expect("at least one value");
         self.emit_void(InstKind::Print { value }, span);
         self.emit(InstKind::Const(Const::Unit), Ty::Unit, span)
     }

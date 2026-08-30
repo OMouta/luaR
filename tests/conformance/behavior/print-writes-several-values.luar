@@ -1,0 +1,7 @@
+--- expect: run
+--- exit: 0
+--- stdout: "1\ta\ttrue\n"
+--- spec: LR54.1
+export function main()
+    print(1, "a", true)
+end
