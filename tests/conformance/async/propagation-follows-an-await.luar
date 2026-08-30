@@ -9,7 +9,7 @@ async function load(id: int): Result<int, Failure>
     return Result.Ok<int, Failure>(id)
 end
 
-export async function main(): Result<int, Failure>
+async function propagate(): Result<int, Failure>
     local loaded: int = await load(1)?
     return Result.Ok<int, Failure>(loaded)
 end
