@@ -1,0 +1,14 @@
+--- expect: run
+--- exit: 0
+--- stdout: "8\nbuf\n"
+--- spec: LR79
+--- spec: LR24
+--- spec: LR21.1
+import { size, label } from "./support/limits"
+
+const doubled = size * 2
+
+export function main()
+    print(doubled)
+    print(label)
+end

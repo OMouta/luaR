@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 
 use luar_diagnostics::Span;
 
+use crate::modules::ModuleId;
 use crate::types::Type;
 
 /// The implicit `iterator` and `next` call positions of a `for` (LR35).
@@ -70,6 +71,9 @@ pub struct Facts {
     builtins: HashMap<Span, Builtin>,
     /// The names something takes the address of (LR72).
     addressed: HashSet<String>,
+    /// The module-level `const` a name reads, where it is not a local
+    /// binding, by the module declaring it (LR21.1, LR24).
+    constants: HashMap<Span, (ModuleId, String)>,
 }
 
 impl Facts {
@@ -142,6 +146,19 @@ impl Facts {
         self.addressed.contains(name)
     }
 
+    /// Records that the name at `span` reads the module-level `const` `name`
+    /// of `module` (LR24).
+    pub fn record_constant(&mut self, span: Span, module: ModuleId, name: String) {
+        self.constants.insert(span, (module, name));
+    }
+
+    /// The module-level `const` the name at `span` reads, where the checker
+    /// found it outside the function's own bindings.
+    #[must_use]
+    pub fn constant(&self, span: Span) -> Option<&(ModuleId, String)> {
+        self.constants.get(&span)
+    }
+
     /// Takes everything `other` recorded.
     pub fn absorb(&mut self, other: Self) {
         self.types.extend(other.types);
@@ -150,5 +167,6 @@ impl Facts {
         self.type_args.extend(other.type_args);
         self.builtins.extend(other.builtins);
         self.addressed.extend(other.addressed);
+        self.constants.extend(other.constants);
     }
 }

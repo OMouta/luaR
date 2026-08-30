@@ -1,0 +1,16 @@
+--- expect: run
+--- exit: 0
+--- stdout: "red\n"
+--- spec: LR79
+--- spec: LR24
+--- spec: LR21.1
+import { Colour, shade } from "./support/palette"
+
+export function main()
+    match shade
+        case Colour.Red
+            print("red")
+        case Colour.Blue
+            print("blue")
+    end
+end

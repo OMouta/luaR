@@ -7,6 +7,7 @@ use luar_diagnostics::{Diagnostic, Span, codes};
 
 use crate::aliases::{self, Aliases, Written};
 use crate::annotations::Resolver;
+use crate::constants::{self, Constants};
 use crate::derive::Derived;
 use crate::modules::{Graph, ModuleId};
 use crate::names::{Names, Origin};
@@ -177,6 +178,11 @@ pub enum Decl {
         target: Type,
         methods: BTreeMap<String, Overloads>,
     },
+    /// A module-level `const`, at the type written beside it or the type of
+    /// its value (LR24). The value itself is in [`Table::values`].
+    Constant {
+        ty: Type,
+    },
 }
 
 /// Every declaration of every module.
@@ -187,12 +193,20 @@ pub struct Table {
     aliases: Aliases,
     /// What `@derive` wrote, by the span of the signature it wrote (LR75).
     derived: HashMap<Span, Derived>,
+    /// Every module-level `const` value that could be worked out (LR24).
+    values: Constants,
 }
 
 impl Table {
     #[must_use]
     pub fn get(&self, module: ModuleId, name: &str) -> Option<&Decl> {
         self.decls.get(&(module, name.to_owned()))
+    }
+
+    /// Every module-level `const` value that could be worked out (LR24).
+    #[must_use]
+    pub fn values(&self) -> &Constants {
+        &self.values
     }
 
     /// Every member `@derive` wrote, with the span a call reaching one names
@@ -241,7 +255,7 @@ impl Table {
                 Decl::Struct(structure) => structure.methods.values().collect(),
                 Decl::Interface(interface) => interface.methods.values().collect(),
                 Decl::Extension { methods, .. } => methods.values().collect(),
-                Decl::Enum(_) | Decl::Alias { .. } => Vec::new(),
+                Decl::Enum(_) | Decl::Alias { .. } | Decl::Constant { .. } => Vec::new(),
             };
 
             for signature in sets.into_iter().flatten() {
@@ -289,7 +303,7 @@ fn signatures_mut(
             Decl::Struct(structure) => structure.methods.values_mut().collect(),
             Decl::Interface(interface) => interface.methods.values_mut().collect(),
             Decl::Extension { methods, .. } => methods.values_mut().collect(),
-            Decl::Enum(_) | Decl::Alias { .. } => Vec::new(),
+            Decl::Enum(_) | Decl::Alias { .. } | Decl::Constant { .. } => Vec::new(),
         };
 
         sets.into_iter().flatten()
@@ -301,11 +315,14 @@ fn signatures_mut(
 pub fn build(graph: &Graph, names: &Names) -> (Table, Vec<Diagnostic>) {
     let kinds = collect_kinds(graph);
     let empty = Aliases::default();
+    // LR24: a `const` may size an array in a declaration, so its value is
+    // worked out before any declaration is read.
+    let values = constants::evaluate(graph, names, &kinds);
     let mut decls = BTreeMap::new();
     let mut diagnostics = Vec::new();
 
     for (module, node) in graph.modules() {
-        let mut resolver = Resolver::new(names, &kinds, &empty, module);
+        let mut resolver = Resolver::new(names, &kinds, &empty, &values, module);
         declare(
             &node.ast.items,
             module,
@@ -319,7 +336,7 @@ pub fn build(graph: &Graph, names: &Names) -> (Table, Vec<Diagnostic>) {
     // A method written outside its type's body is attached once every
     // declaration is read, because the type may be written after it (LR20).
     for (module, node) in graph.modules() {
-        let mut resolver = Resolver::new(names, &kinds, &empty, module);
+        let mut resolver = Resolver::new(names, &kinds, &empty, &values, module);
         attach(
             &node.ast.items,
             module,
@@ -340,6 +357,22 @@ pub fn build(graph: &Graph, names: &Names) -> (Table, Vec<Diagnostic>) {
         expand(decl, &aliases);
     }
 
+    // LR19: a value of a generic type says nothing about its arguments, so
+    // a `const` holding one takes as many unknowns as the type declares.
+    let params: HashMap<(ModuleId, String), usize> = decls
+        .iter()
+        .filter_map(|(key, decl)| match decl {
+            Decl::Struct(structure) => Some((key.clone(), structure.type_params.len())),
+            Decl::Enum(enumeration) => Some((key.clone(), enumeration.type_params.len())),
+            _ => None,
+        })
+        .collect();
+    for decl in decls.values_mut() {
+        if let Decl::Constant { ty } = decl {
+            *ty = constants::fill_args(ty, &params);
+        }
+    }
+
     // LR75: `@derive` writes its members once every type is readable, because
     // deriving a protocol needs the fields' types to have it too.
     let (derived, reported) = crate::derive::expand(graph, &mut decls);
@@ -351,6 +384,7 @@ pub fn build(graph: &Graph, names: &Names) -> (Table, Vec<Diagnostic>) {
             decls,
             aliases,
             derived,
+            values,
         },
         diagnostics,
     )
@@ -470,6 +504,7 @@ fn expand(decl: &mut Decl, aliases: &Aliases) {
             *target = aliases.expand(target);
             overloads(methods, aliases);
         }
+        Decl::Constant { ty } => *ty = aliases.expand(ty),
     }
 }
 
@@ -533,9 +568,22 @@ fn declare(
 ) {
     for item in items {
         if let Item::Stmt(stmt) = item
-            && let luar_ast::StmtKind::Const { binding, value, .. } = &stmt.kind
+            && let luar_ast::StmtKind::Const {
+                binding, ty, value, ..
+            } = &stmt.kind
         {
             resolver.bind_constant(binding, value);
+            // LR24: a `const` reads at the type written beside it, or at the
+            // type of its value. The walk reports a written type that names
+            // nothing, so nothing is reported here.
+            if let luar_ast::Binding::Name(name) = binding {
+                let mut ignored = Vec::new();
+                let held = match ty {
+                    Some(ty) => resolver.resolve(ty, &mut ignored),
+                    None => resolver.constant_type(name).unwrap_or(Type::Unresolved),
+                };
+                decls.insert((module, name.clone()), Decl::Constant { ty: held });
+            }
             continue;
         }
 

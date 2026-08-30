@@ -1,0 +1,11 @@
+--- expect: compile-error
+--- code: LR0145
+--- span: 9:24
+--- spec: LR24
+--- spec: LR21.1
+import { label } from "./support/limits"
+
+export function main()
+    local count: int = label
+    print(count)
+end

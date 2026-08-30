@@ -1,0 +1,12 @@
+--- expect: run
+--- exit: 0
+--- stdout: "4\n"
+--- spec: LR24
+--- spec: LR71
+--- spec: LR21.1
+import { size } from "./support/limits"
+
+export function main()
+    local buf: [u8; size] = [1, 2, 3, 4]
+    print(buf[3])
+end

@@ -93,7 +93,7 @@ fn walk(
             graph,
             names,
             table,
-            types: Resolver::new(names, table.kinds(), table.aliases(), id),
+            types: Resolver::new(names, table.kinds(), table.aliases(), table.values(), id),
             scope: id,
             values: vec![HashMap::new()],
             constants: vec![HashSet::new()],

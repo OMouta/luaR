@@ -1,0 +1,2 @@
+export const size = 4
+export const label = "buf"

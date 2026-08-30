@@ -137,7 +137,7 @@ pub(super) struct Body<'a> {
     /// The stack slot a binding whose address is taken lives in (LR72).
     slots: HashMap<Var, SlotId>,
     /// The module-level constants being read, outermost first (LR24).
-    expanding: Vec<String>,
+    expanding: Vec<(ModuleId, String)>,
     next_var: u32,
     /// The loops open around what is being lowered, innermost last.
     loops: Vec<Loop>,
@@ -336,19 +336,27 @@ impl<'a> Body<'a> {
     }
 
     /// LR24: a module-level `const` is its initializer, which is pure (LR79),
-    /// worked out where the name is read.
+    /// worked out where the name is read. LR21.1: an imported one is read in
+    /// the module declaring it, whose names its initializer is written in.
     fn constant(&mut self, name: &str, wanted: Option<&Ty>, span: Span) -> Value {
-        let key = (self.context.module, name.to_owned());
+        let key = self
+            .context
+            .facts
+            .constant(span)
+            .cloned()
+            .unwrap_or_else(|| (self.context.module, name.to_owned()));
         let Some((declared, initializer)) = self.context.constants.get(&key).cloned() else {
             return self.missing(span, "a name that is not a local binding");
         };
-        if self.expanding.iter().any(|held| held == name) {
+        if self.expanding.contains(&key) {
             return self.missing(span, "a `const` that reads itself");
         }
         let declared = self.declared_type(declared);
-        self.expanding.push(name.to_owned());
+        let reader = std::mem::replace(&mut self.context.module, key.0);
+        self.expanding.push(key);
         let value = self.expr(&initializer, declared.as_ref().or(wanted));
         self.expanding.pop();
+        self.context.module = reader;
         value
     }
 

@@ -984,7 +984,7 @@ fn overloads(decl: &Decl) -> Vec<&Signature> {
         Decl::Extension { methods, .. } => methods.values().flatten().collect(),
         // LR75: an enum declares no members, and carries what `@derive` wrote.
         Decl::Enum(enumeration) => enumeration.methods.values().flatten().collect(),
-        Decl::Alias { .. } => Vec::new(),
+        Decl::Alias { .. } | Decl::Constant { .. } => Vec::new(),
     }
 }
 

@@ -1,0 +1,6 @@
+export enum Colour
+    Red
+    Blue
+end
+
+export const shade = Colour.Red

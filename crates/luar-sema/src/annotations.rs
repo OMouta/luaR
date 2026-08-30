@@ -6,6 +6,7 @@ use luar_ast::{BinaryOp, Binding, Expr, ExprKind, TypeKind, UnaryOp};
 use luar_diagnostics::{Diagnostic, Span, codes};
 
 use crate::aliases::Aliases;
+use crate::constants::{Constants, Value};
 use crate::modules::ModuleId;
 use crate::names::{Names, Origin};
 use crate::table::Kinds;
@@ -18,6 +19,9 @@ pub struct Resolver<'a> {
     /// What every alias stands for (LR17.1). Empty while the table is being
     /// built, because building it is what works them out.
     aliases: &'a Aliases,
+    /// Every module-level `const` value, of this module and the others
+    /// (LR24).
+    values: &'a Constants,
     module: ModuleId,
     /// The type parameters of the declarations being walked, innermost last
     /// (LR19).
@@ -31,11 +35,18 @@ pub struct Resolver<'a> {
 
 impl<'a> Resolver<'a> {
     #[must_use]
-    pub fn new(names: &'a Names, kinds: &'a Kinds, aliases: &'a Aliases, module: ModuleId) -> Self {
+    pub fn new(
+        names: &'a Names,
+        kinds: &'a Kinds,
+        aliases: &'a Aliases,
+        values: &'a Constants,
+        module: ModuleId,
+    ) -> Self {
         Self {
             names,
             kinds,
             aliases,
+            values,
             module,
             parameters: Vec::new(),
             enclosing: Vec::new(),
@@ -132,7 +143,8 @@ impl<'a> Resolver<'a> {
                 .constants
                 .iter()
                 .rev()
-                .find_map(|scope| scope.get(name).copied()),
+                .find_map(|scope| scope.get(name).copied())
+                .or_else(|| self.module_integer(name)),
             ExprKind::Unary {
                 op: UnaryOp::Negate,
                 operand,
@@ -164,6 +176,26 @@ impl<'a> Resolver<'a> {
             }
             _ => None,
         }
+    }
+
+    /// The type of the module-level `const` `name` of this module, where its
+    /// value was worked out (LR24).
+    #[must_use]
+    pub fn constant_type(&self, name: &str) -> Option<Type> {
+        self.values
+            .get(&(self.module, name.to_owned()))
+            .map(Value::type_of)
+    }
+
+    /// The value of a module-level `const` a name reads, of this module or
+    /// imported, where it is an integer (LR21.1, LR24).
+    fn module_integer(&self, name: &str) -> Option<u64> {
+        let key = match &self.names.scope(self.module).get(name)?.origin {
+            Origin::Binding { constant: true, .. } => (self.module, name.to_owned()),
+            Origin::Imported { module, name } => (*module, name.clone()),
+            _ => return None,
+        };
+        self.values.get(&key)?.integer()
     }
 
     fn each(&mut self, types: &[luar_ast::Type], diagnostics: &mut Vec<Diagnostic>) -> Vec<Type> {

@@ -7,6 +7,7 @@ use luar_diagnostics::{Diagnostic, Span, codes};
 
 use crate::aliases::substitute;
 use crate::modules::ModuleId;
+use crate::names::Origin;
 use crate::table::{Decl, Field, Variant};
 use crate::types::{Builtin, Primitive, Type};
 
@@ -186,7 +187,16 @@ impl Checker<'_> {
                     self.unwritten.remove(name);
                 }
 
-                self.name(name)
+                let held = self.name(name);
+                // LR21.1, LR24: a module-level `const` read from outside the
+                // function's own bindings, imported or written further down.
+                if matches!(held, Type::Unresolved)
+                    && let Some((module, declared, ty)) = self.module_constant(name)
+                {
+                    self.facts.record_constant(expr.span, module, declared);
+                    return ty;
+                }
+                held
             }
             ExprKind::Unary { op, operand } => self.unary(*op, operand),
             ExprKind::Binary {
@@ -961,6 +971,23 @@ impl Checker<'_> {
         }
 
         ty
+    }
+
+    /// The module-level `const` a name reads where no binding of the walk
+    /// holds it: one of this module, or one imported (LR21.1, LR24).
+    fn module_constant(&self, name: &str) -> Option<(ModuleId, String, Type)> {
+        if self.values.iter().any(|scope| scope.contains_key(name)) {
+            return None;
+        }
+        let (module, declared) = match &self.names.scope(self.scope).get(name)?.origin {
+            Origin::Binding { constant: true, .. } => (self.scope, name.to_owned()),
+            Origin::Imported { module, name } => (*module, name.clone()),
+            _ => return None,
+        };
+        match self.table.get(module, &declared)? {
+            Decl::Constant { ty } => Some((module, declared, ty.clone())),
+            _ => None,
+        }
     }
 }
 
