@@ -2344,6 +2344,7 @@ Into<T>
 The other standard protocol names are library specification concerns, but user-defined types must be able to participate in ordinary language constructs without compiler-specific hardcoding.
 
 The standard protocols are interfaces exported by `std/prelude` (LR54.1). A primitive type (LR6) and `string` satisfy `Eq`, `Hash`, and `Display` without declaring it, and the numeric types, `char`, and `string` satisfy `Comparable`, since the operators are built in for them (LR11.3). A user-defined type satisfies one by declaring it (LR18) or deriving it (LR75).
+The `Display` form of a primitive is its literal: `true` or `false`, the decimal digits of an integer with `-` before a negative one, a `char` as itself, a `string` as itself, and `nil` as `nil`. A float is the shortest decimal that reads back as the same value. `T?` displays what it holds, or `nil`. A user-defined type displays what its `display` returns.
 
 For example, `for value in collection` should work with any conforming iterable.
 
