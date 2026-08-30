@@ -2928,7 +2928,7 @@ Predeclared names are not a module. They cannot be imported from, renamed, or re
 
 The prelude holds the standard protocols (LR35) and the methods of the collection, optional, and `Result` types (LR13, LR8, LR25.1) that are written in LuaR over the operations the language provides. Which of a type's methods come from the prelude and which from the language is not observable: an extension block adding a method of the same name to the same type is rejected either way (LR20).
 
-Type names work the same way. The primitive types (LR6) need no import, and neither do the collection types the language builds from its own literal syntax (LR13, LR59) or the `Task` every async call produces (LR27):
+Type names work the same way. The primitive types (LR6) need no import, and neither do the collection types the language provides (LR13, LR38, LR59) or the `Task` every async call produces (LR27):
 
 ```text
 List
@@ -2937,12 +2937,13 @@ Set
 FrozenList
 FrozenMap
 FrozenSet
+Slice
 Task
 ```
 
 Every other name in a type is declared by the module or imported (LR21.1). The standard protocols (LR35) are exported by `std/prelude`.
 
-The set is closed. A name belongs in it only because it cannot be written as an ordinary declaration, or because every program needs it to state a signature. `assert` and `debugAssert` depend on compilation mode (LR49), `unreachable` has type `never` (LR50), and `panic` does not return (LR25.4). `Result` names the type of every fallible signature (LR25.1), `Error` is the common error type returned by standard-library APIs, and `Task` is the type every async call produces (LR27). `Error(message)` builds an `Error` with that string as its message. `print` is predeclared so that writing a line of output does not require an import: it writes the `Display` form (LR35) of each value it is given, separated by one tab, followed by one newline.
+The set is closed. A name belongs in it only because it cannot be written as an ordinary declaration, or because every program needs it to state a signature. `assert` and `debugAssert` depend on compilation mode (LR49), `unreachable` has type `never` (LR50), and `panic` does not return (LR25.4). `Result` names the type of every fallible signature (LR25.1), `Error` is the common error type returned by standard-library APIs, `Slice` is the type slicing produces (LR38), and `Task` is the type every async call produces (LR27). `Error(message)` builds an `Error` with that string as its message. `print` is predeclared so that writing a line of output does not require an import: it writes the `Display` form (LR35) of each value it is given, separated by one tab, followed by one newline.
 
 ---
 
