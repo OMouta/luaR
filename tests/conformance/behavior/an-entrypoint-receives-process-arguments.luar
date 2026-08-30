@@ -1,0 +1,9 @@
+--- expect: run
+--- exit: 0
+--- spec: LR45
+export function main(args: List<string>): int
+    if args.length ~= 1 or args[0].byteLength == 0 then
+        return 1
+    end
+    return 0
+end

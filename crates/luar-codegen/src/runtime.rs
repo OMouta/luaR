@@ -49,6 +49,8 @@ pub(crate) struct Runtime {
     pub display_char: ModuleFuncId,
     pub print: ModuleFuncId,
     pub abort: ModuleFuncId,
+    /// Builds the `List<string>` passed to an entrypoint (LR45).
+    pub arguments: ModuleFuncId,
     /// The bucket a map holds a key in, and the bucket it will (LR13.2).
     pub map_find: ModuleFuncId,
     pub map_insert: ModuleFuncId,
@@ -93,6 +95,7 @@ impl Runtime {
         let display_char = define_display_char(module, pointer, call_conv, collector.allocate)?;
         let print = define_print(module, pointer, call_conv, write)?;
         let abort = define_abort(module, pointer, call_conv, exit, write, collector.roots)?;
+        let arguments = define_arguments(module, pointer, call_conv)?;
         let table = map::emit(module, pointer, call_conv, collector.allocate, text_equal)?;
 
         let mut handlers = Vec::with_capacity(TRAPS.len());
@@ -112,6 +115,7 @@ impl Runtime {
             display_char,
             print,
             abort,
+            arguments,
             map_find: table.find,
             map_insert: table.insert,
             map_remove: table.remove,
@@ -225,6 +229,14 @@ impl Runtime {
         module.declare_func_in_func(self.abort, function)
     }
 
+    pub fn arguments_in(
+        &self,
+        module: &mut ObjectModule,
+        function: &mut cranelift_codegen::ir::Function,
+    ) -> FuncRef {
+        module.declare_func_in_func(self.arguments, function)
+    }
+
     pub fn roots_in(
         &self,
         module: &mut ObjectModule,
@@ -232,6 +244,123 @@ impl Runtime {
     ) -> cranelift_codegen::ir::GlobalValue {
         module.declare_data_in_func(self.roots, function)
     }
+}
+
+/// Process arguments live for the life of the process (LR45).
+fn define_arguments(
+    module: &mut ObjectModule,
+    pointer: types::Type,
+    call_conv: CallConv,
+) -> Result<ModuleFuncId, Error> {
+    let mut malloc_signature = Signature::new(call_conv);
+    malloc_signature.params.push(AbiParam::new(pointer));
+    malloc_signature.returns.push(AbiParam::new(pointer));
+    let malloc = module
+        .declare_function("malloc", Linkage::Import, &malloc_signature)
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
+
+    let mut strlen_signature = Signature::new(call_conv);
+    strlen_signature.params.push(AbiParam::new(pointer));
+    strlen_signature.returns.push(AbiParam::new(pointer));
+    let strlen = module
+        .declare_function("strlen", Linkage::Import, &strlen_signature)
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
+
+    let mut memcpy_signature = Signature::new(call_conv);
+    memcpy_signature.params.push(AbiParam::new(pointer));
+    memcpy_signature.params.push(AbiParam::new(pointer));
+    memcpy_signature.params.push(AbiParam::new(pointer));
+    memcpy_signature.returns.push(AbiParam::new(pointer));
+    let memcpy = module
+        .declare_function("memcpy", Linkage::Import, &memcpy_signature)
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
+
+    let mut signature = Signature::new(call_conv);
+    signature.params.push(AbiParam::new(types::I32));
+    signature.params.push(AbiParam::new(pointer));
+    signature.returns.push(AbiParam::new(pointer));
+    let declared = module
+        .declare_function("luar_arguments", Linkage::Local, &signature)
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
+
+    let mut context = Context::new();
+    let mut frame = FunctionBuilderContext::new();
+    context.func.signature = signature;
+    let malloc = module.declare_func_in_func(malloc, &mut context.func);
+    let strlen = module.declare_func_in_func(strlen, &mut context.func);
+    let memcpy = module.declare_func_in_func(memcpy, &mut context.func);
+    let mut builder = FunctionBuilder::new(&mut context.func, &mut frame);
+    let entry = builder.create_block();
+    let copy = builder.create_block();
+    let copy_one = builder.create_block();
+    let done = builder.create_block();
+    builder.append_block_params_for_function_params(entry);
+    builder.append_block_param(copy, types::I32);
+
+    builder.switch_to_block(entry);
+    let argc = builder.block_params(entry)[0];
+    let argv = builder.block_params(entry)[1];
+    let count = builder.ins().uextend(pointer, argc);
+    let header_bytes = builder.ins().iconst(
+        pointer,
+        i64::from(crate::layout::COLLECTION_CELLS * pointer.bytes()),
+    );
+    let call = builder.ins().call(malloc, &[header_bytes]);
+    let list = builder.inst_results(call)[0];
+    let buffer_bytes = builder.ins().imul_imm(count, i64::from(pointer.bytes()));
+    let call = builder.ins().call(malloc, &[buffer_bytes]);
+    let buffer = builder.inst_results(call)[0];
+    builder
+        .ins()
+        .store(MemFlags::trusted(), count, list, crate::layout::LENGTH);
+    builder
+        .ins()
+        .store(MemFlags::trusted(), count, list, crate::layout::CAPACITY);
+    builder
+        .ins()
+        .store(MemFlags::trusted(), buffer, list, crate::layout::BUFFER);
+    let zero = builder.ins().iconst(types::I32, 0);
+    builder
+        .ins()
+        .jump(copy, &[cranelift_codegen::ir::BlockArg::Value(zero)]);
+
+    builder.switch_to_block(copy);
+    let index = builder.block_params(copy)[0];
+    let more = builder.ins().icmp(IntCC::UnsignedLessThan, index, argc);
+    builder.ins().brif(more, copy_one, &[], done, &[]);
+
+    builder.switch_to_block(copy_one);
+    let offset = builder.ins().uextend(pointer, index);
+    let offset = builder.ins().imul_imm(offset, i64::from(pointer.bytes()));
+    let source = builder.ins().iadd(argv, offset);
+    let source = builder.ins().load(pointer, MemFlags::trusted(), source, 0);
+    let call = builder.ins().call(strlen, &[source]);
+    let length = builder.inst_results(call)[0];
+    let bytes = builder
+        .ins()
+        .iadd_imm(length, i64::from(crate::layout::CELL));
+    let call = builder.ins().call(malloc, &[bytes]);
+    let string = builder.inst_results(call)[0];
+    builder.ins().store(MemFlags::trusted(), length, string, 0);
+    let text = builder
+        .ins()
+        .iadd_imm(string, i64::from(crate::layout::CELL));
+    builder.ins().call(memcpy, &[text, source, length]);
+    let cell = builder.ins().iadd(buffer, offset);
+    builder.ins().store(MemFlags::trusted(), string, cell, 0);
+    let next = builder.ins().iadd_imm(index, 1);
+    builder
+        .ins()
+        .jump(copy, &[cranelift_codegen::ir::BlockArg::Value(next)]);
+
+    builder.switch_to_block(done);
+    builder.ins().return_(&[list]);
+    builder.seal_all_blocks();
+    builder.finalize();
+    module
+        .define_function(declared, &mut context)
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
+    Ok(declared)
 }
 
 fn define_print(

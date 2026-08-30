@@ -489,15 +489,18 @@ impl Emitter<'_> {
             return Ok(());
         };
 
-        if !main.params.is_empty() {
+        if main.params.len() > 1 {
             self.gaps.push(Gap {
                 function: main.name.clone(),
                 span: main.span,
-                what: "an entrypoint that takes arguments".to_owned(),
+                what: "an entrypoint that takes more than one argument".to_owned(),
             });
+            return Ok(());
         }
 
         let mut signature = Signature::new(self.call_conv);
+        signature.params.push(AbiParam::new(types::I32));
+        signature.params.push(AbiParam::new(self.pointer));
         signature.returns.push(AbiParam::new(types::I32));
         let shim = self
             .module
@@ -522,15 +525,27 @@ impl Emitter<'_> {
             .collect::<Vec<_>>();
 
         let abort = self.runtime.abort_in(&mut self.module, &mut context.func);
+        let arguments = self
+            .runtime
+            .arguments_in(&mut self.module, &mut context.func);
 
         let mut builder = FunctionBuilder::new(&mut context.func, &mut frame);
         let block = builder.create_block();
+        builder.append_block_params_for_function_params(block);
         builder.switch_to_block(block);
 
         for initializer in initializers {
             builder.ins().call(initializer, &[]);
         }
-        let called = builder.ins().call(reference, &[]);
+        let passed = if main.params.is_empty() {
+            Vec::new()
+        } else {
+            let argc = builder.block_params(block)[0];
+            let argv = builder.block_params(block)[1];
+            let called = builder.ins().call(arguments, &[argc, argv]);
+            vec![builder.inst_results(called)[0]]
+        };
+        let called = builder.ins().call(reference, &passed);
         let mut returned = builder.inst_results(called).first().copied();
         let mut result = main.result.clone();
 
