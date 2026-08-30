@@ -6,6 +6,7 @@ use std::path::Path;
 
 use luar_diagnostics::{Diagnostic, FileId, SourceMap};
 use luar_lir::lower::Lowered;
+use luar_parser::Target;
 
 pub use luar_lir::lower::CompilationMode;
 
@@ -21,7 +22,7 @@ pub enum Check {
 /// Checks `root` and the modules it imports, without producing an artifact.
 #[must_use]
 pub fn check(sources: &mut SourceMap, root: FileId) -> Check {
-    Check::Ran(frontend(sources, root).diagnostics)
+    Check::Ran(frontend(sources, root, Target::host(true)).diagnostics)
 }
 
 /// Checks `root` and lowers what was accepted to LIR.
@@ -34,7 +35,11 @@ pub fn lower_in_mode(
     root: FileId,
     mode: CompilationMode,
 ) -> Result<Lowered, Vec<Diagnostic>> {
-    let checked = frontend(sources, root);
+    let checked = frontend(
+        sources,
+        root,
+        Target::host(matches!(mode, CompilationMode::Debug)),
+    );
     if checked.diagnostics.iter().any(Diagnostic::is_error) {
         return Err(checked.diagnostics);
     }
@@ -109,8 +114,8 @@ struct Frontend {
     diagnostics: Vec<Diagnostic>,
 }
 
-fn frontend(sources: &mut SourceMap, root: FileId) -> Frontend {
-    let (graph, mut diagnostics) = graph::build(sources, root);
+fn frontend(sources: &mut SourceMap, root: FileId, target: Target) -> Frontend {
+    let (graph, mut diagnostics) = graph::build(sources, root, target);
     let (names, reported) = luar_sema::names::resolve(&graph);
     diagnostics.extend(reported);
 

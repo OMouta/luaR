@@ -1,0 +1,10 @@
+--- expect: run
+--- exit: 1
+--- spec: LR48
+export function main(): int
+    #if target.debug
+        return 1
+    #else
+        return 2
+    #end
+end

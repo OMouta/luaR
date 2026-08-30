@@ -81,11 +81,6 @@ pub enum StmtKind {
     Break(Option<String>),
     /// `continue`, or `continue outer` (LR10.6, LR10.7).
     Continue(Option<String>),
-    /// `#if ... #end` around statements (LR48).
-    Conditional {
-        branches: Vec<(Expr, Block)>,
-        otherwise: Option<Block>,
-    },
     /// `unsafe ... end`, where the low-level operations are allowed (LR29.2).
     Unsafe(Block),
     /// `defer call()`, run when the scope it is written in is left (LR26).

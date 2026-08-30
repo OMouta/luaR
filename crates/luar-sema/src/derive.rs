@@ -126,16 +126,6 @@ fn plan(
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     for item in items {
-        if let Item::Conditional(conditional) = item {
-            for (_, items) in &conditional.branches {
-                plan(items, module, decls, planned, diagnostics);
-            }
-            if let Some(items) = &conditional.otherwise {
-                plan(items, module, decls, planned, diagnostics);
-            }
-            continue;
-        }
-
         let Some((owner, decorators)) = target(item) else {
             continue;
         };

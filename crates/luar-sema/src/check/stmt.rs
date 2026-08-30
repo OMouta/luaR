@@ -375,18 +375,6 @@ impl Checker<'_> {
                 self.loops.pop();
                 self.pop();
             }
-            StmtKind::Conditional {
-                branches,
-                otherwise,
-            } => {
-                // LR48 conditions test the target, not values in scope.
-                for (_, body) in branches {
-                    self.block(body);
-                }
-                if let Some(otherwise) = otherwise {
-                    self.block(otherwise);
-                }
-            }
             StmtKind::Unsafe(body) => {
                 self.unsafely += 1;
                 self.block(body);
@@ -535,17 +523,8 @@ impl Checker<'_> {
 pub(super) fn assigned_items(items: &[Item]) -> HashSet<String> {
     let mut names = HashSet::new();
     for item in items {
-        match item {
-            Item::Stmt(stmt) => assigned_stmt(stmt, &mut names),
-            Item::Conditional(conditional) => {
-                for (_, items) in &conditional.branches {
-                    names.extend(assigned_items(items));
-                }
-                if let Some(items) = &conditional.otherwise {
-                    names.extend(assigned_items(items));
-                }
-            }
-            _ => {}
+        if let Item::Stmt(stmt) = item {
+            assigned_stmt(stmt, &mut names);
         }
     }
     names
@@ -593,17 +572,6 @@ fn assigned_stmt(stmt: &Stmt, names: &mut HashSet<String>) {
                 if let ArmBody::Block(body) = &arm.body {
                     names.extend(assigned(body));
                 }
-            }
-        }
-        StmtKind::Conditional {
-            branches,
-            otherwise,
-        } => {
-            for (_, body) in branches {
-                names.extend(assigned(body));
-            }
-            if let Some(otherwise) = otherwise {
-                names.extend(assigned(otherwise));
             }
         }
         StmtKind::Try {

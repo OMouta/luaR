@@ -284,6 +284,8 @@ registry! {
         "Every case of a `match` expression produces a compatible type.";
     active 213 => IF_BRANCH_TYPE, "LR10.1",
         "Every branch of an `if` expression produces a compatible type.";
+    active 214 => CONDITION_NOT_TESTABLE, "LR48",
+        "A compile-time condition tests the target and the compilation mode.";
 }
 
 #[cfg(test)]

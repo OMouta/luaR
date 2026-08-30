@@ -114,18 +114,6 @@ fn walk_stmt(stmt: &Stmt, visit: &mut impl Visit) {
             walk_expr(iterable, visit);
             walk_block(body, visit);
         }
-        StmtKind::Conditional {
-            branches,
-            otherwise,
-        } => {
-            for (condition, body) in branches {
-                walk_expr(condition, visit);
-                walk_block(body, visit);
-            }
-            if let Some(otherwise) = otherwise {
-                walk_block(otherwise, visit);
-            }
-        }
         StmtKind::Unsafe(body) => walk_block(body, visit),
         StmtKind::Defer(expr) | StmtKind::Expr(expr) => walk_expr(expr, visit),
         StmtKind::Match { scrutinee, arms } => {

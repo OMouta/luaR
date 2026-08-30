@@ -400,34 +400,24 @@ fn written(graph: &Graph, decls: &BTreeMap<(ModuleId, String), Decl>) -> Vec<Wri
         found: &mut Vec<Written>,
     ) {
         for item in items {
-            match item {
-                Item::TypeAlias(alias) => {
-                    let Some(Decl::Alias {
-                        type_params,
-                        target,
-                    }) = decls.get(&(module, alias.name.clone()))
-                    else {
-                        continue;
-                    };
+            let Item::TypeAlias(alias) = item else {
+                continue;
+            };
+            let Some(Decl::Alias {
+                type_params,
+                target,
+            }) = decls.get(&(module, alias.name.clone()))
+            else {
+                continue;
+            };
 
-                    found.push(Written {
-                        module,
-                        name: alias.name.clone(),
-                        params: type_params.clone(),
-                        target: target.clone(),
-                        span: alias.span,
-                    });
-                }
-                Item::Conditional(conditional) => {
-                    for (_, items) in &conditional.branches {
-                        walk(items, module, decls, found);
-                    }
-                    if let Some(items) = &conditional.otherwise {
-                        walk(items, module, decls, found);
-                    }
-                }
-                _ => {}
-            }
+            found.push(Written {
+                module,
+                name: alias.name.clone(),
+                params: type_params.clone(),
+                target: target.clone(),
+                span: alias.span,
+            });
         }
     }
 
@@ -528,15 +518,6 @@ fn kinds_of(items: &[Item], module: ModuleId, kinds: &mut Kinds) {
             Item::Interface(interface) => (&interface.name, Kind::Interface),
             Item::TypeAlias(alias) => (&alias.name, Kind::Alias),
             Item::Extend(extend) => (&extend.name, Kind::Extension),
-            Item::Conditional(conditional) => {
-                for (_, items) in &conditional.branches {
-                    kinds_of(items, module, kinds);
-                }
-                if let Some(items) = &conditional.otherwise {
-                    kinds_of(items, module, kinds);
-                }
-                continue;
-            }
             _ => continue,
         };
 
@@ -857,15 +838,6 @@ fn declare(
                     },
                 )
             }
-            Item::Conditional(conditional) => {
-                for (_, items) in &conditional.branches {
-                    declare(items, module, true, resolver, decls, diagnostics);
-                }
-                if let Some(items) = &conditional.otherwise {
-                    declare(items, module, true, resolver, decls, diagnostics);
-                }
-                continue;
-            }
             _ => continue,
         };
 
@@ -982,15 +954,6 @@ fn attach(
 
         let function = match item {
             Item::Function(function) if function.name.len() == 2 => function,
-            Item::Conditional(conditional) => {
-                for (_, items) in &conditional.branches {
-                    attach(items, module, true, names, resolver, decls, diagnostics);
-                }
-                if let Some(items) = &conditional.otherwise {
-                    attach(items, module, true, names, resolver, decls, diagnostics);
-                }
-                continue;
-            }
             _ => continue,
         };
 

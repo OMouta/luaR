@@ -1,0 +1,32 @@
+--- expect: run
+--- exit: 6
+--- spec: LR48
+#if target.family == "windows"
+    function separator(): string
+        return "\\"
+    end
+#elseif target.family == "unix"
+    function separator(): string
+        return "/"
+    end
+#else
+    function separator(): string
+        return "?"
+    end
+#end
+
+export function main(): int
+    local score = 0
+    if separator() ~= "?" then
+        score += 1
+    end
+    #if target.os == "windows" or target.os == "macos" or target.os == "linux"
+        score += 2
+    #end
+    #if target.arch ~= "x86_64" and target.arch ~= "aarch64"
+        score += 4
+    #else
+        score += 3
+    #end
+    return score
+end

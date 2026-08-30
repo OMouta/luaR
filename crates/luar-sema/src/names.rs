@@ -173,15 +173,6 @@ fn declarations(items: &[Item], scope: &mut Scope) {
             Item::Interface(i) => (&i.name, i.exported, i.span),
             Item::Extend(e) => (&e.name, e.exported, e.span),
             Item::TypeAlias(a) => (&a.name, a.exported, a.span),
-            Item::Conditional(conditional) => {
-                for (_, items) in &conditional.branches {
-                    declarations(items, scope);
-                }
-                if let Some(items) = &conditional.otherwise {
-                    declarations(items, scope);
-                }
-                continue;
-            }
             // A module-level binding is a name of the module too (LR21.3), and
             // a `const` may be exported (LR52).
             Item::Stmt(stmt) => {

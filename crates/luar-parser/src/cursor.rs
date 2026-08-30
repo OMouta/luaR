@@ -4,6 +4,8 @@ use luar_diagnostics::{Code, Diagnostic, FileId, Span, codes};
 
 use luar_lexer::{Keyword, Token, TokenKind};
 
+use crate::target::Target;
+
 pub(crate) struct Cursor<'src> {
     source: &'src str,
     tokens: Vec<Token>,
@@ -12,6 +14,8 @@ pub(crate) struct Cursor<'src> {
     /// happens only when a `>>` closes a type-argument list.
     split: Option<Token>,
     diagnostics: Vec<Diagnostic>,
+    /// What a compile-time condition is decided against (LR48).
+    pub(crate) target: Target,
 }
 
 /// A place to come back to, for a reading the parser may abandon.
@@ -23,7 +27,7 @@ pub(crate) struct Mark {
 }
 
 impl<'src> Cursor<'src> {
-    pub(crate) fn new(source: &'src str, file: FileId) -> Self {
+    pub(crate) fn new(source: &'src str, file: FileId, target: Target) -> Self {
         let lexed = luar_lexer::lex(source, file);
         Self {
             source,
@@ -31,6 +35,7 @@ impl<'src> Cursor<'src> {
             at: 0,
             split: None,
             diagnostics: lexed.diagnostics,
+            target,
         }
     }
 

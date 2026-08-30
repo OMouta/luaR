@@ -23,7 +23,6 @@ pub enum Item {
     Interface(Interface),
     Extend(Extend),
     TypeAlias(TypeAlias),
-    Conditional(Conditional),
     /// A statement at module level (LR21.3).
     Stmt(crate::stmt::Stmt),
 }
@@ -262,13 +261,5 @@ pub struct TypeAlias {
 pub struct Decorator {
     pub name: String,
     pub args: Vec<crate::expr::Argument>,
-    pub span: Span,
-}
-
-/// `#if ... #end` around declarations (LR48).
-#[derive(Debug, Clone, PartialEq)]
-pub struct Conditional {
-    pub branches: Vec<(crate::expr::Expr, Vec<Item>)>,
-    pub otherwise: Option<Vec<Item>>,
     pub span: Span,
 }

@@ -99,17 +99,6 @@ impl Resolver<'_> {
             // A declaration with no body of its own: an enum's payloads, an
             // interface's signatures, and an alias are types.
             Item::Enum(_) | Item::Interface(_) | Item::TypeAlias(_) => {}
-            Item::Conditional(conditional) => {
-                // LR48 conditions test the target, not anything in scope here.
-                for (_, items) in &conditional.branches {
-                    for item in items {
-                        self.item(item);
-                    }
-                }
-                for item in conditional.otherwise.iter().flatten() {
-                    self.item(item);
-                }
-            }
             Item::Stmt(stmt) => {
                 self.initializing = true;
                 self.stmt(stmt);
@@ -259,17 +248,6 @@ impl Resolver<'_> {
                 self.pop();
             }
             StmtKind::Break(_) | StmtKind::Continue(_) | StmtKind::Error => {}
-            StmtKind::Conditional {
-                branches,
-                otherwise,
-            } => {
-                for (_, body) in branches {
-                    self.block(body);
-                }
-                if let Some(otherwise) = otherwise {
-                    self.block(otherwise);
-                }
-            }
             StmtKind::Unsafe(body) => self.block(body),
             // LR26: what is deferred is written here and runs on the way out,
             // so its names are the ones in scope where it is written.

@@ -10,6 +10,7 @@ use luar_lexer::{Keyword, TokenKind};
 use crate::cursor::Cursor;
 use crate::expr;
 use crate::pattern;
+use crate::target;
 use crate::ty;
 
 /// Statements up to whatever closes the block, which the caller consumes.
@@ -19,7 +20,12 @@ pub(crate) fn block(cursor: &mut Cursor) -> Block {
 
     while !at_block_end(cursor) {
         let before = cursor.mark();
-        stmts.push(statement(cursor));
+        // LR48: the statements of the branch taken stand here.
+        if cursor.at_directive(Keyword::If) {
+            stmts.extend(conditional_compilation(cursor));
+        } else {
+            stmts.push(statement(cursor));
+        }
 
         // LR3.4: semicolons separate statements and are optional.
         while cursor.eat(TokenKind::Semicolon) {}
@@ -80,9 +86,6 @@ pub(crate) fn statement(cursor: &mut Cursor) -> Stmt {
         }
         TokenKind::Keyword(Keyword::Unsafe) => unsafe_block(cursor),
         TokenKind::Keyword(Keyword::Defer) => defer(cursor),
-        // LR48: conditional compilation selects statements here, declarations
-        // where declarations go.
-        TokenKind::Hash if cursor.at_directive(Keyword::If) => conditional_compilation(cursor),
         TokenKind::Keyword(Keyword::Break) => {
             cursor.advance();
             StmtKind::Break(label_argument(cursor))
@@ -621,23 +624,28 @@ fn unsafe_block(cursor: &mut Cursor) -> StmtKind {
     StmtKind::Unsafe(body)
 }
 
-/// `#if ... #end` around statements (LR48).
-fn conditional_compilation(cursor: &mut Cursor) -> StmtKind {
+/// `#if ... #end` around statements: the ones of the first branch whose
+/// condition holds (LR48).
+fn conditional_compilation(cursor: &mut Cursor) -> Vec<Stmt> {
     let start = cursor.span();
     cursor.advance();
     cursor.advance();
+    let target = cursor.target;
 
-    let mut branches = vec![(expr::expression(cursor), block(cursor))];
-    let mut otherwise = None;
+    let mut taken = None;
+    let condition = expr::expression(cursor);
+    let holds = target::holds(&condition, &target, cursor);
+    target::first(&mut taken, holds, block(cursor).stmts);
 
     loop {
         if cursor.eat_directive(Keyword::Elseif) {
             let condition = expr::expression(cursor);
-            branches.push((condition, block(cursor)));
+            let holds = target::holds(&condition, &target, cursor);
+            target::first(&mut taken, holds, block(cursor).stmts);
             continue;
         }
         if cursor.eat_directive(Keyword::Else) {
-            otherwise = Some(block(cursor));
+            target::first(&mut taken, true, block(cursor).stmts);
         }
         break;
     }
@@ -649,8 +657,5 @@ fn conditional_compilation(cursor: &mut Cursor) -> StmtKind {
             .label(here, "expected `#end` before here");
     }
 
-    StmtKind::Conditional {
-        branches,
-        otherwise,
-    }
+    taken.unwrap_or_default()
 }

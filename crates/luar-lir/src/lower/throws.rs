@@ -99,15 +99,6 @@ impl Scan<'_> {
             } => self.expr(condition) || self.block(body),
             StmtKind::Repeat { body, until, .. } => self.block(body) || self.expr(until),
             StmtKind::For { iterable, body, .. } => self.expr(iterable) || self.block(body),
-            StmtKind::Conditional {
-                branches,
-                otherwise,
-            } => {
-                branches
-                    .iter()
-                    .any(|(condition, body)| self.expr(condition) || self.block(body))
-                    || otherwise.as_ref().is_some_and(|block| self.block(block))
-            }
             StmtKind::Unsafe(body) => self.block(body),
             StmtKind::Defer(value) | StmtKind::Expr(value) => self.expr(value),
             StmtKind::Match { scrutinee, arms } => {

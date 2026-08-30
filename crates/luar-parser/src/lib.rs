@@ -5,6 +5,9 @@ mod decl;
 mod expr;
 mod pattern;
 mod stmt;
+mod target;
+
+pub use target::Target;
 mod ty;
 
 use luar_ast::{Block, Expr, Module};
@@ -23,7 +26,7 @@ pub struct Parsed<T> {
 /// Parses one expression, and reports anything left over.
 #[must_use]
 pub fn expression(source: &str, file: FileId) -> Parsed<Expr> {
-    let mut cursor = Cursor::new(source, file);
+    let mut cursor = Cursor::new(source, file, Target::host(true));
     let tree = expr::expression(&mut cursor);
     cursor.expect_end();
     Parsed {
@@ -35,7 +38,13 @@ pub fn expression(source: &str, file: FileId) -> Parsed<Expr> {
 /// Parses one module: a whole source file (LR2).
 #[must_use]
 pub fn module(source: &str, file: FileId) -> Parsed<Module> {
-    let mut cursor = Cursor::new(source, file);
+    module_for(source, file, Target::host(true))
+}
+
+/// Parses a module for `target`, which decides every `#if` in it (LR48).
+#[must_use]
+pub fn module_for(source: &str, file: FileId, target: Target) -> Parsed<Module> {
+    let mut cursor = Cursor::new(source, file, target);
     let tree = decl::module(&mut cursor);
     Parsed {
         tree,
@@ -46,7 +55,7 @@ pub fn module(source: &str, file: FileId) -> Parsed<Module> {
 /// Parses a run of statements, and reports anything left over.
 #[must_use]
 pub fn block(source: &str, file: FileId) -> Parsed<Block> {
-    let mut cursor = Cursor::new(source, file);
+    let mut cursor = Cursor::new(source, file, Target::host(true));
     let tree = stmt::block(&mut cursor);
     cursor.expect_end();
     Parsed {

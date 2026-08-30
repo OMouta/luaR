@@ -149,27 +149,15 @@ pub fn fill_args(ty: &Type, params: &HashMap<(ModuleId, String), usize>) -> Type
 /// Every module-level `const` bound to one name, under `#if` or not.
 fn each_constant(items: &[Item], f: &mut impl FnMut(&str, Option<&luar_ast::Type>, &Expr)) {
     for item in items {
-        match item {
-            Item::Stmt(stmt) => {
-                if let StmtKind::Const {
-                    binding: Binding::Name(name),
-                    ty,
-                    value,
-                    ..
-                } = &stmt.kind
-                {
-                    f(name, ty.as_ref(), value);
-                }
-            }
-            Item::Conditional(conditional) => {
-                for (_, items) in &conditional.branches {
-                    each_constant(items, f);
-                }
-                if let Some(items) = &conditional.otherwise {
-                    each_constant(items, f);
-                }
-            }
-            _ => {}
+        if let Item::Stmt(stmt) = item
+            && let StmtKind::Const {
+                binding: Binding::Name(name),
+                ty,
+                value,
+                ..
+            } = &stmt.kind
+        {
+            f(name, ty.as_ref(), value);
         }
     }
 }

@@ -373,16 +373,6 @@ impl Checker<'_> {
                 }
             }
             Item::TypeAlias(alias) => self.reject_finalizers(&alias.decorators),
-            Item::Conditional(conditional) => {
-                for (_, items) in &conditional.branches {
-                    for item in items {
-                        self.item(item);
-                    }
-                }
-                for item in conditional.otherwise.iter().flatten() {
-                    self.item(item);
-                }
-            }
             Item::Import(_) => {}
             Item::Stmt(stmt) => self.stmt(stmt),
         }

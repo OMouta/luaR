@@ -6,7 +6,8 @@ use std::path::Path;
 
 use luar_ast::{Import, Item};
 use luar_diagnostics::{Diagnostic, FileId, SourceMap, Span, codes};
-use luar_sema::modules::{Edge, Graph, Missing, ModuleId, PRELUDE, Target};
+use luar_parser::Target;
+use luar_sema::modules::{Edge, Graph, Missing, ModuleId, PRELUDE};
 
 /// The standard library, one module per source file under `std/` (LR60).
 const STD: &[(&str, &str)] = &[
@@ -18,18 +19,29 @@ const STD: &[(&str, &str)] = &[
 ];
 
 /// Reads and parses `root` and everything reachable from it.
-pub(crate) fn build(sources: &mut SourceMap, root: FileId) -> (Graph, Vec<Diagnostic>) {
+pub(crate) fn build(
+    sources: &mut SourceMap,
+    root: FileId,
+    target: Target,
+) -> (Graph, Vec<Diagnostic>) {
     let mut graph = Graph::default();
     let mut diagnostics = Vec::new();
 
     let path = luar_sema::modules::normalize(sources.file(root).path().to_path_buf());
     let text = sources.file(root).text().to_owned();
-    let parsed = luar_parser::module(&text, root);
+    let parsed = luar_parser::module_for(&text, root, target);
     diagnostics.extend(parsed.diagnostics);
 
     let mut queue = VecDeque::from([graph.insert(root, path, parsed.tree)]);
-    let prelude = standard(PRELUDE, sources, &mut graph, &mut queue, &mut diagnostics)
-        .expect("the prelude ships with the compiler");
+    let prelude = standard(
+        PRELUDE,
+        target,
+        sources,
+        &mut graph,
+        &mut queue,
+        &mut diagnostics,
+    )
+    .expect("the prelude ships with the compiler");
 
     while let Some(id) = queue.pop_front() {
         let importer = graph.module(id).path.clone();
@@ -48,6 +60,7 @@ pub(crate) fn build(sources: &mut SourceMap, root: FileId) -> (Graph, Vec<Diagno
         for import in imports {
             let target = read(
                 &import,
+                target,
                 &importer,
                 sources,
                 &mut graph,
@@ -70,6 +83,7 @@ pub(crate) fn build(sources: &mut SourceMap, root: FileId) -> (Graph, Vec<Diagno
 /// it. Returns the module it reached, and `None` once the failure is reported.
 fn read(
     import: &Import,
+    target: Target,
     importer: &Path,
     sources: &mut SourceMap,
     graph: &mut Graph,
@@ -81,12 +95,12 @@ fn read(
     let path = import.path.as_deref()?;
 
     if STD.iter().any(|(name, _)| *name == path) {
-        return standard(path, sources, graph, queue, diagnostics);
+        return standard(path, target, sources, graph, queue, diagnostics);
     }
 
     let file = match luar_sema::modules::resolve(path, importer) {
-        Target::File(file) => file,
-        Target::Missing(why) => {
+        luar_sema::modules::Target::File(file) => file,
+        luar_sema::modules::Target::Missing(why) => {
             diagnostics.push(missing(import, why));
             return None;
         }
@@ -105,7 +119,7 @@ fn read(
     };
 
     let id = sources.add(file.clone(), text);
-    let parsed = luar_parser::module(sources.file(id).text(), id);
+    let parsed = luar_parser::module_for(sources.file(id).text(), id, target);
     diagnostics.extend(parsed.diagnostics);
 
     let module = graph.insert(id, file, parsed.tree);
@@ -117,6 +131,7 @@ fn read(
 /// has it (LR60).
 fn standard(
     path: &str,
+    target: Target,
     sources: &mut SourceMap,
     graph: &mut Graph,
     queue: &mut VecDeque<ModuleId>,
@@ -129,7 +144,7 @@ fn standard(
     }
 
     let id = sources.add(file.clone(), *source);
-    let parsed = luar_parser::module(sources.file(id).text(), id);
+    let parsed = luar_parser::module_for(sources.file(id).text(), id, target);
     diagnostics.extend(parsed.diagnostics);
 
     let module = graph.insert(id, file, parsed.tree);

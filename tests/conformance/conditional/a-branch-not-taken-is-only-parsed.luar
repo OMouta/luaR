@@ -1,0 +1,14 @@
+--- expect: compile-ok
+--- spec: LR48
+#if target.os == "nowhere"
+    local mismatch: int = "text"
+    export function twice(): int
+        return "no"
+    end
+#end
+
+export function main()
+    #if not (target.family == "unix" or target.family == "windows")
+        local also: bool = 3
+    #end
+end

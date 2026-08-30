@@ -1,9 +1,9 @@
 //! Declarations, and the module that holds them (LR9, LR21.3, LR44).
 
 use luar_ast::{
-    Block, Conditional, Constraint, Decorator, Enum, Extend, Field, Function, Import, ImportName,
-    ImportNames, Interface, InterfaceMember, Item, Member, Module, Param, Property, Semantics,
-    Setter, Struct, Type, TypeAlias, Variant, VariantPayload, Visibility,
+    Block, Constraint, Decorator, Enum, Extend, Field, Function, Import, ImportName, ImportNames,
+    Interface, InterfaceMember, Item, Member, Module, Param, Property, Semantics, Setter, Struct,
+    Type, TypeAlias, Variant, VariantPayload, Visibility,
 };
 use luar_diagnostics::{Span, codes};
 use luar_lexer::{Keyword, TokenKind};
@@ -11,6 +11,7 @@ use luar_lexer::{Keyword, TokenKind};
 use crate::cursor::Cursor;
 use crate::expr;
 use crate::stmt;
+use crate::target;
 use crate::ty;
 
 /// A whole source file: declarations and module-level statements (LR21.3).
@@ -20,11 +21,7 @@ pub(crate) fn module(cursor: &mut Cursor) -> Module {
 
     while !cursor.at_end() {
         let before = cursor.mark();
-
-        items.push(match item(cursor) {
-            Some(item) => item,
-            None => Item::Stmt(stmt::statement(cursor)),
-        });
+        read_item(cursor, &mut items);
 
         while cursor.eat(TokenKind::Semicolon) {}
 
@@ -48,15 +45,22 @@ pub(crate) fn module(cursor: &mut Cursor) -> Module {
     }
 }
 
+/// One declaration or statement into `items`, or the ones a `#if` selects
+/// (LR48).
+fn read_item(cursor: &mut Cursor, items: &mut Vec<Item>) {
+    if cursor.at_directive(Keyword::If) {
+        items.extend(conditional(cursor));
+        return;
+    }
+    items.push(match item(cursor) {
+        Some(item) => item,
+        None => Item::Stmt(stmt::statement(cursor)),
+    });
+}
+
 /// A declaration, if one starts here.
 fn item(cursor: &mut Cursor) -> Option<Item> {
     let start = cursor.span();
-
-    // LR48: conditional compilation selects declarations, so it is read where
-    // one would be.
-    if cursor.at_directive(Keyword::If) {
-        return Some(Item::Conditional(conditional(cursor)));
-    }
 
     // LR21.1: an import takes no decorators, so it is read before them.
     if cursor.kind() == TokenKind::Keyword(Keyword::Import) {
@@ -947,23 +951,28 @@ fn decorators(cursor: &mut Cursor) -> Vec<Decorator> {
     decorators
 }
 
-/// `#if ... #elseif ... #else ... #end`, around declarations (LR48).
-fn conditional(cursor: &mut Cursor) -> Conditional {
+/// `#if ... #elseif ... #else ... #end` around declarations: the ones of the
+/// first branch whose condition holds (LR48).
+fn conditional(cursor: &mut Cursor) -> Vec<Item> {
     let start = cursor.span();
     cursor.advance();
     cursor.advance();
+    let target = cursor.target;
 
-    let mut branches = vec![(expr::expression(cursor), items_until_directive(cursor))];
-    let mut otherwise = None;
+    let mut taken = None;
+    let condition = expr::expression(cursor);
+    let holds = target::holds(&condition, &target, cursor);
+    target::first(&mut taken, holds, items_until_directive(cursor));
 
     loop {
         if cursor.eat_directive(Keyword::Elseif) {
             let condition = expr::expression(cursor);
-            branches.push((condition, items_until_directive(cursor)));
+            let holds = target::holds(&condition, &target, cursor);
+            target::first(&mut taken, holds, items_until_directive(cursor));
             continue;
         }
         if cursor.eat_directive(Keyword::Else) {
-            otherwise = Some(items_until_directive(cursor));
+            target::first(&mut taken, true, items_until_directive(cursor));
         }
         break;
     }
@@ -975,24 +984,21 @@ fn conditional(cursor: &mut Cursor) -> Conditional {
             .label(here, "expected `#end` before here");
     }
 
-    Conditional {
-        branches,
-        otherwise,
-        span: start.to(cursor.previous_span()),
-    }
+    taken.unwrap_or_default()
 }
 
-/// Declarations up to the next `#` directive, which the caller consumes.
+/// Declarations up to the directive that closes the branch, which the caller
+/// consumes.
 fn items_until_directive(cursor: &mut Cursor) -> Vec<Item> {
     let mut items = Vec::new();
 
-    while !matches!(cursor.kind(), TokenKind::Hash | TokenKind::Eof) {
+    while cursor.kind() != TokenKind::Eof
+        && !cursor.at_directive(Keyword::Elseif)
+        && !cursor.at_directive(Keyword::Else)
+        && !cursor.at_directive(Keyword::End)
+    {
         let before = cursor.mark();
-
-        items.push(match item(cursor) {
-            Some(item) => item,
-            None => Item::Stmt(stmt::statement(cursor)),
-        });
+        read_item(cursor, &mut items);
 
         while cursor.eat(TokenKind::Semicolon) {}
 

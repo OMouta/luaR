@@ -61,7 +61,6 @@ impl<'a> Body<'a> {
                 self.expr(expr, None);
             }
             StmtKind::Error => {}
-            _ => self.gap(stmt.span, "a statement"),
         }
     }
 
