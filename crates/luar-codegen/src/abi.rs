@@ -227,7 +227,7 @@ fn classify_param(
                     registers.float += parts.len();
                     return Some(Param::Direct(parts));
                 }
-                if remaining == 0 && matches!(target, Target::Aarch64Apple) {
+                if remaining == 0 {
                     return Some(Param::Direct(parts));
                 }
                 return None;
@@ -500,7 +500,7 @@ mod tests {
     }
 
     #[test]
-    fn standard_aarch64_rejects_an_hfa_after_full_float_registers() {
+    fn aarch64_passes_an_hfa_on_the_stack_after_full_float_registers() {
         let mut program = Program::default();
         let pair = structure(
             &mut program,
@@ -511,25 +511,14 @@ mod tests {
         params.push(pair);
         let function = function(params, Ty::Unit);
 
-        assert!(
-            CAbi::new(
-                &program,
-                &function,
-                types::I64,
-                CallConv::SystemV,
-                Target::Aarch64,
-            )
-            .is_none()
-        );
-        assert!(
-            CAbi::new(
-                &program,
-                &function,
-                types::I64,
-                CallConv::AppleAarch64,
-                Target::Aarch64Apple,
-            )
-            .is_some()
-        );
+        for (call_conv, target) in [
+            (CallConv::SystemV, Target::Aarch64),
+            (CallConv::AppleAarch64, Target::Aarch64Apple),
+        ] {
+            let abi = CAbi::new(&program, &function, types::I64, call_conv, target).unwrap();
+            assert!(
+                matches!(&abi.params[8], Param::Direct(parts) if parts.len() == 2 && parts.iter().all(|part| part.ty == types::F32))
+            );
+        }
     }
 }
