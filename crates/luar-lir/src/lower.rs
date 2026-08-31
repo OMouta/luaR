@@ -843,7 +843,6 @@ impl Lowering<'_> {
                 defaults: &self.defaults,
                 properties: &self.properties,
                 displays: &self.displays,
-                throwing: &self.throwing,
                 program: &self.program,
                 module: pending.module,
                 constants: &self.constants,

@@ -176,11 +176,17 @@ impl Translator<'_, '_> {
     }
 
     /// A call through a closure, whose code takes the closure first.
-    pub(super) fn call_indirect(&mut self, callee: Value, args: &[Value]) -> Option<ir::Value> {
-        let Ty::Function { params, result } = self.function.type_of(callee).clone() else {
+    pub(super) fn call_indirect(
+        &mut self,
+        callee: Value,
+        args: &[Value],
+        result: Option<Value>,
+    ) -> Option<ir::Value> {
+        let Ty::Function { params, .. } = self.function.type_of(callee).clone() else {
             self.gap("a call through something that is not a function");
             return None;
         };
+        let result = self.function.type_of(result?).clone();
         let signature = self.indirect_signature(&params, &result)?;
 
         let closure = self.value(callee);

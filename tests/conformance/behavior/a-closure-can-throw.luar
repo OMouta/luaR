@@ -1,0 +1,25 @@
+--- expect: run
+--- exit: 7
+--- spec: LR9.2
+--- spec: LR25.3
+struct Fault
+    code: int
+end
+
+function invoke(callback: () -> int): int
+    return callback()
+end
+
+export function main(): int
+    local fail = function(): int
+        throw Fault { code = 7 }
+    end
+
+    try
+        return invoke(fail)
+    catch error: Fault
+        return error.code
+    catch error
+        return 1
+    end
+end

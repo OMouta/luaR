@@ -349,7 +349,9 @@ impl Translator<'_, '_> {
                     (None, _) => None,
                 }
             }
-            InstKind::CallIndirect { callee, args } => self.call_indirect(*callee, args),
+            InstKind::CallIndirect { callee, args } => {
+                self.call_indirect(*callee, args, inst.result)
+            }
             InstKind::CallVirtual {
                 method,
                 receiver,

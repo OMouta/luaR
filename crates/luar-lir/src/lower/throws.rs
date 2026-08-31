@@ -7,11 +7,10 @@
 
 use std::collections::HashSet;
 
-use luar_ast::{
-    ArmBody, Block, Expr, ExprKind, FunctionBody, InterpolationPart, MapKey, Stmt, StmtKind,
-};
+use luar_ast::{ArmBody, Block, Expr, ExprKind, InterpolationPart, MapKey, Stmt, StmtKind};
 use luar_diagnostics::Span;
 use luar_sema::facts::Facts;
+use luar_sema::types::Type;
 
 /// The declarations an exception can escape, by the span of each.
 pub(super) fn escaping(bodies: &[(Span, Block)], facts: &Facts) -> HashSet<Span> {
@@ -35,20 +34,6 @@ pub(super) fn escaping(bodies: &[(Span, Block)], facts: &Facts) -> HashSet<Span>
             return throwing;
         }
         throwing.extend(found);
-    }
-}
-
-/// Whether `body`, a closure, can throw out of itself. A closure has no
-/// declaration to name in the call graph, so it is asked about directly.
-pub(super) fn closure_escapes(
-    body: &FunctionBody,
-    throwing: &HashSet<Span>,
-    facts: &Facts,
-) -> bool {
-    let scan = Scan { facts, throwing };
-    match body {
-        FunctionBody::Block(block) => scan.block(block),
-        FunctionBody::Expr(value) => scan.expr(value),
     }
 }
 
@@ -120,6 +105,9 @@ impl Scan<'_> {
         match &expr.kind {
             ExprKind::Call { callee, args, .. } => {
                 self.reaches_a_throw(expr.span)
+                    || (self.facts.call(expr.span).is_none()
+                        && self.facts.builtin(expr.span).is_none()
+                        && matches!(self.facts.type_of(callee.span), Some(Type::Function { .. })))
                     || self.expr(callee)
                     || args.iter().any(|argument| self.expr(&argument.value))
             }

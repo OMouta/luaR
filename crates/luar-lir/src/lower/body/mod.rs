@@ -105,8 +105,6 @@ pub(super) struct Context<'a> {
     pub properties: &'a HashMap<(TypeId, String), Property>,
     /// The `display` of each struct and enum that has one (LR35).
     pub displays: &'a HashMap<TypeId, FuncId>,
-    /// The declarations an exception can escape (LR25.3).
-    pub throwing: &'a HashSet<Span>,
     pub program: &'a Program,
     /// The module the body is written in.
     pub module: ModuleId,

@@ -9,7 +9,6 @@ use crate::lower::body::{Body, Var};
 use crate::lower::names;
 use crate::lower::names::assigned;
 use crate::lower::thrown_or;
-use crate::lower::throws;
 use crate::lower::types;
 use crate::program::{FuncId, Function};
 use crate::ty::{Builtin, Ty};
@@ -313,12 +312,6 @@ impl<'a> Body<'a> {
         if takes.len() != params.len() {
             return self.missing(span, "a closure of a shape the checker did not agree on");
         }
-        // LR25.3: a function type says nothing about throwing, so a closure
-        // that throws has nowhere to say it does.
-        if throws::closure_escapes(body, self.context.throwing, self.context.facts) {
-            return self.missing(span, "a throw inside a closure");
-        }
-
         let written = match body {
             FunctionBody::Block(block) => block.clone(),
             // An arrow closure is one expression, and returning it is what it
@@ -353,11 +346,11 @@ impl<'a> Body<'a> {
         let shell = Function::new(
             format!("{}#{}", self.function.name, id.0),
             taken,
-            *result,
+            thrown_or(*result),
             span,
         );
         let (built, made, gaps) =
-            Body::new(self.context, shell, false).lower(Some(&captured), &bindings, &written);
+            Body::new(self.context, shell, true).lower(Some(&captured), &bindings, &written);
         self.made.push((id, built));
         self.made.extend(made);
         self.gaps.extend(gaps);
@@ -421,14 +414,15 @@ impl<'a> Body<'a> {
         // LR9.3: what a call through a function value gives back is what the
         // function type says, which is more than the checker settles today.
         let held = self.maybe_recorded(span).unwrap_or(*result);
-        self.emit(
+        let produced = self.emit(
             InstKind::CallIndirect {
                 callee: value,
                 args: passed,
             },
-            held,
+            thrown_or(held.clone()),
             span,
-        )
+        );
+        self.caught_or_raised(produced, held, span)
     }
 
     /// LR18.1: a call through an interface finds its implementation at
