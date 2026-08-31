@@ -54,7 +54,7 @@ fn eliminate(function: &mut Function) {
             let InstKind::Length { receiver } = definitions.get(bound)? else {
                 return None;
             };
-            if !is_list(function.type_of(*receiver))
+            if !is_sequence(function.type_of(*receiver))
                 || predecessors
                     .get(&then.block)
                     .is_none_or(|held| held.iter().any(|source| *source != header))
@@ -224,11 +224,11 @@ fn dominators(
     }
 }
 
-fn is_list(ty: &Ty) -> bool {
+fn is_sequence(ty: &Ty) -> bool {
     matches!(
         ty,
         Ty::Builtin {
-            kind: Builtin::List | Builtin::FrozenList,
+            kind: Builtin::List | Builtin::FrozenList | Builtin::Slice,
             ..
         }
     )
@@ -293,21 +293,28 @@ mod tests {
 
     #[test]
     fn ascending_length_bound_removes_the_check() {
-        let mut function = loop_function(0, false);
+        let mut function = loop_function(Builtin::List, 0, false);
+        eliminate(&mut function);
+        assert!(has_unchecked_access(&function));
+    }
+
+    #[test]
+    fn slice_length_bound_removes_the_check() {
+        let mut function = loop_function(Builtin::Slice, 0, false);
         eliminate(&mut function);
         assert!(has_unchecked_access(&function));
     }
 
     #[test]
     fn negative_start_keeps_the_check() {
-        let mut function = loop_function(u64::MAX, false);
+        let mut function = loop_function(Builtin::List, u64::MAX, false);
         eliminate(&mut function);
         assert!(!has_unchecked_access(&function));
     }
 
     #[test]
     fn mutation_before_the_access_keeps_the_check() {
-        let mut function = loop_function(0, true);
+        let mut function = loop_function(Builtin::List, 0, true);
         eliminate(&mut function);
         assert!(!has_unchecked_access(&function));
     }
@@ -335,12 +342,12 @@ mod tests {
         })
     }
 
-    fn loop_function(first: u64, mutate: bool) -> Function {
-        let list = Ty::Builtin {
-            kind: Builtin::List,
+    fn loop_function(kind: Builtin, first: u64, mutate: bool) -> Function {
+        let sequence = Ty::Builtin {
+            kind,
             args: vec![Ty::INT],
         };
-        let mut function = Function::new("read".to_owned(), vec![list], Ty::Unit, SPAN);
+        let mut function = Function::new("read".to_owned(), vec![sequence], Ty::Unit, SPAN);
         let entry = function.entry;
         let receiver = function.block(entry).params[0];
         let header = function.add_block();
@@ -411,7 +418,7 @@ mod tests {
     }
 
     fn nested_loop(mutate: bool) -> Function {
-        let mut function = loop_function(0, false);
+        let mut function = loop_function(Builtin::List, 0, false);
         let header = BlockId(1);
         let body = BlockId(2);
         let receiver = function.block(function.entry).params[0];
