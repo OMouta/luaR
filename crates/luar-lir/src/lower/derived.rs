@@ -207,9 +207,14 @@ impl Lowering<'_> {
                 type_args: args.clone(),
                 args: vec![value],
             },
-            Ty::Unit | Ty::Nil | Ty::Bool | Ty::Int(_) | Ty::Char | Ty::Str | Ty::Bytes => {
-                InstKind::HashValue { value }
-            }
+            Ty::Unit
+            | Ty::Nil
+            | Ty::Bool
+            | Ty::Int(_)
+            | Ty::Float(_)
+            | Ty::Char
+            | Ty::Str
+            | Ty::Bytes => InstKind::HashValue { value },
             _ => return None,
         };
         Some(emit(function, block, kind, Ty::Int(IntTy::U64), span))

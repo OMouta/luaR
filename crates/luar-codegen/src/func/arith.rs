@@ -1,9 +1,9 @@
 //! Arithmetic, comparison, and conversion over machine integers.
 
-use cranelift_codegen::ir::condcodes::IntCC;
-use cranelift_codegen::ir::{self, InstBuilder};
+use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
+use cranelift_codegen::ir::{self, InstBuilder, types};
 use luar_lir::inst::{BinaryOp, Overflow, Trap, UnaryOp, Value};
-use luar_lir::ty::Ty;
+use luar_lir::ty::{FloatTy, Ty};
 
 use crate::layout::{self, TAG, TAG_TYPE};
 use crate::ty::{is_signed, machine};
@@ -13,12 +13,13 @@ use super::{OWNED, Translator};
 impl Translator<'_, '_> {
     pub(super) fn unary(&mut self, op: UnaryOp, operand: Value) -> Option<ir::Value> {
         let value = self.value(operand);
-        let produced = match op {
-            UnaryOp::Negate => self.builder.ins().ineg(value),
+        let produced = match (op, self.function.type_of(operand)) {
+            (UnaryOp::Negate, Ty::Float(_)) => self.builder.ins().fneg(value),
+            (UnaryOp::Negate, _) => self.builder.ins().ineg(value),
             // A `bool` is one byte holding 0 or 1, so flipping the low bit is
             // the whole of `not` (LR4.2).
-            UnaryOp::Not => self.builder.ins().bxor_imm(value, 1),
-            UnaryOp::BitNot => self.builder.ins().bnot(value),
+            (UnaryOp::Not, _) => self.builder.ins().bxor_imm(value, 1),
+            (UnaryOp::BitNot, _) => self.builder.ins().bnot(value),
         };
         Some(produced)
     }
@@ -27,6 +28,10 @@ impl Translator<'_, '_> {
         let signed = is_signed(self.function.type_of(left));
         let a = self.value(left);
         let b = self.value(right);
+
+        if matches!(self.function.type_of(left), Ty::Float(_)) {
+            return self.float_binary(op, left, a, b);
+        }
 
         if matches!(self.function.type_of(left), Ty::Str | Ty::Bytes)
             && matches!(op, BinaryOp::Equal | BinaryOp::NotEqual)
@@ -69,6 +74,42 @@ impl Translator<'_, '_> {
                 return self.builder.inst_results(call).first().copied();
             }
             _ => unreachable!("every comparison was answered above"),
+        };
+        Some(produced)
+    }
+
+    fn float_binary(
+        &mut self,
+        op: BinaryOp,
+        left: Value,
+        a: ir::Value,
+        b: ir::Value,
+    ) -> Option<ir::Value> {
+        let produced = match op {
+            BinaryOp::Add => self.builder.ins().fadd(a, b),
+            BinaryOp::Subtract => self.builder.ins().fsub(a, b),
+            BinaryOp::Multiply => self.builder.ins().fmul(a, b),
+            BinaryOp::Divide => self.builder.ins().fdiv(a, b),
+            BinaryOp::Power => {
+                let function = match self.function.type_of(left) {
+                    Ty::Float(FloatTy::F32) => self.power_f32,
+                    Ty::Float(FloatTy::F64) => self.power_f64,
+                    _ => unreachable!("a float operation has a float type"),
+                };
+                let call = self.builder.ins().call(function, &[a, b]);
+                return self.builder.inst_results(call).first().copied();
+            }
+            BinaryOp::Equal => return Some(self.builder.ins().fcmp(FloatCC::Equal, a, b)),
+            BinaryOp::NotEqual => return Some(self.builder.ins().fcmp(FloatCC::NotEqual, a, b)),
+            BinaryOp::Less => return Some(self.builder.ins().fcmp(FloatCC::LessThan, a, b)),
+            BinaryOp::LessEqual => {
+                return Some(self.builder.ins().fcmp(FloatCC::LessThanOrEqual, a, b));
+            }
+            BinaryOp::Greater => return Some(self.builder.ins().fcmp(FloatCC::GreaterThan, a, b)),
+            BinaryOp::GreaterEqual => {
+                return Some(self.builder.ins().fcmp(FloatCC::GreaterThanOrEqual, a, b));
+            }
+            _ => unreachable!("the checker rejects non-arithmetic float operators"),
         };
         Some(produced)
     }
@@ -262,8 +303,7 @@ impl Translator<'_, '_> {
         Some(produced)
     }
 
-    /// LR39: a conversion between integer types is written out, and Cranelift
-    /// narrows or widens it by what the two widths are.
+    /// LR39: a conversion between numeric types is written out.
     pub(super) fn convert(&mut self, value: Value, to: &Ty) -> Option<ir::Value> {
         let from = self.function.type_of(value).clone();
         let (Some(source), Some(target)) =
@@ -273,6 +313,31 @@ impl Translator<'_, '_> {
             return None;
         };
         let converted = self.value(value);
+
+        match (&from, to) {
+            (Ty::Float(_), Ty::Float(_)) => {
+                return Some(if source == types::F32 {
+                    self.builder.ins().fpromote(types::F64, converted)
+                } else {
+                    self.builder.ins().fdemote(types::F32, converted)
+                });
+            }
+            (Ty::Int(_), Ty::Float(_)) => {
+                return Some(if is_signed(&from) {
+                    self.builder.ins().fcvt_from_sint(target, converted)
+                } else {
+                    self.builder.ins().fcvt_from_uint(target, converted)
+                });
+            }
+            (Ty::Float(_), Ty::Int(_)) => {
+                return Some(if is_signed(to) {
+                    self.builder.ins().fcvt_to_sint(target, converted)
+                } else {
+                    self.builder.ins().fcvt_to_uint(target, converted)
+                });
+            }
+            _ => {}
+        }
 
         if source == target {
             return Some(converted);

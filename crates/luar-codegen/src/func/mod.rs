@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 
 use cranelift_codegen::ir::condcodes::IntCC;
+use cranelift_codegen::ir::immediates::{Ieee32, Ieee64};
 use cranelift_codegen::ir::{
     self, AbiParam, Block, FuncRef, GlobalValue, InstBuilder, MemFlags, Signature, StackSlot,
     TrapCode, Type, types,
@@ -98,6 +99,10 @@ pub(crate) struct Translator<'a, 'b> {
     pub display_signed: FuncRef,
     pub display_unsigned: FuncRef,
     pub display_char: FuncRef,
+    pub display_f32: FuncRef,
+    pub display_f64: FuncRef,
+    pub power_f32: FuncRef,
+    pub power_f64: FuncRef,
     pub print: FuncRef,
     pub abort: FuncRef,
     /// The bucket a map holds a key in, and the bucket it will (LR13.2).
@@ -672,13 +677,21 @@ impl Translator<'_, '_> {
             // The bits are the bits of the value's own type, and Cranelift
             // reads the width from the type it is given here.
             Const::Int(bits) => self.builder.ins().iconst(ty, *bits as i64),
+            Const::Float(value) if ty == types::F32 => self
+                .builder
+                .ins()
+                .f32const(Ieee32::with_bits((*value as f32).to_bits())),
+            Const::Float(value) => self
+                .builder
+                .ins()
+                .f64const(Ieee64::with_bits(value.to_bits())),
             Const::Char(scalar) => {
                 let scalar = i64::from(u32::from(*scalar));
                 self.builder.ins().iconst(types::I32, scalar)
             }
             Const::Str(text) => return self.text(text.as_bytes()),
             Const::Bytes(bytes) => return self.bytes(bytes),
-            Const::Nil | Const::Float(_) => {
+            Const::Nil => {
                 self.gap("a literal that is not an integer, a boolean, or a character");
                 return None;
             }

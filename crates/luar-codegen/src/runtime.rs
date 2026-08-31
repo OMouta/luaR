@@ -4,7 +4,7 @@
 //! a build needs a linker and a C runtime and nothing else.
 
 use cranelift_codegen::Context;
-use cranelift_codegen::ir::condcodes::IntCC;
+use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
 use cranelift_codegen::ir::{AbiParam, FuncRef, InstBuilder, MemFlags, Signature, TrapCode, types};
 use cranelift_codegen::isa::CallConv;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
@@ -34,6 +34,11 @@ const WRITE: &str = "_write";
 #[cfg(not(windows))]
 const WRITE: &str = "write";
 
+#[cfg(windows)]
+const GCVT: &str = "_gcvt";
+#[cfg(not(windows))]
+const GCVT: &str = "gcvt";
+
 /// What the emitted program reaches at runtime.
 pub(crate) struct Runtime {
     /// One handler per trap kind, in [`TRAPS`] order.
@@ -49,6 +54,10 @@ pub(crate) struct Runtime {
     pub display_signed: ModuleFuncId,
     pub display_unsigned: ModuleFuncId,
     pub display_char: ModuleFuncId,
+    pub display_f32: ModuleFuncId,
+    pub display_f64: ModuleFuncId,
+    pub power_f32: ModuleFuncId,
+    pub power_f64: ModuleFuncId,
     pub print: ModuleFuncId,
     pub abort: ModuleFuncId,
     /// Builds the `List<string>` passed to an entrypoint (LR45).
@@ -96,6 +105,31 @@ impl Runtime {
         let display_unsigned =
             define_display_integer(module, pointer, call_conv, collector.allocate, false)?;
         let display_char = define_display_char(module, pointer, call_conv, collector.allocate)?;
+        let (gcvt, strtod, strlen) = declare_float_formatting(module, pointer, call_conv)?;
+        let display_f32 = define_display_float(
+            module,
+            pointer,
+            call_conv,
+            collector.allocate,
+            gcvt,
+            strtod,
+            strlen,
+            types::F32,
+            9,
+        )?;
+        let display_f64 = define_display_float(
+            module,
+            pointer,
+            call_conv,
+            collector.allocate,
+            gcvt,
+            strtod,
+            strlen,
+            types::F64,
+            17,
+        )?;
+        let power_f32 = declare_power(module, call_conv, types::F32, "powf")?;
+        let power_f64 = declare_power(module, call_conv, types::F64, "pow")?;
         let print = define_print(module, pointer, call_conv, write)?;
         let abort = define_abort(module, pointer, call_conv, exit, write, collector.roots)?;
         let arguments = define_arguments(module, pointer, call_conv)?;
@@ -118,6 +152,10 @@ impl Runtime {
             display_signed,
             display_unsigned,
             display_char,
+            display_f32,
+            display_f64,
+            power_f32,
+            power_f64,
             print,
             abort,
             arguments,
@@ -234,6 +272,38 @@ impl Runtime {
         module.declare_func_in_func(self.display_unsigned, function)
     }
 
+    pub fn display_f32_in(
+        &self,
+        module: &mut ObjectModule,
+        function: &mut cranelift_codegen::ir::Function,
+    ) -> FuncRef {
+        module.declare_func_in_func(self.display_f32, function)
+    }
+
+    pub fn display_f64_in(
+        &self,
+        module: &mut ObjectModule,
+        function: &mut cranelift_codegen::ir::Function,
+    ) -> FuncRef {
+        module.declare_func_in_func(self.display_f64, function)
+    }
+
+    pub fn power_f32_in(
+        &self,
+        module: &mut ObjectModule,
+        function: &mut cranelift_codegen::ir::Function,
+    ) -> FuncRef {
+        module.declare_func_in_func(self.power_f32, function)
+    }
+
+    pub fn power_f64_in(
+        &self,
+        module: &mut ObjectModule,
+        function: &mut cranelift_codegen::ir::Function,
+    ) -> FuncRef {
+        module.declare_func_in_func(self.power_f64, function)
+    }
+
     pub fn print_in(
         &self,
         module: &mut ObjectModule,
@@ -265,6 +335,146 @@ impl Runtime {
     ) -> cranelift_codegen::ir::GlobalValue {
         module.declare_data_in_func(self.roots, function)
     }
+}
+
+fn declare_power(
+    module: &mut ObjectModule,
+    call_conv: CallConv,
+    ty: types::Type,
+    name: &str,
+) -> Result<ModuleFuncId, Error> {
+    let mut signature = Signature::new(call_conv);
+    signature.params.push(AbiParam::new(ty));
+    signature.params.push(AbiParam::new(ty));
+    signature.returns.push(AbiParam::new(ty));
+    module
+        .declare_function(name, Linkage::Import, &signature)
+        .map_err(|error| Error::Cranelift(error.to_string()))
+}
+
+fn declare_float_formatting(
+    module: &mut ObjectModule,
+    pointer: types::Type,
+    call_conv: CallConv,
+) -> Result<(ModuleFuncId, ModuleFuncId, ModuleFuncId), Error> {
+    let mut gcvt = Signature::new(call_conv);
+    gcvt.params.push(AbiParam::new(types::F64));
+    gcvt.params.push(AbiParam::new(types::I32));
+    gcvt.params.push(AbiParam::new(pointer));
+    gcvt.returns.push(AbiParam::new(pointer));
+    let gcvt = module
+        .declare_function(GCVT, Linkage::Import, &gcvt)
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
+
+    let mut strtod = Signature::new(call_conv);
+    strtod.params.push(AbiParam::new(pointer));
+    strtod.params.push(AbiParam::new(pointer));
+    strtod.returns.push(AbiParam::new(types::F64));
+    let strtod = module
+        .declare_function("strtod", Linkage::Import, &strtod)
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
+
+    let mut strlen = Signature::new(call_conv);
+    strlen.params.push(AbiParam::new(pointer));
+    strlen.returns.push(AbiParam::new(pointer));
+    let strlen = module
+        .declare_function("strlen", Linkage::Import, &strlen)
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
+    Ok((gcvt, strtod, strlen))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn define_display_float(
+    module: &mut ObjectModule,
+    pointer: types::Type,
+    call_conv: CallConv,
+    allocate: ModuleFuncId,
+    gcvt: ModuleFuncId,
+    strtod: ModuleFuncId,
+    strlen: ModuleFuncId,
+    ty: types::Type,
+    precision: u8,
+) -> Result<ModuleFuncId, Error> {
+    let suffix = if ty == types::F32 { "f32" } else { "f64" };
+    let mut signature = Signature::new(call_conv);
+    signature.params.push(AbiParam::new(ty));
+    signature.returns.push(AbiParam::new(pointer));
+    let declared = module
+        .declare_function(
+            &format!("luar_display_{suffix}"),
+            Linkage::Local,
+            &signature,
+        )
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
+
+    let mut context = Context::new();
+    let mut frame = FunctionBuilderContext::new();
+    context.func.signature = signature;
+    let allocate = module.declare_func_in_func(allocate, &mut context.func);
+    let gcvt = module.declare_func_in_func(gcvt, &mut context.func);
+    let strtod = module.declare_func_in_func(strtod, &mut context.func);
+    let strlen = module.declare_func_in_func(strlen, &mut context.func);
+    let mut builder = FunctionBuilder::new(&mut context.func, &mut frame);
+    let entry = builder.create_block();
+    let format = builder.create_block();
+    let retry = builder.create_block();
+    let done = builder.create_block();
+    builder.append_block_params_for_function_params(entry);
+    builder.append_block_param(format, types::I32);
+    builder.switch_to_block(entry);
+
+    let original = builder.block_params(entry)[0];
+    let promoted = if ty == types::F32 {
+        builder.ins().fpromote(types::F64, original)
+    } else {
+        original
+    };
+    let bytes = builder.ins().iconst(pointer, 48);
+    let no_finalizer = builder.ins().iconst(pointer, 0);
+    let call = builder.ins().call(allocate, &[bytes, no_finalizer]);
+    let text = builder.inst_results(call)[0];
+    let destination = builder.ins().iadd_imm(text, 8);
+    let one = builder.ins().iconst(types::I32, 1);
+    builder
+        .ins()
+        .jump(format, &[cranelift_codegen::ir::BlockArg::Value(one)]);
+
+    builder.switch_to_block(format);
+    let digits = builder.block_params(format)[0];
+    builder.ins().call(gcvt, &[promoted, digits, destination]);
+    let no_end = builder.ins().iconst(pointer, 0);
+    let call = builder.ins().call(strtod, &[destination, no_end]);
+    let parsed = builder.inst_results(call)[0];
+    let parsed = if ty == types::F32 {
+        builder.ins().fdemote(types::F32, parsed)
+    } else {
+        parsed
+    };
+    let same = builder.ins().fcmp(FloatCC::Equal, original, parsed);
+    let last = builder
+        .ins()
+        .icmp_imm(IntCC::Equal, digits, i64::from(precision));
+    let finished = builder.ins().bor(same, last);
+    builder.ins().brif(finished, done, &[], retry, &[]);
+
+    builder.switch_to_block(retry);
+    let next = builder.ins().iadd_imm(digits, 1);
+    builder
+        .ins()
+        .jump(format, &[cranelift_codegen::ir::BlockArg::Value(next)]);
+
+    builder.switch_to_block(done);
+    let call = builder.ins().call(strlen, &[destination]);
+    let length = builder.inst_results(call)[0];
+    let length = integer_width(&mut builder, length, types::I64);
+    builder.ins().store(MemFlags::trusted(), length, text, 0);
+    builder.ins().return_(&[text]);
+    builder.seal_all_blocks();
+    builder.finalize();
+    module
+        .define_function(declared, &mut context)
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
+    Ok(declared)
 }
 
 fn define_slice_finalizer(

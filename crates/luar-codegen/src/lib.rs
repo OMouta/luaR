@@ -413,6 +413,18 @@ impl Emitter<'_> {
             let display_char = self
                 .runtime
                 .display_char_in(&mut self.module, &mut context.func);
+            let display_f32 = self
+                .runtime
+                .display_f32_in(&mut self.module, &mut context.func);
+            let display_f64 = self
+                .runtime
+                .display_f64_in(&mut self.module, &mut context.func);
+            let power_f32 = self
+                .runtime
+                .power_f32_in(&mut self.module, &mut context.func);
+            let power_f64 = self
+                .runtime
+                .power_f64_in(&mut self.module, &mut context.func);
             let print = self.runtime.print_in(&mut self.module, &mut context.func);
             let abort = self.runtime.abort_in(&mut self.module, &mut context.func);
             let map_find = self
@@ -455,6 +467,10 @@ impl Emitter<'_> {
                 display_signed,
                 display_unsigned,
                 display_char,
+                display_f32,
+                display_f64,
+                power_f32,
+                power_f64,
                 print,
                 abort,
                 map_find,

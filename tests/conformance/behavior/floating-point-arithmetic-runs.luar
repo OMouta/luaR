@@ -1,0 +1,23 @@
+--- expect: run
+--- exit: 30
+--- spec: LR4.4
+--- spec: LR11.1
+--- spec: LR11.3
+--- spec: LR33
+--- spec: LR39
+export function main(): int
+    local value = ((1.5 + 2.5) * 3.0 / 2.0 - 1.0) ** 2.0
+    local small: f32 = 1.25
+    local converted: f32 = 4 as f32
+    local infinity = 1.0 / 0.0
+    local nan = 0.0 / 0.0
+    if value == 25.0
+        and -small < 0.0
+        and converted >= small
+        and infinity > 1.0e300
+        and nan ~= nan
+    then
+        return value as int + (small * converted) as int
+    end
+    return 100
+end

@@ -1,9 +1,9 @@
 //! Maps and sets (LR13.2, LR13.3), emitted over the runtime's table.
 
-use cranelift_codegen::ir::condcodes::IntCC;
+use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
 use cranelift_codegen::ir::{self, InstBuilder, types};
 use luar_lir::inst::Value;
-use luar_lir::ty::{Builtin, Ty};
+use luar_lir::ty::{Builtin, FloatTy, Ty};
 
 use crate::layout::{self, TAG, TAG_TYPE};
 use crate::ty::machine;
@@ -234,8 +234,31 @@ impl Translator<'_, '_> {
 
     /// A key as the one word a bucket stores it in.
     pub(super) fn key_word(&mut self, key: Value) -> ir::Value {
+        let ty = self.function.type_of(key).clone();
         let value = self.value(key);
-        self.word_of(value)
+        match ty {
+            Ty::Float(FloatTy::F32) => {
+                let zero = self.builder.ins().f32const(0.0);
+                let is_zero = self.builder.ins().fcmp(FloatCC::Equal, value, zero);
+                let value = self.builder.ins().select(is_zero, zero, value);
+                let bits = self
+                    .builder
+                    .ins()
+                    .bitcast(types::I32, ir::MemFlags::new(), value);
+                self.word_of(bits)
+            }
+            Ty::Float(FloatTy::F64) => {
+                let zero = self.builder.ins().f64const(0.0);
+                let is_zero = self.builder.ins().fcmp(FloatCC::Equal, value, zero);
+                let value = self.builder.ins().select(is_zero, zero, value);
+                let bits = self
+                    .builder
+                    .ins()
+                    .bitcast(types::I64, ir::MemFlags::new(), value);
+                self.word_of(bits)
+            }
+            _ => self.word_of(value),
+        }
     }
 
     pub(super) fn word_of(&mut self, value: ir::Value) -> ir::Value {
@@ -252,7 +275,7 @@ impl Translator<'_, '_> {
     pub(super) fn compared_by_text(&mut self, ty: &Ty) -> Option<bool> {
         match ty {
             Ty::Str | Ty::Bytes => Some(true),
-            Ty::Bool | Ty::Int(_) | Ty::Char => Some(false),
+            Ty::Bool | Ty::Int(_) | Ty::Float(_) | Ty::Char => Some(false),
             _ => {
                 self.gap(format!("comparing `{ty}`"));
                 None
@@ -276,6 +299,26 @@ impl Translator<'_, '_> {
                     std::cmp::Ordering::Equal => value,
                     std::cmp::Ordering::Greater => self.builder.ins().ireduce(types::I64, value),
                 })
+            }
+            Ty::Float(FloatTy::F32) => {
+                let zero = self.builder.ins().f32const(0.0);
+                let is_zero = self.builder.ins().fcmp(FloatCC::Equal, value, zero);
+                let value = self.builder.ins().select(is_zero, zero, value);
+                let bits = self
+                    .builder
+                    .ins()
+                    .bitcast(types::I32, ir::MemFlags::new(), value);
+                Some(self.builder.ins().uextend(types::I64, bits))
+            }
+            Ty::Float(FloatTy::F64) => {
+                let zero = self.builder.ins().f64const(0.0);
+                let is_zero = self.builder.ins().fcmp(FloatCC::Equal, value, zero);
+                let value = self.builder.ins().select(is_zero, zero, value);
+                Some(
+                    self.builder
+                        .ins()
+                        .bitcast(types::I64, ir::MemFlags::new(), value),
+                )
             }
             _ => {
                 self.gap(format!("hashing a value of type `{ty}`"));

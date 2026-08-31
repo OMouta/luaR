@@ -71,6 +71,6 @@ fn linker(object: &Path, output: &Path) -> Result<Command, LinkError> {
 fn linker(object: &Path, output: &Path) -> Result<Command, LinkError> {
     let driver = std::env::var("CC").unwrap_or_else(|_| "cc".to_owned());
     let mut command = Command::new(driver);
-    command.arg("-o").arg(output).arg(object);
+    command.arg("-o").arg(output).arg(object).arg("-lm");
     Ok(command)
 }

@@ -2,7 +2,7 @@
 
 use cranelift_codegen::ir::{self, InstBuilder, types};
 use luar_lir::inst::Value;
-use luar_lir::ty::Ty;
+use luar_lir::ty::{FloatTy, Ty};
 
 use crate::layout;
 
@@ -57,6 +57,14 @@ impl Translator<'_, '_> {
             }
             Ty::Char => {
                 let call = self.builder.ins().call(self.display_char, &[value]);
+                self.builder.inst_results(call).first().copied()
+            }
+            Ty::Float(float) => {
+                let formatter = match float {
+                    FloatTy::F32 => self.display_f32,
+                    FloatTy::F64 => self.display_f64,
+                };
+                let call = self.builder.ins().call(formatter, &[value]);
                 self.builder.inst_results(call).first().copied()
             }
             _ => {

@@ -1,7 +1,7 @@
 //! LIR types in the machine types Cranelift works over.
 
 use cranelift_codegen::ir::{Type, types};
-use luar_lir::ty::{IntTy, Ty};
+use luar_lir::ty::{FloatTy, IntTy, Ty};
 
 use crate::layout::is_aggregate;
 
@@ -16,6 +16,8 @@ pub fn machine(ty: &Ty, pointer: Type) -> Option<Type> {
     let machine = match ty {
         Ty::Unit | Ty::Nil | Ty::Bool => types::I8,
         Ty::Int(int) => integer(*int, pointer),
+        Ty::Float(FloatTy::F32) => types::F32,
+        Ty::Float(FloatTy::F64) => types::F64,
         Ty::Pointer { .. } => pointer,
         Ty::Char => types::I32,
         Ty::Never => types::I8,

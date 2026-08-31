@@ -1,0 +1,24 @@
+--- expect: run
+--- exit: 7
+--- spec: LR4.4
+--- spec: LR11.3
+--- spec: LR13.2
+--- spec: LR35
+--- spec: LR75
+@derive(Eq, Hash)
+struct Measure
+    value: f64
+end
+
+export function main(): int
+    local positive = Measure { value = 0.0 }
+    local negative = Measure { value = -0.0 }
+    if positive == negative and positive:hash() == negative:hash() then
+        local values: Map<f64, int> = Map { [0.0] = 7 }
+        local found = values:get(-0.0)
+        if found ~= nil then
+            return found
+        end
+    end
+    return 100
+end
