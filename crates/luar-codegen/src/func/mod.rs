@@ -8,7 +8,7 @@ use cranelift_codegen::ir::{
     TrapCode, Type, types,
 };
 use cranelift_frontend::{FunctionBuilder, Switch};
-use luar_lir::inst::{Const, Inst, InstKind, Terminator, Trap, Value};
+use luar_lir::inst::{Allocation, Const, Inst, InstKind, Terminator, Trap, Value};
 use luar_lir::program::{BlockId, FuncId, Function, Program, SlotId};
 use luar_lir::ty::{Ty, TypeId};
 
@@ -112,6 +112,7 @@ pub(crate) struct Translator<'a, 'b> {
     pub temporary_roots: Vec<i32>,
     pub blocks: HashMap<BlockId, Block>,
     pub values: HashMap<Value, ir::Value>,
+    pub register_structs: HashMap<Value, Vec<ir::Value>>,
     /// The stack storage of each LIR slot (LR72).
     pub slots: HashMap<SlotId, StackSlot>,
     /// The identity of each type a dynamic value can hold (LR25.3).
@@ -291,13 +292,27 @@ impl Translator<'_, '_> {
                 args,
             } => self.call(*callee, type_args, args),
 
-            InstKind::CopyValue { value, .. } => {
+            InstKind::CopyValue { value, allocation } => {
                 let ty = self.function.type_of(*value).clone();
                 let source = self.value(*value);
-                self.duplicate(source, &ty, layout::DEPTH)
+                self.duplicate(source, &ty, layout::DEPTH, *allocation)
             }
             InstKind::Freeze { value } => Some(self.value(*value)),
-            InstKind::MakeStruct { ty, fields, .. } => self.make(ty, 0, fields),
+            InstKind::MakeStruct {
+                fields,
+                allocation: Allocation::Registers,
+                ..
+            } => {
+                let result = inst.result.expect("a struct produces a value");
+                let fields = fields.iter().map(|field| self.value(*field)).collect();
+                self.register_structs.insert(result, fields);
+                Some(self.builder.ins().iconst(self.pointer, 0))
+            }
+            InstKind::MakeStruct {
+                ty,
+                fields,
+                allocation,
+            } => self.make(ty, 0, fields, *allocation),
 
             // LR9.8: a closure is its code's address and then what it
             // captured, and it is passed to that code first.
@@ -359,7 +374,7 @@ impl Translator<'_, '_> {
                     .result
                     .map(|value| self.function.type_of(value).clone());
                 match ty {
-                    Some(ty) => self.make(&ty, 0, members),
+                    Some(ty) => self.make(&ty, 0, members, Allocation::Managed),
                     None => None,
                 }
             }
@@ -367,11 +382,16 @@ impl Translator<'_, '_> {
                 ty,
                 variant,
                 payload,
-            } => self.make(ty, 1, payload).inspect(|&built| {
-                let tag = self.builder.ins().iconst(TAG_TYPE, i64::from(*variant));
-                self.builder.ins().store(OWNED, tag, built, TAG);
-            }),
-            InstKind::GetField { object, field } => self.read(*object, *field, inst.result),
+            } => self
+                .make(ty, 1, payload, Allocation::Managed)
+                .inspect(|&built| {
+                    let tag = self.builder.ins().iconst(TAG_TYPE, i64::from(*variant));
+                    self.builder.ins().store(OWNED, tag, built, TAG);
+                }),
+            InstKind::GetField { object, field } => match self.register_structs.get(object) {
+                Some(fields) => fields.get(*field as usize).copied(),
+                None => self.read(*object, *field, inst.result),
+            },
             InstKind::GetElement { tuple, index } => self.read(*tuple, *index, inst.result),
             // The tag has already proved the variant, so the payload sits
             // where that variant put it.

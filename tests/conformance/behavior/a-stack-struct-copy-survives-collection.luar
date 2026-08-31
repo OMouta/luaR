@@ -1,0 +1,30 @@
+--- expect: run
+--- exit: 97
+--- spec: LR29
+--- spec: LR31
+struct Counter
+    value: int
+end
+
+struct Pair
+    left: Counter
+    right: Counter
+end
+
+ref struct HeapValue
+    value: int
+end
+
+function collect()
+    for i in 0..<128 do
+        local discarded = HeapValue { value = i }
+    end
+end
+
+export function main(): int
+    local source = Pair { left = Counter { value = 9 }, right = Counter { value = 1 } }
+    local copy = source
+    collect()
+    copy.right.value = 7
+    return source.left.value * 10 + copy.right.value
+end

@@ -1,7 +1,7 @@
 //! Managed storage: allocating it, and reading and writing its cells.
 
-use cranelift_codegen::ir::{self, InstBuilder, types};
-use luar_lir::inst::Value;
+use cranelift_codegen::ir::{self, InstBuilder, StackSlotData, StackSlotKind, types};
+use luar_lir::inst::{Allocation, Value};
 use luar_lir::ty::{Builtin, Ty};
 
 use crate::layout::{self, TAG_TYPE};
@@ -45,6 +45,28 @@ impl Translator<'_, '_> {
         Some(allocated)
     }
 
+    pub(super) fn allocate_stack(&mut self, ty: &Ty) -> Option<ir::Value> {
+        let size = u32::try_from(layout::size(self.program, ty, self.pointer)?).ok()?;
+        let slot = self.builder.create_sized_stack_slot(StackSlotData::new(
+            StackSlotKind::ExplicitSlot,
+            size,
+            self.pointer.bytes().ilog2() as u8,
+        ));
+        Some(self.builder.ins().stack_addr(self.pointer, slot, 0))
+    }
+
+    fn allocate_as(
+        &mut self,
+        ty: &Ty,
+        temporary: u32,
+        allocation: Allocation,
+    ) -> Option<ir::Value> {
+        match allocation {
+            Allocation::Managed => self.allocate(ty, temporary),
+            Allocation::Stack | Allocation::Registers => self.allocate_stack(ty),
+        }
+    }
+
     /// Reads cell `index` of the aggregate `object` points at.
     pub(super) fn read(
         &mut self,
@@ -76,8 +98,14 @@ impl Translator<'_, '_> {
 
     /// Storage for an aggregate, with `parts` written into the cells after
     /// `from`.
-    pub(super) fn make(&mut self, ty: &Ty, from: u32, parts: &[Value]) -> Option<ir::Value> {
-        let built = self.allocate(ty, 0)?;
+    pub(super) fn make(
+        &mut self,
+        ty: &Ty,
+        from: u32,
+        parts: &[Value],
+        allocation: Allocation,
+    ) -> Option<ir::Value> {
+        let built = self.allocate_as(ty, 0, allocation)?;
         for (index, part) in parts.iter().enumerate() {
             let cell = from + u32::try_from(index).unwrap_or(u32::MAX);
             self.write_at(built, ty, cell, *part);
@@ -94,6 +122,7 @@ impl Translator<'_, '_> {
         source: ir::Value,
         ty: &Ty,
         depth: u32,
+        allocation: Allocation,
     ) -> Option<ir::Value> {
         let Some(size) = layout::size(self.program, ty, self.pointer) else {
             self.gap(format!("a copy of a value of type `{ty}`"));
@@ -111,7 +140,7 @@ impl Translator<'_, '_> {
             self.gap(format!("a copy of a value of type `{ty}`"));
             return None;
         }
-        let copy = self.allocate(ty, layout::DEPTH - depth)?;
+        let copy = self.allocate_as(ty, layout::DEPTH - depth, allocation)?;
         if let Some(parts) = parts {
             for (index, part) in parts.iter().enumerate() {
                 let index = u32::try_from(index).expect("field count fits in u32");
@@ -126,7 +155,8 @@ impl Translator<'_, '_> {
                 };
                 let held = self.builder.ins().load(machine, OWNED, source, offset);
                 let written = if layout::holds_value_parts(self.program, part, layout::DEPTH) {
-                    self.duplicate(held, part, depth - 1).unwrap_or(held)
+                    self.duplicate(held, part, depth - 1, allocation)
+                        .unwrap_or(held)
                 } else {
                     held
                 };

@@ -1,7 +1,9 @@
 //! The shadow-stack frame and the stack slots of one function.
 
+use std::collections::HashSet;
+
 use cranelift_codegen::ir::{self, InstBuilder, StackSlotData, StackSlotKind};
-use luar_lir::inst::Value;
+use luar_lir::inst::{Allocation, InstKind, Value};
 use luar_lir::program::SlotId;
 
 use crate::gc::ROOT_FRAME_HEADER;
@@ -28,10 +30,25 @@ impl Translator<'_, '_> {
     }
 
     pub(super) fn prepare_roots(&mut self) {
+        let local: HashSet<Value> = self
+            .function
+            .blocks()
+            .flat_map(|(_, block)| &block.insts)
+            .filter_map(|inst| match (&inst.kind, inst.result) {
+                (
+                    InstKind::MakeStruct { allocation, .. }
+                    | InstKind::CopyValue { allocation, .. },
+                    Some(result),
+                ) if *allocation != Allocation::Managed => Some(result),
+                _ => None,
+            })
+            .collect();
         let values: Vec<Value> = self
             .function
             .values()
-            .filter_map(|(value, ty)| layout::is_aggregate(ty).then_some(value))
+            .filter_map(|(value, ty)| {
+                (layout::is_aggregate(ty) && !local.contains(&value)).then_some(value)
+            })
             .collect();
         let cell = i32::try_from(self.pointer.bytes()).expect("pointer width fits in i32");
         let temporary_count = usize::try_from(layout::DEPTH).expect("root depth fits in usize");

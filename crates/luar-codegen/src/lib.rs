@@ -467,6 +467,7 @@ impl Emitter<'_> {
                 temporary_roots: Vec::new(),
                 blocks: HashMap::new(),
                 values: HashMap::new(),
+                register_structs: HashMap::new(),
                 slots: HashMap::new(),
                 descriptors,
                 vtables,
