@@ -133,13 +133,7 @@ impl Translator<'_, '_> {
             return None;
         }
 
-        // An enum or an optional holds whichever part its tag says, so which
-        // cells to copy is not known here.
         let parts = layout::parts(self.program, ty);
-        if parts.is_none() && layout::holds_value_parts(self.program, ty, layout::DEPTH) {
-            self.gap(format!("a copy of a value of type `{ty}`"));
-            return None;
-        }
         let copy = self.allocate_as(ty, layout::DEPTH - depth, allocation)?;
         if let Some(parts) = parts {
             for (index, part) in parts.iter().enumerate() {
@@ -162,6 +156,60 @@ impl Translator<'_, '_> {
                 };
                 self.builder.ins().store(OWNED, written, copy, offset);
             }
+        } else if let Some(variants) = layout::tagged_parts(self.program, ty) {
+            let tag = self
+                .builder
+                .ins()
+                .load(TAG_TYPE, OWNED, source, layout::TAG);
+            self.builder.ins().store(OWNED, tag, copy, layout::TAG);
+            let done = self.builder.create_block();
+            let mut next = None;
+
+            for (variant, parts) in variants.iter().enumerate() {
+                if let Some(block) = next.take() {
+                    self.builder.switch_to_block(block);
+                }
+                let active = self.builder.create_block();
+                let otherwise = self.builder.create_block();
+                let matches = self.builder.ins().icmp_imm(
+                    cranelift_codegen::ir::condcodes::IntCC::Equal,
+                    tag,
+                    i64::try_from(variant).unwrap_or(i64::MAX),
+                );
+                self.builder
+                    .ins()
+                    .brif(matches, active, &[], otherwise, &[]);
+
+                self.builder.switch_to_block(active);
+                for (index, part) in parts.iter().enumerate() {
+                    let field = u32::try_from(index + 1).expect("field count fits in u32");
+                    let Some(offset) = layout::field_offset(self.program, ty, field, self.pointer)
+                    else {
+                        self.gap(format!("a field outside `{ty}`"));
+                        continue;
+                    };
+                    let Some(machine) = machine(part, self.pointer) else {
+                        self.gap(format!("a copy of a field of type `{part}`"));
+                        continue;
+                    };
+                    let held = self.builder.ins().load(machine, OWNED, source, offset);
+                    let written = if layout::holds_value_parts(self.program, part, layout::DEPTH) {
+                        self.duplicate(held, part, depth - 1, allocation)
+                            .unwrap_or(held)
+                    } else {
+                        held
+                    };
+                    self.builder.ins().store(OWNED, written, copy, offset);
+                }
+                self.builder.ins().jump(done, &[]);
+                next = Some(otherwise);
+            }
+
+            if let Some(block) = next {
+                self.builder.switch_to_block(block);
+                self.builder.ins().jump(done, &[]);
+            }
+            self.builder.switch_to_block(done);
         } else {
             for cell in (0..size).step_by(layout::CELL as usize) {
                 let held = self.builder.ins().load(TAG_TYPE, OWNED, source, cell);

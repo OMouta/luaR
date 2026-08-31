@@ -1,0 +1,27 @@
+--- expect: run
+--- exit: 17
+--- spec: LR31
+struct Counter
+    value: int
+end
+
+struct Holder
+    result: Result<Counter, string>
+end
+
+export function main(): int
+    local source = Holder { result = Result.Ok<Counter, string>(Counter { value = 1 }) }
+    local copy = source
+    match copy.result
+        case Result.Ok(counter)
+            counter.value = 7
+        case Result.Err(_)
+            return 100
+    end
+    match source.result
+        case Result.Ok(counter)
+            return counter.value * 10 + 7
+        case Result.Err(_)
+            return 101
+    end
+end

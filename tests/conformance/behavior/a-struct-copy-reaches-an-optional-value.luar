@@ -1,0 +1,22 @@
+--- expect: run
+--- exit: 17
+--- spec: LR31
+struct Counter
+    value: int
+end
+
+struct Holder
+    counter: Counter?
+end
+
+export function main(): int
+    local source = Holder { counter = Counter { value = 1 } }
+    local copy = source
+    if copy.counter ~= nil then
+        copy.counter.value = 7
+    end
+    if source.counter ~= nil then
+        return source.counter.value * 10 + 7
+    end
+    return 100
+end

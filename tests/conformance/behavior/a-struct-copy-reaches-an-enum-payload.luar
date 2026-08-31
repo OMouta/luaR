@@ -1,0 +1,32 @@
+--- expect: run
+--- exit: 17
+--- spec: LR31
+struct Counter
+    value: int
+end
+
+enum Payload
+    Empty
+    Counter(Counter)
+end
+
+struct Holder
+    payload: Payload
+end
+
+export function main(): int
+    local source = Holder { payload = Payload.Counter(Counter { value = 1 }) }
+    local copy = source
+    match copy.payload
+        case Payload.Empty
+            return 100
+        case Payload.Counter(counter)
+            counter.value = 7
+    end
+    match source.payload
+        case Payload.Empty
+            return 101
+        case Payload.Counter(counter)
+            return counter.value * 10 + 7
+    end
+end

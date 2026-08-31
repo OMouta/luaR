@@ -226,6 +226,38 @@ pub fn parts(program: &Program, ty: &Ty) -> Option<Vec<Ty>> {
     }
 }
 
+/// The payload fields for each tag of an enum-like value.
+#[must_use]
+pub fn tagged_parts(program: &Program, ty: &Ty) -> Option<Vec<Vec<Ty>>> {
+    match ty {
+        Ty::Named { id, args } => {
+            let nominal = program.nominal(*id);
+            let Shape::Enum(enumeration) = &nominal.shape else {
+                return None;
+            };
+            Some(
+                enumeration
+                    .variants
+                    .iter()
+                    .map(|variant| {
+                        variant
+                            .fields
+                            .iter()
+                            .map(|field| field.ty.substitute(&nominal.type_params, args))
+                            .collect()
+                    })
+                    .collect(),
+            )
+        }
+        Ty::Optional(held) => Some(vec![Vec::new(), vec![held.as_ref().clone()]]),
+        Ty::Builtin {
+            kind: Builtin::Result,
+            args,
+        } if args.len() == 2 => Some(vec![vec![args[0].clone()], vec![args[1].clone()]]),
+        _ => None,
+    }
+}
+
 /// Whether copying a value of `ty` has to copy what it holds rather than
 /// share it. A value struct anywhere inside makes it so, because mutating one
 /// through a shared holder is observable through the other (LR31).
