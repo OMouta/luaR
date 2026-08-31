@@ -111,7 +111,7 @@ alignOf<T>(): usize
 
 unsafe bytesOf(text: string): *const u8
 unsafe stringFromBytes(data: *const u8, length: int): string
-unsafe reinterpret<T, U>(value: T): U
+unsafe reinterpret<T, U>(value: U): T
 ```
 
 `identical` follows LR32. `sizeOf` and `alignOf` report the target ABI layout used by foreign calls. They are compile-time constants after monomorphization.
