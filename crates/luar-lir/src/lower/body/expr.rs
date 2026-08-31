@@ -508,9 +508,10 @@ impl<'a> Body<'a> {
             returned,
             span,
         );
-        self.unwind_from(0);
-        let returned = self.returned(returned, span);
-        self.terminate(Terminator::Return(returned));
+        if !self.unwind_from(0) {
+            let returned = self.returned(returned, span);
+            self.terminate(Terminator::Return(returned));
+        }
 
         self.switch_to(succeeded);
         self.emit(

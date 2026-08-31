@@ -1,0 +1,41 @@
+--- expect: run
+--- exit: 14
+--- spec: LR25.3
+function returns(): int
+    try
+        return 1
+    finally
+        return 2
+    end
+end
+
+function breaks(): int
+    local value = 0
+    while true do
+        try
+            value = 1
+        finally
+            break
+        end
+        value = 99
+    end
+    return value
+end
+
+function continues(): int
+    local value = 0
+    while value < 5 do
+        value += 1
+        try
+            value += 10
+        finally
+            continue
+        end
+        value = 99
+    end
+    return value
+end
+
+export function main(): int
+    return returns() + breaks() + continues()
+end

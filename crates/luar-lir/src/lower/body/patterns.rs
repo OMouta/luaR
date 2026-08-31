@@ -120,8 +120,9 @@ impl<'a> Body<'a> {
                 otherwise: Target::to(rejected),
             });
             self.switch_to(rejected);
-            self.unwind(self.scopes.len() - 1);
-            self.terminate(Terminator::Jump(Target::to(next)));
+            if !self.unwind(self.scopes.len() - 1) {
+                self.terminate(Terminator::Jump(Target::to(next)));
+            }
             self.switch_to(body);
         }
     }

@@ -331,18 +331,17 @@ impl<'a> Body<'a> {
 
     /// Runs what scope `frame` deferred, in reverse order of registration
     /// (LR25.3, LR26).
-    fn unwind(&mut self, frame: usize) {
-        for cleanup in self.deferred[frame].clone().iter().rev() {
-            match cleanup {
+    fn unwind(&mut self, frame: usize) -> bool {
+        let mut index = self.deferred[frame].len();
+        while index > 0 {
+            index -= 1;
+            let cleanup = self.deferred[frame].remove(index);
+            match &cleanup {
                 Cleanup::Deferred(call) => {
                     self.expr(call, None);
                 }
                 Cleanup::Finally(block) => {
                     self.block(block);
-                    if self.left {
-                        self.gap(block.span, "a `finally` that leaves where it is written");
-                        return;
-                    }
                 }
                 Cleanup::Slice(var, span) => {
                     if let Some(value) = self.defs.get(var).copied() {
@@ -350,15 +349,23 @@ impl<'a> Body<'a> {
                     }
                 }
             }
+            self.deferred[frame].insert(index, cleanup);
+            if self.left {
+                return true;
+            }
         }
+        false
     }
 
     /// Runs what every scope from `depth` outward deferred, innermost first,
     /// which is what leaving several of them at once does (LR26).
-    fn unwind_from(&mut self, depth: usize) {
+    fn unwind_from(&mut self, depth: usize) -> bool {
         for frame in (depth..self.scopes.len()).rev() {
-            self.unwind(frame);
+            if self.unwind(frame) {
+                return true;
+            }
         }
+        false
     }
 
     /// LR24: a module-level `const` is its initializer, which is pure (LR79),
@@ -638,11 +645,15 @@ impl<'a> Body<'a> {
             // it is tested here, in the body's scope, rather than in a block
             // of its own. The checker proved it reads nothing this
             // `continue` skipped.
-            self.unwind_from(depth + 1);
+            if self.unwind_from(depth + 1) {
+                return;
+            }
             let inner = self.scopes.split_off(depth + 1);
             let condition = self.expr(&until, Some(&Ty::Bool));
             self.scopes.extend(inner);
-            self.unwind(depth);
+            if self.unwind(depth) {
+                return;
+            }
             let leaving: Vec<Value> = carried.iter().map(|var| self.defs[var]).collect();
             self.terminate(Terminator::Branch {
                 condition,
@@ -653,7 +664,9 @@ impl<'a> Body<'a> {
         };
         // LR26: leaving a loop leaves every scope inside it, so each one runs
         // what it deferred, innermost first.
-        self.unwind_from(depth);
+        if self.unwind_from(depth) {
+            return;
+        }
         self.jump_to(block, &carried);
     }
 

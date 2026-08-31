@@ -243,7 +243,16 @@ impl<'a> Body<'a> {
             let condition = self.expr(until, Some(&Ty::Bool));
             // LR26: the scope ends here whichever way the branch goes, so what
             // it deferred runs once, before either.
-            self.unwind(depth);
+            if self.unwind(depth) {
+                self.add_params(exit, &carried);
+                self.loops.pop();
+                self.scopes.pop();
+                self.deferred.pop();
+                self.switch_to(exit);
+                self.defs = entering;
+                self.bind_params(exit, &carried);
+                return;
+            }
             let leaving: Vec<Value> = carried.iter().map(|var| self.defs[var]).collect();
             self.add_params(exit, &carried);
             self.terminate(Terminator::Branch {
@@ -279,7 +288,9 @@ impl<'a> Body<'a> {
                 return;
             }
             // LR26: leaving the function leaves every scope it has open.
-            self.unwind_from(0);
+            if self.unwind_from(0) {
+                return;
+            }
             let ty = self.function.result.clone();
             let returned = self.emit(
                 InstKind::MakeEnum {
@@ -294,7 +305,9 @@ impl<'a> Body<'a> {
             return;
         };
 
-        self.unwind_from(handler.frame);
+        if self.unwind_from(handler.frame) {
+            return;
+        }
         let mut args = vec![thrown];
         args.extend(handler.carried.iter().map(|var| self.defs[var]));
         self.terminate(Terminator::Jump(Target::new(handler.block, args)));
@@ -399,7 +412,11 @@ impl<'a> Body<'a> {
         // LR25.3: what no clause caught keeps going, once the `finally` around
         // the handler has run.
         if !self.left {
-            self.raise(thrown, span);
+            if self.throws || !self.handlers.is_empty() {
+                self.raise(thrown, span);
+            } else {
+                self.terminate(Terminator::Trap(Trap::Unreachable));
+            }
         }
 
         let done = self.function.add_block();
@@ -613,7 +630,9 @@ impl<'a> Body<'a> {
         };
         // LR26: a `return` leaves every scope the function has open, so
         // everything they deferred runs, innermost first.
-        self.unwind_from(0);
+        if self.unwind_from(0) {
+            return;
+        }
         let returned = self.returned(value, span);
         self.terminate(Terminator::Return(returned));
     }
