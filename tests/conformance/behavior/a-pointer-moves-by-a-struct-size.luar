@@ -1,0 +1,28 @@
+--- expect: run
+--- exit: 17
+--- spec: LR29.2
+--- spec: LR72
+--- spec: LR73
+@repr("C")
+struct Number
+    value: i32
+end
+
+@repr("C")
+struct Numbers
+    left: Number
+    right: Number
+end
+
+export function main(): i32
+    local numbers = Numbers {
+        left = Number { value = 1 },
+        right = Number { value = 2 },
+    }
+    unsafe
+        local pointer = &mut numbers.left
+        pointer:add(1):write(Number { value = 7 })
+        local read = pointer:add(1):read()
+        return numbers.left.value * 10 + read.value
+    end
+end

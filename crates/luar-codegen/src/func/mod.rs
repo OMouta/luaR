@@ -569,32 +569,38 @@ impl Translator<'_, '_> {
                 let target = inst
                     .result
                     .map(|result| self.function.type_of(result).clone());
-                match target {
-                    Some(Ty::Pointer { target, .. }) if layout::is_aggregate(&target) => {
-                        self.gap("an address of an aggregate field");
-                        None
+                layout::field_offset(self.program, &held, *field, self.pointer).map(|offset| {
+                    let address = self.value(*object);
+                    match target {
+                        Some(Ty::Pointer { target, .. })
+                            if layout::is_aggregate(&target)
+                                && !layout::is_repr_c(self.program, &held) =>
+                        {
+                            self.builder
+                                .ins()
+                                .load(self.pointer, OWNED, address, offset)
+                        }
+                        _ => self.builder.ins().iadd_imm(address, i64::from(offset)),
                     }
-                    _ => layout::field_offset(self.program, &held, *field, self.pointer).map(
-                        |offset| {
-                            let address = self.value(*object);
-                            self.builder.ins().iadd_imm(address, i64::from(offset))
-                        },
-                    ),
-                }
+                })
             }
             InstKind::Offset { pointer, count } => {
                 let target = match self.function.type_of(*pointer) {
                     Ty::Pointer { target, .. } => target.as_ref().clone(),
                     other => other.clone(),
                 };
-                match machine(&target, self.pointer) {
-                    Some(stride) if !layout::is_aggregate(&target) => {
+                let stride = if layout::is_repr_c(self.program, &target) {
+                    layout::abi_size(self.program, &target, self.pointer)
+                } else if layout::is_aggregate(&target) {
+                    layout::size(self.program, &target, self.pointer)
+                } else {
+                    machine(&target, self.pointer).and_then(|ty| i32::try_from(ty.bytes()).ok())
+                };
+                match stride {
+                    Some(stride) => {
                         let address = self.value(*pointer);
                         let count = self.value(*count);
-                        let bytes = self
-                            .builder
-                            .ins()
-                            .imul_imm(count, i64::from(stride.bytes()));
+                        let bytes = self.builder.ins().imul_imm(count, i64::from(stride));
                         Some(self.builder.ins().iadd(address, bytes))
                     }
                     _ => {
@@ -605,8 +611,9 @@ impl Translator<'_, '_> {
             }
             InstKind::Load { pointer } => match inst.result {
                 Some(result) if layout::is_aggregate(self.function.type_of(result)) => {
-                    self.gap("a read of an aggregate through a pointer");
-                    None
+                    let ty = self.function.type_of(result).clone();
+                    let address = self.value(*pointer);
+                    self.load_aggregate(address, &ty)
                 }
                 Some(result) => {
                     let address = self.value(*pointer);
@@ -617,7 +624,8 @@ impl Translator<'_, '_> {
             },
             InstKind::Store { pointer, value } => {
                 if layout::is_aggregate(self.function.type_of(*value)) {
-                    self.gap("a write of an aggregate through a pointer");
+                    let address = self.value(*pointer);
+                    self.store_aggregate(address, *value);
                 } else {
                     let address = self.value(*pointer);
                     let written = self.value(*value);

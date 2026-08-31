@@ -1,0 +1,23 @@
+--- expect: run
+--- exit: 9
+--- spec: LR29.2
+--- spec: LR31
+--- spec: LR72
+struct Counter
+    value: int
+end
+
+struct Holder
+    counter: Counter
+end
+
+export function main(): int
+    local holder = Holder { counter = Counter { value = 1 } }
+    unsafe
+        local pointer = &mut holder.counter
+        pointer:write(Counter { value = 9 })
+        local read = pointer:read()
+        read.value = 4
+    end
+    return holder.counter.value
+end

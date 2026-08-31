@@ -7,7 +7,7 @@ use luar_lir::ty::{Builtin, Ty};
 use crate::layout::{self, TAG_TYPE};
 use crate::ty::machine;
 
-use super::{OWNED, Translator};
+use super::{FOREIGN, OWNED, Translator};
 
 impl Translator<'_, '_> {
     /// Storage large enough for a value of `ty`.
@@ -77,6 +77,11 @@ impl Translator<'_, '_> {
         let held = self.function.type_of(object).clone();
         let offset = layout::field_offset(self.program, &held, index, self.pointer)?;
         let address = self.value(object);
+        if result.is_some_and(|value| layout::is_aggregate(self.function.type_of(value)))
+            && layout::is_repr_c(self.program, &held)
+        {
+            return Some(self.builder.ins().iadd_imm(address, i64::from(offset)));
+        }
         let ty = result.map_or(types::I8, |value| self.machine_or_gap(value));
         Some(self.builder.ins().load(ty, OWNED, address, offset))
     }
@@ -93,6 +98,19 @@ impl Translator<'_, '_> {
             return;
         };
         let written = self.value(value);
+        if layout::is_repr_c(self.program, owner)
+            && layout::is_aggregate(self.function.type_of(value))
+        {
+            let destination = self.builder.ins().iadd_imm(address, i64::from(offset));
+            let Some(size) =
+                layout::abi_size(self.program, self.function.type_of(value), self.pointer)
+            else {
+                self.gap(format!("a field of `{owner}`"));
+                return;
+            };
+            self.copy_bytes(written, OWNED, destination, OWNED, size);
+            return;
+        }
         self.builder.ins().store(OWNED, written, address, offset);
     }
 
@@ -131,6 +149,12 @@ impl Translator<'_, '_> {
         if depth == 0 {
             self.gap(format!("a copy of a value nested as deeply as `{ty}`"));
             return None;
+        }
+
+        if layout::is_repr_c(self.program, ty) {
+            let copy = self.allocate_as(ty, layout::DEPTH - depth, allocation)?;
+            self.copy_bytes(source, OWNED, copy, OWNED, size);
+            return Some(copy);
         }
 
         let parts = layout::parts(self.program, ty);
@@ -217,6 +241,63 @@ impl Translator<'_, '_> {
             }
         }
         Some(copy)
+    }
+
+    pub(super) fn load_aggregate(&mut self, source: ir::Value, ty: &Ty) -> Option<ir::Value> {
+        if layout::is_repr_c(self.program, ty) {
+            let size = layout::abi_size(self.program, ty, self.pointer)?;
+            let copy = self.allocate(ty, 0)?;
+            self.copy_bytes(source, FOREIGN, copy, OWNED, size);
+            Some(copy)
+        } else {
+            self.duplicate(source, ty, layout::DEPTH, Allocation::Managed)
+        }
+    }
+
+    pub(super) fn store_aggregate(&mut self, destination: ir::Value, value: Value) {
+        let ty = self.function.type_of(value).clone();
+        let source = self.value(value);
+        let size = if layout::is_repr_c(self.program, &ty) {
+            layout::abi_size(self.program, &ty, self.pointer)
+        } else {
+            layout::size(self.program, &ty, self.pointer)
+        };
+        let Some(size) = size else {
+            self.gap(format!("a write of a value of type `{ty}`"));
+            return;
+        };
+        let source = if layout::is_repr_c(self.program, &ty) {
+            source
+        } else {
+            self.duplicate(source, &ty, layout::DEPTH, Allocation::Managed)
+                .unwrap_or(source)
+        };
+        self.copy_bytes(source, OWNED, destination, FOREIGN, size);
+    }
+
+    fn copy_bytes(
+        &mut self,
+        source: ir::Value,
+        source_flags: ir::MemFlags,
+        destination: ir::Value,
+        destination_flags: ir::MemFlags,
+        size: i32,
+    ) {
+        let mut offset = 0;
+        for (width, ty) in [
+            (8, types::I64),
+            (4, types::I32),
+            (2, types::I16),
+            (1, types::I8),
+        ] {
+            while size - offset >= width {
+                let held = self.builder.ins().load(ty, source_flags, source, offset);
+                self.builder
+                    .ins()
+                    .store(destination_flags, held, destination, offset);
+                offset += width;
+            }
+        }
     }
 
     pub(super) fn reinterpret(&mut self, value: Value, to: &Ty) -> Option<ir::Value> {

@@ -41,7 +41,7 @@ fn cell_offset(index: u32) -> i32 {
 /// The byte field `index` sits at in `ty`.
 #[must_use]
 pub fn field_offset(program: &Program, ty: &Ty, index: u32, pointer: Type) -> Option<i32> {
-    if repr_c(program, ty) {
+    if is_repr_c(program, ty) {
         return c_layout(program, ty, pointer, DEPTH)?
             .offsets
             .get(index as usize)
@@ -54,7 +54,7 @@ pub fn field_offset(program: &Program, ty: &Ty, index: u32, pointer: Type) -> Op
 /// not one the backend lays out.
 #[must_use]
 pub fn size(program: &Program, ty: &Ty, pointer: Type) -> Option<i32> {
-    if repr_c(program, ty) {
+    if is_repr_c(program, ty) {
         let layout = c_layout(program, ty, pointer, DEPTH)?;
         return Some(align_to(layout.size, CELL));
     }
@@ -115,7 +115,8 @@ pub fn size(program: &Program, ty: &Ty, pointer: Type) -> Option<i32> {
     Some(cell_offset(cells).max(CELL))
 }
 
-fn repr_c(program: &Program, ty: &Ty) -> bool {
+#[must_use]
+pub fn is_repr_c(program: &Program, ty: &Ty) -> bool {
     let Ty::Named { id, .. } = ty else {
         return false;
     };
