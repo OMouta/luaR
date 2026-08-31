@@ -14,6 +14,7 @@ use luar_lir::program::{BlockId, FuncId, Function, Program, SlotId};
 use luar_lir::ty::{Ty, TypeId};
 
 use crate::Gap;
+use crate::abi::CAbi;
 use crate::layout::{self, TAG, TAG_TYPE};
 use crate::ty::machine;
 
@@ -80,6 +81,7 @@ pub(crate) fn signature(
 pub(crate) struct Translator<'a, 'b> {
     pub program: &'a Program,
     pub function: &'a Function,
+    pub external_abis: &'a HashMap<FuncId, CAbi>,
     pub function_name: GlobalValue,
     pub function_name_length: usize,
     pub builder: FunctionBuilder<'b>,

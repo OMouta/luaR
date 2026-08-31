@@ -1,5 +1,6 @@
 //! Backend: LIR to machine code.
 
+mod abi;
 mod func;
 mod gc;
 mod layout;
@@ -91,6 +92,8 @@ pub fn compile(program: &Program) -> Result<Object, Error> {
         .map_err(|error| Error::Target(error.to_string()))?;
     let pointer = isa.pointer_type();
     let call_conv = isa.default_call_conv();
+    let c_abi_target = abi::Target::new(isa.triple().architecture, call_conv)
+        .ok_or_else(|| Error::Target(isa.triple().to_string()))?;
 
     let builder = ObjectBuilder::new(isa, "luar", cranelift_module::default_libcall_names())
         .map_err(|error| Error::Cranelift(error.to_string()))?;
@@ -101,7 +104,9 @@ pub fn compile(program: &Program) -> Result<Object, Error> {
         module,
         pointer,
         call_conv,
+        c_abi_target,
         declared: HashMap::new(),
+        external_abis: HashMap::new(),
         runtime,
         texts: HashMap::new(),
         names: HashMap::new(),
@@ -129,7 +134,9 @@ struct Emitter<'a> {
     module: ObjectModule,
     pointer: types::Type,
     call_conv: CallConv,
+    c_abi_target: abi::Target,
     declared: HashMap<FuncId, ModuleFuncId>,
+    external_abis: HashMap<FuncId, abi::CAbi>,
     runtime: Runtime,
     /// One data object per distinct literal text, by its bytes.
     texts: HashMap<Vec<u8>, DataId>,
@@ -154,7 +161,21 @@ impl Emitter<'_> {
             if function.is_template() {
                 continue;
             }
-            let Some(signature) = signature(function, self.pointer, self.call_conv) else {
+            let external_abi = function.external.as_ref().and_then(|_| {
+                abi::CAbi::new(
+                    self.program,
+                    function,
+                    self.pointer,
+                    self.call_conv,
+                    self.c_abi_target,
+                )
+            });
+            let signature = match (&function.external, &external_abi) {
+                (Some(_), Some(abi)) => Some(abi.signature.clone()),
+                (Some(_), None) => None,
+                (None, _) => signature(function, self.pointer, self.call_conv),
+            };
+            let Some(signature) = signature else {
                 let offending = function
                     .params
                     .iter()
@@ -179,6 +200,9 @@ impl Emitter<'_> {
                 .declare_function(&name, linkage, &signature)
                 .map_err(|error| Error::Cranelift(error.to_string()))?;
             self.declared.insert(id, declared);
+            if let Some(abi) = external_abi {
+                self.external_abis.insert(id, abi);
+            }
         }
         Ok(())
     }
@@ -451,6 +475,7 @@ impl Emitter<'_> {
             let translator = Translator {
                 program: self.program,
                 function,
+                external_abis: &self.external_abis,
                 function_name,
                 function_name_length,
                 builder: FunctionBuilder::new(&mut context.func, &mut frame),

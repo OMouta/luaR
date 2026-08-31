@@ -7,6 +7,7 @@ use luar_lir::inst::{MethodId, Value};
 use luar_lir::program::{FuncId, Shape};
 use luar_lir::ty::{Ty, TypeId};
 
+use crate::abi::{CAbi, Param as CParam, Result as CResult};
 use crate::layout;
 use crate::ty::machine;
 
@@ -27,6 +28,9 @@ impl Translator<'_, '_> {
             self.gap("a call to a function the backend did not emit");
             return None;
         };
+        if let Some(abi) = self.external_abis.get(&callee).cloned() {
+            return self.call_external(callee, args, reference, &abi);
+        }
         let passed: Vec<ir::Value> = args.iter().map(|arg| self.value(*arg)).collect();
         let call = self.builder.ins().call(reference, &passed);
         match self.builder.inst_results(call).first().copied() {
@@ -37,6 +41,52 @@ impl Translator<'_, '_> {
             None => {
                 self.gap("a call whose result the ABI did not return");
                 None
+            }
+        }
+    }
+
+    fn call_external(
+        &mut self,
+        callee: FuncId,
+        args: &[Value],
+        reference: ir::FuncRef,
+        abi: &CAbi,
+    ) -> Option<ir::Value> {
+        let result_ty = self.program.function(callee).result.clone();
+        let returned = if matches!(abi.result, CResult::Indirect) {
+            Some(self.allocate(&result_ty, 0)?)
+        } else {
+            None
+        };
+
+        let mut passed = Vec::new();
+        if let Some(returned) = returned {
+            passed.push(returned);
+        }
+        for (value, param) in args.iter().zip(&abi.params) {
+            let value = self.value(*value);
+            match param {
+                CParam::Scalar | CParam::Indirect | CParam::Stack(_) => passed.push(value),
+                CParam::Direct(parts) => {
+                    for part in parts {
+                        passed.push(self.builder.ins().load(part.ty, OWNED, value, part.offset));
+                    }
+                }
+            }
+        }
+
+        let call = self.builder.ins().call(reference, &passed);
+        match &abi.result {
+            CResult::Unit => Some(self.builder.ins().iconst(types::I8, 0)),
+            CResult::Scalar => self.builder.inst_results(call).first().copied(),
+            CResult::Indirect => returned,
+            CResult::Direct(parts) => {
+                let result = self.allocate(&result_ty, 0)?;
+                let values = self.builder.inst_results(call).to_vec();
+                for (part, value) in parts.iter().zip(values) {
+                    self.builder.ins().store(OWNED, value, result, part.offset);
+                }
+                Some(result)
             }
         }
     }
