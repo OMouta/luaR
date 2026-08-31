@@ -2,7 +2,9 @@
 
 use std::fmt::Write as _;
 
-use crate::inst::{BinaryOp, Const, Inst, InstKind, Target, Terminator, UnaryOp, Value};
+use crate::inst::{
+    Allocation, BinaryOp, Const, Inst, InstKind, Target, Terminator, UnaryOp, Value,
+};
 use crate::program::{Function, Nominal, Program, Shape};
 
 /// The whole program: its types, then its functions.
@@ -223,9 +225,19 @@ fn instruction(inst: &Inst, function: &Function) -> String {
         InstKind::MakeClosure { func, captures } => {
             format!("closure func{}[{}]", func.0, list(captures))
         }
-        InstKind::CopyValue { value } => format!("copy {}", name(*value)),
+        InstKind::CopyValue { value, allocation } => {
+            format!("{}copy {}", allocation_prefix(*allocation), name(*value))
+        }
         InstKind::Freeze { value } => format!("freeze {}", name(*value)),
-        InstKind::MakeStruct { ty, fields } => format!("struct {ty} {{ {} }}", list(fields)),
+        InstKind::MakeStruct {
+            ty,
+            fields,
+            allocation,
+        } => format!(
+            "{}struct {ty} {{ {} }}",
+            allocation_prefix(*allocation),
+            list(fields)
+        ),
         InstKind::GetField { object, field } => format!("field {}.{field}", name(*object)),
         InstKind::SetField {
             object,
@@ -439,6 +451,14 @@ fn unary(op: UnaryOp) -> &'static str {
         UnaryOp::Negate => "neg",
         UnaryOp::Not => "not",
         UnaryOp::BitNot => "bitnot",
+    }
+}
+
+fn allocation_prefix(allocation: Allocation) -> &'static str {
+    match allocation {
+        Allocation::Managed => "",
+        Allocation::Stack => "stack ",
+        Allocation::Registers => "registers ",
     }
 }
 

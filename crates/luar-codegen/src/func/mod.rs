@@ -291,13 +291,13 @@ impl Translator<'_, '_> {
                 args,
             } => self.call(*callee, type_args, args),
 
-            InstKind::CopyValue { value } => {
+            InstKind::CopyValue { value, .. } => {
                 let ty = self.function.type_of(*value).clone();
                 let source = self.value(*value);
                 self.duplicate(source, &ty, layout::DEPTH)
             }
             InstKind::Freeze { value } => Some(self.value(*value)),
-            InstKind::MakeStruct { ty, fields } => self.make(ty, 0, fields),
+            InstKind::MakeStruct { ty, fields, .. } => self.make(ty, 0, fields),
 
             // LR9.8: a closure is its code's address and then what it
             // captured, and it is passed to that code first.

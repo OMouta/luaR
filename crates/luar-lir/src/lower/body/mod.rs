@@ -19,7 +19,7 @@ use luar_sema::modules::ModuleId;
 use luar_sema::types::Type;
 
 use crate::inst::MethodId;
-use crate::inst::{Const, Inst, InstKind, Target, Terminator, Trap, Value};
+use crate::inst::{Allocation, Const, Inst, InstKind, Target, Terminator, Trap, Value};
 use crate::lower::names::{self, assigned};
 use crate::lower::types::{self, Ids};
 use crate::lower::{Callee, CompilationMode, Gap, Property};
@@ -813,6 +813,7 @@ impl<'a> Body<'a> {
             InstKind::MakeStruct {
                 ty: ty.clone(),
                 fields: value.into_iter().collect(),
+                allocation: Allocation::Managed,
             },
             ty,
             span,

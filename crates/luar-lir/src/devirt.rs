@@ -447,6 +447,7 @@ mod tests {
             kind: InstKind::MakeStruct {
                 ty: concrete,
                 fields: Vec::new(),
+                allocation: crate::inst::Allocation::Managed,
             },
             span: SPAN,
         });

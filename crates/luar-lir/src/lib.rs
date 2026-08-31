@@ -2,6 +2,7 @@
 
 pub mod bounds;
 pub mod devirt;
+pub mod escape;
 pub mod inline;
 pub mod inst;
 pub mod lower;

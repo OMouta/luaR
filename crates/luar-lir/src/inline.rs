@@ -203,7 +203,7 @@ fn remap_inst(inst: &mut InstKind, map: &HashMap<Value, Value>, slots: &HashMap<
         | InstKind::Reinterpret { value: held, .. }
         | InstKind::IsType { value: held, .. }
         | InstKind::DynValue { value: held }
-        | InstKind::CopyValue { value: held }
+        | InstKind::CopyValue { value: held, .. }
         | InstKind::Freeze { value: held }
         | InstKind::GetField { object: held, .. }
         | InstKind::GetTag { value: held }

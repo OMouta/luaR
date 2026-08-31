@@ -479,6 +479,7 @@ mod tests {
             kind: InstKind::MakeStruct {
                 ty: receiver.clone(),
                 fields: Vec::new(),
+                allocation: crate::inst::Allocation::Managed,
             },
             span: SPAN,
         });

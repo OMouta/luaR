@@ -82,6 +82,15 @@ pub enum Overflow {
     Check,
 }
 
+/// Storage selected for a value struct (LR29).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Allocation {
+    #[default]
+    Managed,
+    Stack,
+    Registers,
+}
+
 impl BinaryOp {
     /// Whether the operator can fail on values the type system allows:
     /// overflow on an integer (LR4.3), and a zero divisor (LR11.1).
@@ -256,6 +265,7 @@ pub enum InstKind {
     /// struct is given when it reaches a new holder (LR31).
     CopyValue {
         value: Value,
+        allocation: Allocation,
     },
     /// A mutable collection viewed through its frozen type (LR59).
     Freeze {
@@ -266,6 +276,7 @@ pub enum InstKind {
     MakeStruct {
         ty: Ty,
         fields: Vec<Value>,
+        allocation: Allocation,
     },
     /// One field, by its index in that order (LR12.2).
     GetField {

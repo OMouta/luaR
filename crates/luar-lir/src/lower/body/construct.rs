@@ -3,7 +3,7 @@
 use luar_ast::{Argument, Expr, ExprKind, FieldInit, MapEntry, MapKey};
 use luar_diagnostics::Span;
 
-use crate::inst::{Const, InstKind, Target, Terminator, Value};
+use crate::inst::{Allocation, Const, InstKind, Target, Terminator, Value};
 use crate::lower::Property;
 use crate::lower::body::Body;
 use crate::program::FuncId;
@@ -75,6 +75,7 @@ impl<'a> Body<'a> {
             InstKind::MakeStruct {
                 ty: ty.clone(),
                 fields: values,
+                allocation: Allocation::Managed,
             },
             ty,
             span,

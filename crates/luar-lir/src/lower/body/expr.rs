@@ -6,7 +6,9 @@ use luar_ast::{
 use luar_diagnostics::Span;
 use luar_sema::check::protocol_of;
 
-use crate::inst::{BinaryOp, Const, InstKind, MethodId, Target, Terminator, UnaryOp, Value};
+use crate::inst::{
+    Allocation, BinaryOp, Const, InstKind, MethodId, Target, Terminator, UnaryOp, Value,
+};
 use crate::lower::body::Body;
 use crate::program::Shape;
 use crate::ty::{Builtin, IntTy, Ty, TypeId};
@@ -29,7 +31,14 @@ impl<'a> Body<'a> {
         if !self.is_value_struct(&ty) {
             return value;
         }
-        self.emit(InstKind::CopyValue { value }, ty, expr.span)
+        self.emit(
+            InstKind::CopyValue {
+                value,
+                allocation: Allocation::Managed,
+            },
+            ty,
+            expr.span,
+        )
     }
 
     /// Whether `ty` has value semantics. A `ref struct` is one object every
