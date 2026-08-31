@@ -1,0 +1,19 @@
+--- expect: run
+--- exit: 32
+--- spec: LR46
+--- spec: LR73
+@repr("C")
+struct Division
+    quotient: i32
+    remainder: i32
+end
+
+@extern("c")
+unsafe function div(numerator: i32, denominator: i32): Division
+
+export function main(): i32
+    unsafe
+        local result = div(17, 5)
+        return result.quotient * 10 + result.remainder
+    end
+end

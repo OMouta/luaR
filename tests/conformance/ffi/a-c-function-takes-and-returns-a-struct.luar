@@ -1,0 +1,19 @@
+--- expect: run
+--- exit: 34
+--- spec: LR46
+--- spec: LR73
+@repr("C")
+struct Complex
+    real: f64
+    imaginary: f64
+end
+
+@extern("c")
+unsafe function csqrt(value: Complex): Complex
+
+export function main(): int
+    unsafe
+        local result = csqrt(Complex { real = -7.0, imaginary = 24.0 })
+        return result.real as int * 10 + result.imaginary as int
+    end
+end

@@ -1,0 +1,18 @@
+--- expect: run
+--- exit: 5
+--- spec: LR46
+--- spec: LR73
+@repr("C")
+struct Complex
+    real: f64
+    imaginary: f64
+end
+
+@extern("c")
+unsafe function cabs(value: Complex): f64
+
+export function main(): int
+    unsafe
+        return cabs(Complex { real = 3.0, imaginary = 4.0 }) as int
+    end
+end
