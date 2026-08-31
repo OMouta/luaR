@@ -6,7 +6,7 @@ fn int_is_i64_in_webassembly() {
     let mut sources = SourceMap::new();
     let root = sources.add(
         "main.luar",
-        "export function main(): int\n    return 42\nend\n",
+        "@noinline\nfunction answer(): int\n    return 42\nend\n\nexport function main(): int\n    return answer()\nend\n",
     );
     let lowered = luar_driver::lower(&mut sources, root).unwrap();
     assert!(lowered.gaps.is_empty());
@@ -19,6 +19,7 @@ fn int_is_i64_in_webassembly() {
 
     let mut saw_type = false;
     let mut saw_value = false;
+    let mut saw_call = false;
     for payload in wasmparser::Parser::new(0).parse_all(&wasm.bytes) {
         match payload.unwrap() {
             wasmparser::Payload::TypeSection(types) => {
@@ -28,11 +29,11 @@ fn int_is_i64_in_webassembly() {
             wasmparser::Payload::CodeSectionEntry(body) => {
                 let mut operators = body.get_operators_reader().unwrap();
                 while !operators.eof() {
-                    if matches!(
-                        operators.read().unwrap(),
-                        wasmparser::Operator::I64Const { value: 42 }
-                    ) {
+                    let operator = operators.read().unwrap();
+                    if matches!(operator, wasmparser::Operator::I64Const { value: 42 }) {
                         saw_value = true;
+                    } else if matches!(operator, wasmparser::Operator::Call { function_index: 0 }) {
+                        saw_call = true;
                     }
                 }
             }
@@ -41,4 +42,5 @@ fn int_is_i64_in_webassembly() {
     }
     assert!(saw_type);
     assert!(saw_value);
+    assert!(saw_call);
 }

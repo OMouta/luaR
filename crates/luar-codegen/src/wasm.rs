@@ -63,7 +63,7 @@ pub fn compile_wasm(program: &Program) -> Wasm {
         if !emitted.contains_key(&id) {
             continue;
         }
-        code.function(&emit_function(function, &mut gaps));
+        code.function(&emit_function(function, &emitted, &mut gaps));
     }
 
     if let Some(entry) = program.entry
@@ -92,7 +92,11 @@ pub fn compile_wasm(program: &Program) -> Wasm {
     }
 }
 
-fn emit_function(function: &LirFunction, gaps: &mut Vec<Gap>) -> Function {
+fn emit_function(
+    function: &LirFunction,
+    functions: &HashMap<luar_lir::program::FuncId, u32>,
+    gaps: &mut Vec<Gap>,
+) -> Function {
     let mut locals = Vec::new();
     let mut values = HashMap::new();
     let entry = function.block(function.entry);
@@ -134,6 +138,20 @@ fn emit_function(function: &LirFunction, gaps: &mut Vec<Gap>) -> Function {
         match (&inst.kind, inst.result) {
             (InstKind::Const(value), Some(result)) => {
                 emit_const(&mut body, value, function.type_of(result));
+                body.instruction(&Instruction::LocalSet(values[&result]));
+            }
+            (
+                InstKind::Call {
+                    callee,
+                    type_args,
+                    args,
+                },
+                Some(result),
+            ) if type_args.is_empty() && functions.contains_key(callee) => {
+                for argument in args {
+                    body.instruction(&Instruction::LocalGet(values[argument]));
+                }
+                body.instruction(&Instruction::Call(functions[callee]));
                 body.instruction(&Instruction::LocalSet(values[&result]));
             }
             (kind, _) => {
