@@ -39,6 +39,8 @@ cranelift-native = "=0.125.4"
 cranelift-module = "=0.125.4"
 cranelift-object = "=0.125.4"
 target-lexicon = "=0.13.5"
+wasm-encoder = { version = "=0.256.0", default-features = false, features = ["std"] }
+wasmparser = "=0.256.0"
 cc = "1"
 
 [workspace.lints.rust]

@@ -8,6 +8,7 @@ mod link;
 mod map;
 mod runtime;
 mod ty;
+mod wasm;
 
 use std::collections::HashMap;
 
@@ -27,6 +28,7 @@ use luar_lir::program::{FuncId, Function, Program, Shape};
 use luar_lir::ty::{Ty, TypeId};
 
 pub use crate::link::{LinkError, link};
+pub use crate::wasm::{Wasm, compile_wasm};
 
 use crate::func::{Translator, signature};
 use crate::runtime::Runtime;

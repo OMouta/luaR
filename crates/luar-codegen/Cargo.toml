@@ -17,6 +17,7 @@ cranelift-frontend = { workspace = true }
 cranelift-module = { workspace = true }
 cranelift-object = { workspace = true }
 target-lexicon = { workspace = true }
+wasm-encoder = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 cc = { workspace = true }

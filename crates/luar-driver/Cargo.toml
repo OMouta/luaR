@@ -16,5 +16,8 @@ luar-sema = { workspace = true }
 luar-lir = { workspace = true }
 luar-codegen = { workspace = true }
 
+[dev-dependencies]
+wasmparser = { workspace = true }
+
 [lints]
 workspace = true
