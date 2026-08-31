@@ -19,7 +19,7 @@ use luar_sema::modules::{Graph, ModuleId};
 use luar_sema::table::{Decl, EnumType, InterfaceType, Signature, StructType, Table, Variant};
 use luar_sema::types::Type;
 
-use crate::inst::{MethodId, Terminator, Trap};
+use crate::inst::{Inst, InstKind, MethodId, Terminator, Trap};
 use crate::lower::types::Ids;
 use crate::program::{
     Enum, Field, FuncId, Function, Implementation, Interface, Method, Nominal, Program, Shape,
@@ -381,6 +381,7 @@ impl Lowering<'_> {
                     name: method.clone(),
                     params,
                     result,
+                    throws: false,
                 });
             }
         }
@@ -431,7 +432,13 @@ impl Lowering<'_> {
             .into_iter()
             .filter_map(|(_, _, function)| Some((function.span, function.body?)))
             .collect();
-        self.throwing = throws::escaping(&bodies, self.facts);
+        let interfaces = self
+            .table
+            .decls()
+            .filter(|(_, _, decl)| matches!(decl, Decl::Interface(_)))
+            .map(|(module, name, _)| (module, name.to_owned()))
+            .collect();
+        self.throwing = throws::escaping(&bodies, self.facts, &interfaces);
     }
 
     fn declare_functions(&mut self) {
@@ -754,6 +761,7 @@ impl Lowering<'_> {
                 self.implement(module, &name, ty, &claimed);
             }
         }
+        self.adapt_throwing_virtuals();
     }
 
     /// Records that `ty` implements `claimed`, with the function each of the
@@ -779,7 +787,7 @@ impl Lowering<'_> {
         };
 
         let mut methods = Vec::with_capacity(wanted.len());
-        for (method, takes) in &wanted {
+        for (slot, (method, takes)) in wanted.iter().enumerate() {
             // LR40: a name may have several signatures, and the one filling
             // the slot is the one that takes what the slot takes.
             let found = structure.methods.get(method).and_then(|overloads| {
@@ -790,19 +798,9 @@ impl Lowering<'_> {
                 fitting.next().is_none().then_some(first.span)
             });
 
-            // LR25.3: a method reached through an interface is called at the
-            // slot's result type, which says nothing about throwing.
-            if found.is_some_and(|span| self.throwing.contains(&span)) {
-                self.gap(
-                    span,
-                    format!("`{name}` implementing `{method}` with a method that throws"),
-                );
-                return;
-            }
-
-            let Some(found) = found
+            let Some((found, throws)) = found
                 .and_then(|span| self.functions.get(&span))
-                .map(|held| held.id)
+                .map(|held| (held.id, held.throws))
             else {
                 self.gap(
                     span,
@@ -812,12 +810,104 @@ impl Lowering<'_> {
                 );
                 return;
             };
+            if throws
+                && let Shape::Interface(held) = &mut self.program.nominal_mut(interface).shape
+                && let Some(method) = held.methods.get_mut(slot)
+            {
+                method.throws = true;
+            }
             methods.push(found);
         }
 
         if let Shape::Interface(held) = &mut self.program.nominal_mut(interface).shape {
             held.implementors.push(Implementation { ty, methods });
         }
+    }
+
+    fn adapt_throwing_virtuals(&mut self) {
+        let mut adapters = Vec::new();
+        for (interface, nominal) in self.program.types() {
+            let Shape::Interface(held) = &nominal.shape else {
+                continue;
+            };
+            for implementation in &held.implementors {
+                for (slot, callee) in implementation.methods.iter().copied().enumerate() {
+                    if held.methods.get(slot).is_some_and(|method| method.throws) {
+                        adapters.push((interface, implementation.ty, slot, callee));
+                    }
+                }
+            }
+        }
+        for (interface, ty, slot, callee) in adapters {
+            let adapter = self.virtual_adapter(callee);
+            let Shape::Interface(held) = &mut self.program.nominal_mut(interface).shape else {
+                continue;
+            };
+            if let Some(method) = held
+                .implementors
+                .iter_mut()
+                .find(|implementation| implementation.ty == ty)
+                .and_then(|implementation| implementation.methods.get_mut(slot))
+            {
+                *method = adapter;
+            }
+        }
+    }
+
+    fn virtual_adapter(&mut self, callee: FuncId) -> FuncId {
+        let source = self.program.function(callee).clone();
+        let (declared, throws) = match &source.result {
+            Ty::Builtin {
+                kind: Builtin::Result,
+                args,
+            } if args.get(1) == Some(&Ty::Dynamic) => {
+                (args.first().cloned().unwrap_or(Ty::Unit), true)
+            }
+            result => (result.clone(), false),
+        };
+        let index = self.program.functions().count();
+        let mut adapter = Function::new(
+            format!("{}#virtual{index}", source.name),
+            source.params.clone(),
+            thrown_or(declared),
+            source.span,
+        );
+        adapter.type_params.clone_from(&source.type_params);
+        let entry = adapter.entry;
+        let args = adapter.block(entry).params.clone();
+        let called = adapter.add_value(source.result.clone());
+        adapter.block_mut(entry).insts.push(Inst {
+            result: Some(called),
+            kind: InstKind::Call {
+                callee,
+                type_args: source
+                    .type_params
+                    .iter()
+                    .cloned()
+                    .map(Ty::Parameter)
+                    .collect(),
+                args,
+            },
+            span: source.span,
+        });
+        let returned = if throws {
+            called
+        } else {
+            let result = adapter.result.clone();
+            let returned = adapter.add_value(result.clone());
+            adapter.block_mut(entry).insts.push(Inst {
+                result: Some(returned),
+                kind: InstKind::MakeEnum {
+                    ty: result,
+                    variant: 0,
+                    payload: vec![called],
+                },
+                span: source.span,
+            });
+            returned
+        };
+        adapter.block_mut(entry).term = Some(Terminator::Return(returned));
+        self.program.add_function(adapter)
     }
 
     /// Fills in every declared function's body.

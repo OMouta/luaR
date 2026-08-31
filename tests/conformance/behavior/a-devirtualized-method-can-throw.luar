@@ -1,0 +1,31 @@
+--- expect: run
+--- exit: 6
+--- spec: LR18.1
+--- spec: LR25.3
+struct Fault
+    code: int
+end
+
+interface Action
+    function run(self): int
+end
+
+struct Fail implements Action
+    function run(self): int
+        throw Fault { code = 6 }
+    end
+end
+
+function invoke(action: Action): int
+    return action:run()
+end
+
+export function main(): int
+    try
+        return invoke(Fail {})
+    catch error: Fault
+        return error.code
+    catch error
+        return 1
+    end
+end

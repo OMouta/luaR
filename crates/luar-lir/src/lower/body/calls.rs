@@ -446,14 +446,33 @@ impl<'a> Body<'a> {
             .map(|argument| self.stored(&argument.value, None))
             .collect();
         let result = self.recorded(span);
-        self.emit(
+        let throws = match &self.context.program.nominal(method.interface).shape {
+            crate::program::Shape::Interface(interface) => interface
+                .methods
+                .get(method.slot as usize)
+                .is_some_and(|method| method.throws),
+            _ => false,
+        };
+        if !throws {
+            return self.emit(
+                InstKind::CallVirtual {
+                    method,
+                    receiver,
+                    args: passed,
+                },
+                result,
+                span,
+            );
+        }
+        let produced = self.emit(
             InstKind::CallVirtual {
                 method,
                 receiver,
                 args: passed,
             },
-            result,
+            thrown_or(result.clone()),
             span,
-        )
+        );
+        self.caught_or_raised(produced, result, span)
     }
 }

@@ -356,7 +356,7 @@ impl Translator<'_, '_> {
                 method,
                 receiver,
                 args,
-            } => self.call_virtual(*method, *receiver, args),
+            } => self.call_virtual(*method, *receiver, args, inst.result),
 
             // A dynamic value is what it is, and then what it holds (LR18.1,
             // LR25.3).

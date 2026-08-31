@@ -183,12 +183,14 @@ fn type_arguments(
     for (pattern, concrete) in function.params.iter().skip(1).zip(&params) {
         infer(&function.type_params, pattern, concrete, &mut inferred)?;
     }
-    infer(
-        &function.type_params,
-        &function.result,
-        &result,
-        &mut inferred,
-    )?;
+    let returned = match &function.result {
+        Ty::Builtin {
+            kind: crate::ty::Builtin::Result,
+            args,
+        } if args.get(1) == Some(&Ty::Dynamic) => args.first()?,
+        returned => returned,
+    };
+    infer(&function.type_params, returned, &result, &mut inferred)?;
     let type_args: Vec<Ty> = inferred.into_iter().collect::<Option<_>>()?;
     let receiver = function
         .params
@@ -314,6 +316,7 @@ mod tests {
                     name: "size".to_owned(),
                     params: Vec::new(),
                     result: Ty::INT,
+                    throws: false,
                 }],
                 implementors: Vec::new(),
             }),
@@ -497,6 +500,7 @@ mod tests {
                     name: "take".to_owned(),
                     params: Vec::new(),
                     result: Ty::Parameter("T".to_owned()),
+                    throws: false,
                 }],
                 implementors: Vec::new(),
             }),

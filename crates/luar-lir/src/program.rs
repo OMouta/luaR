@@ -68,6 +68,7 @@ pub struct Method {
     pub name: String,
     pub params: Vec<Ty>,
     pub result: Ty,
+    pub throws: bool,
 }
 
 /// One type's implementation of an interface: its method table (LR18.1).

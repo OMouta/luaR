@@ -129,6 +129,7 @@ impl Translator<'_, '_> {
         method: MethodId,
         receiver: Value,
         args: &[Value],
+        result: Option<Value>,
     ) -> Option<ir::Value> {
         let Shape::Interface(interface) = &self.program.nominal(method.interface).shape else {
             self.gap("a call through something that is not an interface");
@@ -138,7 +139,8 @@ impl Translator<'_, '_> {
             self.gap("a call to a method slot the interface does not have");
             return None;
         };
-        let (params, result) = (declared.params.clone(), declared.result.clone());
+        let params = declared.params.clone();
+        let result = self.function.type_of(result?).clone();
         let signature = self.indirect_signature(&params, &result)?;
 
         let object = self.value(receiver);

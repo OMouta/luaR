@@ -10,10 +10,15 @@ use std::collections::HashSet;
 use luar_ast::{ArmBody, Block, Expr, ExprKind, InterpolationPart, MapKey, Stmt, StmtKind};
 use luar_diagnostics::Span;
 use luar_sema::facts::Facts;
+use luar_sema::modules::ModuleId;
 use luar_sema::types::Type;
 
 /// The declarations an exception can escape, by the span of each.
-pub(super) fn escaping(bodies: &[(Span, Block)], facts: &Facts) -> HashSet<Span> {
+pub(super) fn escaping(
+    bodies: &[(Span, Block)],
+    facts: &Facts,
+    interfaces: &HashSet<(ModuleId, String)>,
+) -> HashSet<Span> {
     let mut throwing: HashSet<Span> = HashSet::new();
 
     loop {
@@ -24,6 +29,7 @@ pub(super) fn escaping(bodies: &[(Span, Block)], facts: &Facts) -> HashSet<Span>
                     && Scan {
                         facts,
                         throwing: &throwing,
+                        interfaces,
                     }
                     .block(body)
             })
@@ -42,6 +48,7 @@ struct Scan<'a> {
     /// The declarations already known to throw. It only ever grows, so an
     /// answer of `true` stays true in later rounds.
     throwing: &'a HashSet<Span>,
+    interfaces: &'a HashSet<(ModuleId, String)>,
 }
 
 impl Scan<'_> {
@@ -103,8 +110,14 @@ impl Scan<'_> {
 
     fn expr(&self, expr: &Expr) -> bool {
         match &expr.kind {
-            ExprKind::Call { callee, args, .. } => {
+            ExprKind::Call {
+                callee,
+                method,
+                args,
+                ..
+            } => {
                 self.reaches_a_throw(expr.span)
+                    || (method.is_some() && self.is_interface(callee))
                     || (self.facts.call(expr.span).is_none()
                         && self.facts.builtin(expr.span).is_none()
                         && matches!(self.facts.type_of(callee.span), Some(Type::Function { .. })))
@@ -178,5 +191,16 @@ impl Scan<'_> {
         self.facts
             .call(span)
             .is_some_and(|declaration| self.throwing.contains(&declaration))
+    }
+
+    fn is_interface(&self, receiver: &Expr) -> bool {
+        matches!(
+            self.facts.type_of(receiver.span),
+            Some(Type::Named { module, name, .. })
+                if self.interfaces.contains(&(*module, name.clone()))
+        ) || matches!(
+            self.facts.type_of(receiver.span),
+            Some(Type::Parameter(_) | Type::Intersection(_))
+        )
     }
 }
