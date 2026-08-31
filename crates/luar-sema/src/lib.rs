@@ -1,6 +1,7 @@
 //! Semantic analysis: name resolution, type checking, narrowing, and
 //! exhaustiveness.
 
+mod abi;
 pub mod aliases;
 pub mod annotations;
 pub mod check;

@@ -200,6 +200,7 @@ fn remap_inst(inst: &mut InstKind, map: &HashMap<Value, Value>, slots: &HashMap<
         | InstKind::MakeError { message: held }
         | InstKind::Panic { message: held }
         | InstKind::Convert { value: held, .. }
+        | InstKind::Reinterpret { value: held, .. }
         | InstKind::IsType { value: held, .. }
         | InstKind::DynValue { value: held }
         | InstKind::CopyValue { value: held }

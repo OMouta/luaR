@@ -287,7 +287,9 @@ fn substitute_types(function: &mut Function, params: &[String], args: &[Ty]) {
     for block in function.blocks_mut() {
         for inst in &mut block.insts {
             match &mut inst.kind {
-                InstKind::Convert { to, .. } => *to = to.substitute(params, args),
+                InstKind::Convert { to, .. } | InstKind::Reinterpret { to, .. } => {
+                    *to = to.substitute(params, args);
+                }
                 InstKind::IsType { ty, .. } | InstKind::MakeStruct { ty, .. } => {
                     *ty = ty.substitute(params, args);
                 }

@@ -284,6 +284,7 @@ impl Translator<'_, '_> {
                 self.builder.inst_results(call).first().copied()
             }
             InstKind::Convert { value, to } => self.convert(*value, to),
+            InstKind::Reinterpret { value, to } => self.reinterpret(*value, to),
             InstKind::Call {
                 callee,
                 type_args,

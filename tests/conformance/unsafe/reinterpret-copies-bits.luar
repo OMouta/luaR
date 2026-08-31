@@ -1,0 +1,25 @@
+--- expect: run
+--- exit: 1
+--- spec: LR29.2
+--- spec: LR72
+--- spec: STD4
+import { reinterpret } from "std/mem"
+
+@repr("C")
+struct Word
+    low: u16
+    high: u16
+end
+
+export function main(): int
+    local original = Word { low = 7, high = 11 }
+    unsafe
+        local bits = reinterpret<u32>(original)
+        local copy = reinterpret<Word>(bits)
+        copy.low = 13
+        if original.low == 7 and copy.low == 13 and copy.high == 11 then
+            return 1
+        end
+    end
+    return 0
+end

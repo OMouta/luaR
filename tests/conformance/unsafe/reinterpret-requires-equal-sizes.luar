@@ -1,0 +1,13 @@
+--- expect: compile-error
+--- code: LR0218
+--- span: 11:16
+--- spec: LR29.2
+--- spec: LR72
+--- spec: STD4
+import { reinterpret } from "std/mem"
+
+function widen(value: u16): u32
+    unsafe
+        return reinterpret<u32>(value)
+    end
+end

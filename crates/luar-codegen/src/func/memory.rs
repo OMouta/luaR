@@ -140,4 +140,50 @@ impl Translator<'_, '_> {
         }
         Some(copy)
     }
+
+    pub(super) fn reinterpret(&mut self, value: Value, to: &Ty) -> Option<ir::Value> {
+        let from = self.function.type_of(value).clone();
+        let source = self.value(value);
+        let source_aggregate = layout::is_aggregate(&from);
+        let target_aggregate = layout::is_aggregate(to);
+
+        match (source_aggregate, target_aggregate) {
+            (false, false) => {
+                let source_ty = machine(&from, self.pointer)?;
+                let target_ty = machine(to, self.pointer)?;
+                if source_ty != target_ty {
+                    self.gap(format!("reinterpretation from `{from}` to `{to}`"));
+                    return None;
+                }
+                Some(source)
+            }
+            (false, true) => {
+                let built = self.allocate(to, 0)?;
+                self.builder.ins().store(OWNED, source, built, 0);
+                Some(built)
+            }
+            (true, false) => {
+                let target = machine(to, self.pointer)?;
+                Some(self.builder.ins().load(target, OWNED, source, 0))
+            }
+            (true, true) => {
+                let size = layout::abi_size(self.program, &from, self.pointer)?;
+                let built = self.allocate(to, 0)?;
+                let mut offset = 0;
+                for (width, ty) in [
+                    (8, types::I64),
+                    (4, types::I32),
+                    (2, types::I16),
+                    (1, types::I8),
+                ] {
+                    while size - offset >= width {
+                        let held = self.builder.ins().load(ty, OWNED, source, offset);
+                        self.builder.ins().store(OWNED, held, built, offset);
+                        offset += width;
+                    }
+                }
+                Some(built)
+            }
+        }
+    }
 }

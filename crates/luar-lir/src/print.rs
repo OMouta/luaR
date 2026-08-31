@@ -178,6 +178,9 @@ fn instruction(inst: &Inst, function: &Function) -> String {
         },
         InstKind::Panic { message } => format!("panic {}", name(*message)),
         InstKind::Convert { value, to } => format!("convert {} to {to}", name(*value)),
+        InstKind::Reinterpret { value, to } => {
+            format!("reinterpret {} as {to}", name(*value))
+        }
         InstKind::IsType { value, ty } => format!("is {} {ty}", name(*value)),
         InstKind::Call {
             callee,

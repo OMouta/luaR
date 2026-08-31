@@ -491,6 +491,7 @@ fn is_intrinsic(function: &luar_ast::Function) -> bool {
 fn intrinsic_named(name: &str) -> Option<Builtin> {
     match name {
         "identical" => Some(Builtin::Identical),
+        "reinterpret" => Some(Builtin::Reinterpret),
         _ => None,
     }
 }

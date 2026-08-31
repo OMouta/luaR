@@ -1,0 +1,15 @@
+--- expect: run
+--- exit: 9
+--- spec: LR29.2
+--- spec: LR72
+--- spec: STD4
+import { reinterpret } from "std/mem"
+
+export function main(): int
+    local value = 9
+    unsafe
+        local address = reinterpret<usize>(&value)
+        local pointer = reinterpret<*const int>(address)
+        return pointer:read()
+    end
+end

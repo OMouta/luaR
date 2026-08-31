@@ -290,6 +290,10 @@ registry! {
         "The entrypoint has one of the accepted signatures.";
     active 216 => BORROWED_LIST_MUTATION, "LR38",
         "A list is not mutated while a slice borrows its storage.";
+    active 217 => REINTERPRET_REPRESENTATION, "LR72",
+        "`reinterpret` takes ABI-representable values without managed references.";
+    active 218 => REINTERPRET_SIZE, "LR29.2",
+        "The source and target of `reinterpret` have the same size.";
 }
 
 #[cfg(test)]

@@ -107,6 +107,7 @@ pub struct Field {
 #[derive(Debug, Clone)]
 pub struct StructType {
     pub semantics: Semantics,
+    pub repr_c: bool,
     pub type_params: Vec<String>,
     pub fields: Vec<Field>,
     /// Computed members, which read like fields (LR43).
@@ -673,6 +674,13 @@ fn declare(
                     structure.name.clone(),
                     Decl::Struct(StructType {
                         semantics: structure.semantics,
+                        repr_c: structure.decorators.iter().any(|decorator| {
+                            decorator.name == "repr"
+                                && matches!(
+                                    decorator.args.first().map(|argument| &argument.value.kind),
+                                    Some(luar_ast::ExprKind::String(repr)) if repr == "C"
+                                )
+                        }),
                         type_params: structure.type_params.clone(),
                         fields,
                         properties,

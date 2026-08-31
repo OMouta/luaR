@@ -1,0 +1,12 @@
+--- expect: compile-error
+--- code: LR0217
+--- span: 10:16
+--- spec: LR72
+--- spec: STD4
+import { reinterpret } from "std/mem"
+
+function text(value: usize): string
+    unsafe
+        return reinterpret<string>(value)
+    end
+end

@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use luar_ast::{Argument, Expr, ExprKind, Semantics, Visibility};
 use luar_diagnostics::{Diagnostic, Span, codes};
 
+use crate::abi;
 use crate::aliases::substitute;
 use crate::facts::Builtin;
 use crate::names::Origin;
@@ -368,6 +369,12 @@ impl Checker<'_> {
         // its result is used at.
         let signature = self.specialize(signature, &written, &held, used_at.as_ref(), span);
 
+        if builtin == Some(Builtin::Reinterpret)
+            && let ([argument], [source]) = (args, held.as_slice())
+        {
+            self.check_reinterpret(source, &signature.result, argument.value.span, span);
+        }
+
         self.arguments(&signature, args, &held, span);
 
         // LR27: calling an async function produces a task, and `await` is
@@ -379,6 +386,43 @@ impl Checker<'_> {
             };
         }
         signature.result
+    }
+
+    fn check_reinterpret(&mut self, source: &Type, target: &Type, source_span: Span, span: Span) {
+        let source = settle(source.clone());
+        let target = settle(target.clone());
+        if matches!(source, Type::Unresolved) || matches!(target, Type::Unresolved) {
+            return;
+        }
+
+        let source_layout = abi::layout(self.table, &source);
+        let target_layout = abi::layout(self.table, &target);
+        if source_layout.is_none() {
+            self.diagnostics.push(Diagnostic::error(
+                codes::REINTERPRET_REPRESENTATION,
+                source_span,
+                format!("`reinterpret` cannot read the representation of {source}"),
+            ));
+        }
+        if target_layout.is_none() {
+            self.diagnostics.push(Diagnostic::error(
+                codes::REINTERPRET_REPRESENTATION,
+                span,
+                format!("`reinterpret` cannot produce {target}"),
+            ));
+        }
+        if let (Some(source), Some(target)) = (source_layout, target_layout)
+            && source.size != target.size
+        {
+            self.diagnostics.push(Diagnostic::error(
+                codes::REINTERPRET_SIZE,
+                span,
+                format!(
+                    "`reinterpret` cannot copy {} bytes into {} bytes",
+                    source.size, target.size
+                ),
+            ));
+        }
     }
 
     /// Whether a call could be calling this signature, which is what makes it

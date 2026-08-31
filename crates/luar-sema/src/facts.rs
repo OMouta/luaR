@@ -31,6 +31,7 @@ pub enum Builtin {
     MapNew,
     SetNew,
     Identical,
+    Reinterpret,
     Freeze,
     CheckedIndex,
     CheckedSlice,

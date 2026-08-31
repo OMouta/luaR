@@ -1,0 +1,12 @@
+--- expect: compile-error
+--- code: LR0217
+--- span: 10:35
+--- spec: LR72
+--- spec: STD4
+import { reinterpret } from "std/mem"
+
+function bits(): usize
+    unsafe
+        return reinterpret<usize>("managed")
+    end
+end

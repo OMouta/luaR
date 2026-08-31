@@ -202,6 +202,11 @@ pub enum InstKind {
         value: Value,
         to: Ty,
     },
+    /// A same-sized ABI representation copied without conversion (LR72).
+    Reinterpret {
+        value: Value,
+        to: Ty,
+    },
     /// `x is T` (LR57).
     IsType {
         value: Value,
@@ -488,6 +493,7 @@ impl InstKind {
             | Self::DisplayValue { .. }
             | Self::MakeError { .. }
             | Self::Convert { .. }
+            | Self::Reinterpret { .. }
             | Self::IsType { .. }
             | Self::MakeClosure { .. }
             | Self::CopyValue { .. }

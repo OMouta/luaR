@@ -185,6 +185,11 @@ fn abi_size_align(program: &Program, ty: &Ty, pointer: Type, depth: u32) -> Opti
     }
 }
 
+#[must_use]
+pub fn abi_size(program: &Program, ty: &Ty, pointer: Type) -> Option<i32> {
+    abi_size_align(program, ty, pointer, DEPTH).map(|(size, _)| size)
+}
+
 fn align_to(offset: i32, align: i32) -> i32 {
     offset
         .checked_add(align - 1)

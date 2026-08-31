@@ -33,6 +33,7 @@ impl<'a> Body<'a> {
             }
             Builtin::ListNew | Builtin::MapNew | Builtin::SetNew => self.empty_collection(span),
             Builtin::Identical => self.identical(args, span),
+            Builtin::Reinterpret => self.reinterpret(args, span),
             Builtin::Freeze => {
                 let value = self.expr(callee, None);
                 let ty = self.recorded(span);
@@ -56,6 +57,22 @@ impl<'a> Body<'a> {
                 self.pointer_method(kind, callee, args, span)
             }
         }
+    }
+
+    fn reinterpret(&mut self, args: &[Argument], span: Span) -> Value {
+        let [argument] = args else {
+            return self.missing(span, "a `reinterpret` without one value");
+        };
+        let value = self.expr(&argument.value, None);
+        let to = self.recorded(span);
+        self.emit(
+            InstKind::Reinterpret {
+                value,
+                to: to.clone(),
+            },
+            to,
+            span,
+        )
     }
 
     fn reverse_range(&mut self, callee: &Expr, span: Span) -> Value {
