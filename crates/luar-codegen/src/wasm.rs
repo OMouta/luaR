@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use luar_lir::inst::{Const, InstKind, Terminator};
+use luar_lir::inst::{BinaryOp, Const, InstKind, Terminator, UnaryOp};
 use luar_lir::program::{Function as LirFunction, Program};
 use luar_lir::ty::{FloatTy, IntTy, Ty};
 use wasm_encoder::{
@@ -140,6 +140,22 @@ fn emit_function(
                 emit_const(&mut body, value, function.type_of(result));
                 body.instruction(&Instruction::LocalSet(values[&result]));
             }
+            (InstKind::Unary { op, operand }, Some(result))
+                if emit_unary(&mut body, *op, function.type_of(*operand), values[operand]) =>
+            {
+                body.instruction(&Instruction::LocalSet(values[&result]));
+            }
+            (InstKind::Binary { op, left, right }, Some(result))
+                if emit_comparison(
+                    &mut body,
+                    *op,
+                    function.type_of(*left),
+                    values[left],
+                    values[right],
+                ) =>
+            {
+                body.instruction(&Instruction::LocalSet(values[&result]));
+            }
             (
                 InstKind::Call {
                     callee,
@@ -215,6 +231,82 @@ fn emit_const(body: &mut Function, value: &Const, ty: &Ty) {
             body.instruction(&Instruction::F64Const((*value).into()));
         }
         _ => unreachable!("unsupported constants are reported before emission"),
+    }
+}
+
+fn emit_unary(body: &mut Function, op: UnaryOp, ty: &Ty, operand: u32) -> bool {
+    let instruction = match (op, value_type(ty)) {
+        (UnaryOp::Not, Some(ValType::I32)) => Some(Instruction::I32Eqz),
+        (UnaryOp::BitNot, Some(ValType::I32)) => {
+            body.instruction(&Instruction::LocalGet(operand));
+            body.instruction(&Instruction::I32Const(-1));
+            body.instruction(&Instruction::I32Xor);
+            return true;
+        }
+        (UnaryOp::BitNot, Some(ValType::I64)) => {
+            body.instruction(&Instruction::LocalGet(operand));
+            body.instruction(&Instruction::I64Const(-1));
+            body.instruction(&Instruction::I64Xor);
+            return true;
+        }
+        (UnaryOp::Negate, Some(ValType::F32)) => Some(Instruction::F32Neg),
+        (UnaryOp::Negate, Some(ValType::F64)) => Some(Instruction::F64Neg),
+        _ => None,
+    };
+    let Some(instruction) = instruction else {
+        return false;
+    };
+    body.instruction(&Instruction::LocalGet(operand));
+    body.instruction(&instruction);
+    true
+}
+
+fn emit_comparison(body: &mut Function, op: BinaryOp, ty: &Ty, left: u32, right: u32) -> bool {
+    let Some(instruction) = comparison(op, ty) else {
+        return false;
+    };
+    body.instruction(&Instruction::LocalGet(left));
+    body.instruction(&Instruction::LocalGet(right));
+    body.instruction(&instruction);
+    true
+}
+
+fn comparison(op: BinaryOp, ty: &Ty) -> Option<Instruction<'static>> {
+    let signed = matches!(ty, Ty::Int(int) if int.is_signed());
+    match (value_type(ty)?, op, signed) {
+        (ValType::I32, BinaryOp::Equal, _) => Some(Instruction::I32Eq),
+        (ValType::I32, BinaryOp::NotEqual, _) => Some(Instruction::I32Ne),
+        (ValType::I32, BinaryOp::Less, true) => Some(Instruction::I32LtS),
+        (ValType::I32, BinaryOp::Less, false) => Some(Instruction::I32LtU),
+        (ValType::I32, BinaryOp::LessEqual, true) => Some(Instruction::I32LeS),
+        (ValType::I32, BinaryOp::LessEqual, false) => Some(Instruction::I32LeU),
+        (ValType::I32, BinaryOp::Greater, true) => Some(Instruction::I32GtS),
+        (ValType::I32, BinaryOp::Greater, false) => Some(Instruction::I32GtU),
+        (ValType::I32, BinaryOp::GreaterEqual, true) => Some(Instruction::I32GeS),
+        (ValType::I32, BinaryOp::GreaterEqual, false) => Some(Instruction::I32GeU),
+        (ValType::I64, BinaryOp::Equal, _) => Some(Instruction::I64Eq),
+        (ValType::I64, BinaryOp::NotEqual, _) => Some(Instruction::I64Ne),
+        (ValType::I64, BinaryOp::Less, true) => Some(Instruction::I64LtS),
+        (ValType::I64, BinaryOp::Less, false) => Some(Instruction::I64LtU),
+        (ValType::I64, BinaryOp::LessEqual, true) => Some(Instruction::I64LeS),
+        (ValType::I64, BinaryOp::LessEqual, false) => Some(Instruction::I64LeU),
+        (ValType::I64, BinaryOp::Greater, true) => Some(Instruction::I64GtS),
+        (ValType::I64, BinaryOp::Greater, false) => Some(Instruction::I64GtU),
+        (ValType::I64, BinaryOp::GreaterEqual, true) => Some(Instruction::I64GeS),
+        (ValType::I64, BinaryOp::GreaterEqual, false) => Some(Instruction::I64GeU),
+        (ValType::F32, BinaryOp::Equal, _) => Some(Instruction::F32Eq),
+        (ValType::F32, BinaryOp::NotEqual, _) => Some(Instruction::F32Ne),
+        (ValType::F32, BinaryOp::Less, _) => Some(Instruction::F32Lt),
+        (ValType::F32, BinaryOp::LessEqual, _) => Some(Instruction::F32Le),
+        (ValType::F32, BinaryOp::Greater, _) => Some(Instruction::F32Gt),
+        (ValType::F32, BinaryOp::GreaterEqual, _) => Some(Instruction::F32Ge),
+        (ValType::F64, BinaryOp::Equal, _) => Some(Instruction::F64Eq),
+        (ValType::F64, BinaryOp::NotEqual, _) => Some(Instruction::F64Ne),
+        (ValType::F64, BinaryOp::Less, _) => Some(Instruction::F64Lt),
+        (ValType::F64, BinaryOp::LessEqual, _) => Some(Instruction::F64Le),
+        (ValType::F64, BinaryOp::Greater, _) => Some(Instruction::F64Gt),
+        (ValType::F64, BinaryOp::GreaterEqual, _) => Some(Instruction::F64Ge),
+        _ => None,
     }
 }
 
