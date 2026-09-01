@@ -1,0 +1,62 @@
+--- expect: run
+--- exit: 0
+--- spec: STD9
+import { get, remove, set } from "std/env"
+
+export function main(): int
+    local name = "LUAR_CONFORMANCE_ENVIRONMENT_MUTATION_2D5C74F1"
+
+    match set(name, "first")
+        case Result.Err(_)
+            return 1
+        case Result.Ok(_)
+    end
+    local first = get(name)
+    if first ~= nil then
+        if first ~= "first" then
+            return 3
+        end
+    else
+        return 2
+    end
+
+    match set(name, "second")
+        case Result.Err(_)
+            return 4
+        case Result.Ok(_)
+    end
+    local second = get(name)
+    if second ~= nil then
+        if second ~= "second" then
+            return 6
+        end
+    else
+        return 5
+    end
+
+    match remove(name)
+        case Result.Err(_)
+            return 7
+        case Result.Ok(_)
+    end
+    if get(name) ~= nil then
+        return 8
+    end
+
+    match set("bad\0name", "value")
+        case Result.Ok(_)
+            return 9
+        case Result.Err(_)
+    end
+    match set("name", "bad\0value")
+        case Result.Ok(_)
+            return 10
+        case Result.Err(_)
+    end
+    match remove("bad\0name")
+        case Result.Ok(_)
+            return 11
+        case Result.Err(_)
+    end
+    return 0
+end
