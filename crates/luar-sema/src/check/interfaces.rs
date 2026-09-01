@@ -516,6 +516,15 @@ impl Checker<'_> {
             };
         }
 
+        if let Type::Intersection(parts) = receiver {
+            for part in parts {
+                if let Some(found) = self.lookup_method(part, name, span) {
+                    return Some(found);
+                }
+            }
+            return None;
+        }
+
         if let Some((_, found)) = builtin_method(receiver, name, span) {
             return Some((vec![found], Vec::new()));
         }

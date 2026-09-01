@@ -1,0 +1,15 @@
+--- expect: run
+--- exit: 0
+--- spec: LR17.3
+--- spec: LR19
+function same<T>(left: T, right: T): bool
+where T: Eq & Display
+    return left == right
+end
+
+export function main(): int
+    if same(4, 4) then
+        return 0
+    end
+    return 1
+end
