@@ -20,6 +20,7 @@ const STD: &[(&str, &str)] = &[
     ("std/math", include_str!("../../../std/math.luar")),
     ("std/mem", include_str!("../../../std/mem.luar")),
     ("std/prelude", include_str!("../../../std/prelude.luar")),
+    ("std/random", include_str!("../../../std/random.luar")),
     ("std/thread", include_str!("../../../std/thread.luar")),
 ];
 

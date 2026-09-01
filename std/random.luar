@@ -1,0 +1,25 @@
+--- Deterministic random values (STD12).
+
+export ref struct Random
+    private state: u64
+
+    static function seeded(seed: u64): Random
+        return Random { state = seed }
+    end
+
+    function nextU64(self): u64
+        self.state = self.state:wrappingAdd(0x9E3779B97F4A7C15)
+        local value = self.state
+        value = (value ^ (value >> 30)):wrappingMul(0xBF58476D1CE4E5B9)
+        value = (value ^ (value >> 27)):wrappingMul(0x94D049BB133111EB)
+        return value ^ (value >> 31)
+    end
+
+    function nextBool(self): bool
+        return (self:nextU64() & 1) == 1
+    end
+
+    function nextFloat(self): float
+        return (self:nextU64() >> 11) as float / 9007199254740992.0
+    end
+end
