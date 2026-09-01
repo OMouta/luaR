@@ -84,3 +84,54 @@ export function sortBy<T>(values: List<T>, compare: (T, T) -> int)
         values[j] = value
     end
 end
+
+export ref struct Deque<T>
+    private values: List<T>
+
+    static function new<U>(): Deque<U>
+        return Deque { values = List.new<U>() }
+    end
+
+    function pushFront(self, value: T)
+        self.values:insert(0, value)
+    end
+
+    function pushBack(self, value: T)
+        self.values:push(value)
+    end
+
+    function popFront(self): T?
+        if self.values.length == 0 then
+            return nil
+        end
+        return self.values:removeAt(0)
+    end
+
+    function popBack(self): T?
+        return self.values:pop()
+    end
+
+    function front(self): T?
+        if self.values.length == 0 then
+            return nil
+        end
+        return self.values[0]
+    end
+
+    function back(self): T?
+        if self.values.length == 0 then
+            return nil
+        end
+        return self.values[self.values.length - 1]
+    end
+
+    function clear(self)
+        self.values:clear()
+    end
+
+    property length: int
+        get
+            return self.values.length
+        end
+    end
+end

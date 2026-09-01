@@ -1,0 +1,42 @@
+--- expect: run
+--- exit: 0
+--- spec: STD3
+import { Deque } from "std/collections"
+
+function isValue(value: int?, expected: int): bool
+    if value ~= nil then
+        return value == expected
+    end
+    return false
+end
+
+export function main(): int
+    local queue = Deque.new<int>()
+    if queue.length ~= 0 or queue:front() ~= nil or queue:back() ~= nil then
+        return 1
+    end
+    if queue:popFront() ~= nil or queue:popBack() ~= nil then
+        return 2
+    end
+
+    queue:pushBack(2)
+    queue:pushFront(1)
+    queue:pushBack(3)
+    if queue.length ~= 3 or not isValue(queue:front(), 1) or not isValue(queue:back(), 3) then
+        return 3
+    end
+    if not isValue(queue:popFront(), 1) or not isValue(queue:popBack(), 3) then
+        return 4
+    end
+    if queue.length ~= 1 or not isValue(queue:front(), 2) or not isValue(queue:back(), 2) then
+        return 5
+    end
+
+    queue:pushFront(0)
+    queue:clear()
+    if queue.length ~= 0 or queue:popFront() ~= nil or queue:popBack() ~= nil then
+        return 6
+    end
+
+    return 0
+end
