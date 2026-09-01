@@ -1,0 +1,89 @@
+--- expect: run
+--- exit: 0
+--- spec: STD3
+import { all, any, collect, count, filter, fold, map } from "std/collections"
+
+ref struct Calls
+    count: int
+end
+
+ref struct Counter implements Iterator<int>
+    current: int
+    last: int
+    calls: Calls
+
+    function next(self): int?
+        if self.current >= self.last then
+            return nil
+        end
+        self.calls.count += 1
+        local value = self.current
+        self.current += 1
+        return value
+    end
+end
+
+struct Numbers implements Iterable<int>
+    last: int
+    calls: Calls
+
+    function iterator(self): Iterator<int>
+        return Counter { current = 0, last = self.last, calls = self.calls }
+    end
+end
+
+function numbers(): Numbers
+    return Numbers { last = 5, calls = Calls { count = 0 } }
+end
+
+function doubled(value: int, calls: Calls): int
+    calls.count += 1
+    return value * 2
+end
+
+function even(value: int, calls: Calls): bool
+    calls.count += 1
+    return value % 2 == 0
+end
+
+function add(total: int, value: int, calls: Calls): int
+    calls.count += 1
+    return total + value
+end
+
+export function main(): int
+    local copied = collect<int>(numbers())
+    if copied.length ~= 5 or copied[3] ~= 3 then
+        return 1
+    end
+
+    local mapCalls = Calls { count = 0 }
+    local mapped = map<int, int>(numbers(), (value: int) => doubled(value, mapCalls))
+    if mapped.length ~= 5 or mapped[4] ~= 8 or mapCalls.count ~= 5 then
+        return 2
+    end
+
+    local filterCalls = Calls { count = 0 }
+    local filtered = filter<int>(numbers(), (value: int) => even(value, filterCalls))
+    if filtered.length ~= 3 or filtered[1] ~= 2 or filterCalls.count ~= 5 then
+        return 3
+    end
+
+    local foldCalls = Calls { count = 0 }
+    local folded = fold<int, int>(numbers(), 0, (total: int, value: int) => add(total, value, foldCalls))
+    if folded ~= 10 or foldCalls.count ~= 5 or count<int>(numbers()) ~= 5 then
+        return 4
+    end
+
+    local anySource = numbers()
+    if not any<int>(anySource, (value: int) => value == 3) or anySource.calls.count ~= 4 then
+        return 5
+    end
+
+    local allSource = numbers()
+    if all<int>(allSource, (value: int) => value < 3) or allSource.calls.count ~= 4 then
+        return 6
+    end
+
+    return 0
+end

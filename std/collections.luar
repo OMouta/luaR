@@ -1,0 +1,61 @@
+--- Collection algorithms (STD3).
+
+export function collect<T>(source: Iterable<T>): List<T>
+    local values = List.new<T>()
+    for value in source do
+        values:push(value)
+    end
+    return values
+end
+
+export function map<T, U>(source: Iterable<T>, transform: (T) -> U): List<U>
+    local values = List.new<U>()
+    for value in source do
+        values:push(transform(value))
+    end
+    return values
+end
+
+export function filter<T>(source: Iterable<T>, keep: (T) -> bool): List<T>
+    local values = List.new<T>()
+    for value in source do
+        if keep(value) then
+            values:push(value)
+        end
+    end
+    return values
+end
+
+export function fold<T, A>(source: Iterable<T>, initial: A, combine: (A, T) -> A): A
+    local accumulated = initial
+    for value in source do
+        accumulated = combine(accumulated, value)
+    end
+    return accumulated
+end
+
+export function any<T>(source: Iterable<T>, predicate: (T) -> bool): bool
+    for value in source do
+        if predicate(value) then
+            return true
+        end
+    end
+    return false
+end
+
+export function all<T>(source: Iterable<T>, predicate: (T) -> bool): bool
+    for value in source do
+        if not predicate(value) then
+            return false
+        end
+    end
+    return true
+end
+
+export function count<T>(source: Iterable<T>): int
+    local total = 0
+    for _ in source do
+        total += 1
+    end
+    return total
+end

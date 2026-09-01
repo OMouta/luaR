@@ -11,6 +11,10 @@ use luar_sema::modules::{Edge, Graph, Missing, ModuleId, PRELUDE};
 
 /// The standard library, one module per source file under `std/` (LR60).
 const STD: &[(&str, &str)] = &[
+    (
+        "std/collections",
+        include_str!("../../../std/collections.luar"),
+    ),
     ("std/env", include_str!("../../../std/env.luar")),
     ("std/fs", include_str!("../../../std/fs.luar")),
     ("std/mem", include_str!("../../../std/mem.luar")),
