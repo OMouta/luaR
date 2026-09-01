@@ -1,0 +1,33 @@
+--- expect: run
+--- exit: 0
+--- spec: STD11
+import { abs, clamp, e, infinity, max, min, nan, pi, tau } from "std/math"
+
+export function main(): int
+    if pi < 3.14159 or pi > 3.14160 or e < 2.71828 or e > 2.71829 then
+        return 1
+    end
+    if tau ~= pi * 2.0 or infinity <= 1.7976931348623157e308 or nan == nan then
+        return 2
+    end
+    if abs(-4.5) ~= 4.5 or 1.0 / abs(-0.0) ~= infinity then
+        return 3
+    end
+    if min(4.0, 2.0) ~= 2.0 or max(4.0, 2.0) ~= 4.0 then
+        return 4
+    end
+    if 1.0 / min(0.0, -0.0) >= 0.0 or 1.0 / max(-0.0, 0.0) <= 0.0 then
+        return 5
+    end
+    local minimum = min(nan, 1.0)
+    local maximum = max(1.0, nan)
+    if minimum == minimum or maximum == maximum then
+        return 6
+    end
+    if clamp(-1.0, 0.0, 10.0) ~= 0.0
+        or clamp(11.0, 0.0, 10.0) ~= 10.0
+        or clamp(4.0, 0.0, 10.0) ~= 4.0 then
+        return 7
+    end
+    return 0
+end

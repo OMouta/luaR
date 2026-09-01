@@ -1,0 +1,66 @@
+--- Floating-point constants and arithmetic (STD11).
+
+export const pi: float = 3.141592653589793
+export const e: float = 2.718281828459045
+export const tau: float = 6.283185307179586
+export const infinity: float = 1.0 / 0.0
+export const nan: float = 0.0 / 0.0
+
+export function abs(value: float): float
+    if value == 0.0 then
+        return 0.0
+    end
+    if value < 0.0 then
+        return -value
+    end
+    return value
+end
+
+export function min(left: float, right: float): float
+    if left ~= left then
+        return left
+    end
+    if right ~= right then
+        return right
+    end
+    if left < right then
+        return left
+    end
+    if right < left then
+        return right
+    end
+    if left == 0.0 and 1.0 / left < 0.0 then
+        return left
+    end
+    return right
+end
+
+export function max(left: float, right: float): float
+    if left ~= left then
+        return left
+    end
+    if right ~= right then
+        return right
+    end
+    if left > right then
+        return left
+    end
+    if right > left then
+        return right
+    end
+    if left == 0.0 and 1.0 / left > 0.0 then
+        return left
+    end
+    return right
+end
+
+export function clamp(value: float, low: float, high: float): float
+    assert(low == low and high == high and low <= high)
+    if value < low then
+        return low
+    end
+    if value > high then
+        return high
+    end
+    return value
+end

@@ -17,6 +17,7 @@ const STD: &[(&str, &str)] = &[
     ),
     ("std/env", include_str!("../../../std/env.luar")),
     ("std/fs", include_str!("../../../std/fs.luar")),
+    ("std/math", include_str!("../../../std/math.luar")),
     ("std/mem", include_str!("../../../std/mem.luar")),
     ("std/prelude", include_str!("../../../std/prelude.luar")),
     ("std/thread", include_str!("../../../std/thread.luar")),
