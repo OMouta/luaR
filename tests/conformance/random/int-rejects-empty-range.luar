@@ -1,0 +1,9 @@
+--- expect: run
+--- exit: 101
+--- trap: assertion-failed
+--- spec: STD12
+import { Random } from "std/random"
+
+export function main()
+    Random.seeded(1):int(4, 4)
+end

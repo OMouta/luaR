@@ -32,5 +32,22 @@ export function main(): int
             return 5
         end
     end
+
+    for _ in 0..<64 do
+        local signed = left:int(-50, 75)
+        if signed < -50 or signed >= 75 then
+            return 6
+        end
+        local unsigned = left:uint(100, 150)
+        if unsigned < 100 or unsigned >= 150 then
+            return 7
+        end
+    end
+    if left:int(-4, -3) ~= -4 then
+        return 8
+    end
+    if left:uint(9, 10) ~= 9 then
+        return 9
+    end
     return 0
 end

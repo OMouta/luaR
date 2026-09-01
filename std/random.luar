@@ -22,4 +22,25 @@ export ref struct Random
     function nextFloat(self): float
         return (self:nextU64() >> 11) as float / 9007199254740992.0
     end
+
+    function uint(self, low: u64, high: u64): u64
+        assert(low < high)
+        local width = high - low
+        local zero: u64 = 0
+        local threshold = zero:wrappingSub(width) % width
+        while true do
+            local value = self:nextU64()
+            if value >= threshold then
+                return low + value % width
+            end
+        end
+    end
+
+    function int(self, low: int, high: int): int
+        assert(low < high)
+        local sign: u64 = 0x8000000000000000
+        local biasedLow = (low as u64) ^ sign
+        local biasedHigh = (high as u64) ^ sign
+        return (self:uint(biasedLow, biasedHigh) ^ sign) as int
+    end
 end
