@@ -1,0 +1,23 @@
+--- expect: run
+--- exit: 0
+--- spec: LR19
+--- spec: LR43
+ref struct Box<T>
+    value: T
+
+    property item: T
+        get
+            return self.value
+        end
+
+        set (newValue)
+            self.value = newValue
+        end
+    end
+end
+
+export function main(): int
+    local box: Box<int> = Box { value = 1 }
+    box.item = 2
+    return box.item - 2
+end

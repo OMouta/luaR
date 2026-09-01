@@ -556,7 +556,7 @@ impl<'a> Body<'a> {
         target: Span,
         span: Span,
     ) {
-        let Some((get, ty)) = self.getter(held, name) else {
+        let Some((get, type_args, ty)) = self.getter(held, name) else {
             self.gap(span, "a property the compiler could not read");
             return;
         };
@@ -569,7 +569,7 @@ impl<'a> Body<'a> {
             self.emit(
                 InstKind::Call {
                     callee: get,
-                    type_args: Vec::new(),
+                    type_args: type_args.clone(),
                     args: vec![object],
                 },
                 ty.clone(),
@@ -580,7 +580,7 @@ impl<'a> Body<'a> {
         self.emit_void(
             InstKind::Call {
                 callee: set,
-                type_args: Vec::new(),
+                type_args,
                 args: vec![object, written],
             },
             span,

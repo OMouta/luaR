@@ -119,11 +119,11 @@ impl<'a> Body<'a> {
 
             // LR43: a property reads like a field and runs code, so a read of
             // one is a call to its getter.
-            if let Some((get, ty)) = self.getter(&held, name) {
+            if let Some((get, type_args, ty)) = self.getter(&held, name) {
                 return self.emit(
                     InstKind::Call {
                         callee: get,
-                        type_args: Vec::new(),
+                        type_args,
                         args: vec![object],
                     },
                     ty,
@@ -491,14 +491,14 @@ impl<'a> Body<'a> {
     }
 
     /// The function a read of `name` goes through, and what it gives back.
-    pub(super) fn getter(&self, ty: &Ty, name: &str) -> Option<(FuncId, Ty)> {
+    pub(super) fn getter(&self, ty: &Ty, name: &str) -> Option<(FuncId, Vec<Ty>, Ty)> {
         let Ty::Named { args, .. } = ty else {
             return None;
         };
         let held = self.property(ty, name)?;
         // LR19: a property of `Box<int>` gives back what `T` is filled with.
         let params = self.owner_params(ty)?;
-        Some((held.get, held.ty.substitute(&params, args)))
+        Some((held.get, args.clone(), held.ty.substitute(&params, args)))
     }
 
     fn owner_params(&self, ty: &Ty) -> Option<Vec<String>> {
