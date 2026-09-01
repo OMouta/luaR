@@ -2,6 +2,7 @@
 --- spec: LR35
 --- spec: LR36
 --- spec: LR54.1
+--- spec: STD2
 struct Row implements Index<int, string>
     values: List<string>
 

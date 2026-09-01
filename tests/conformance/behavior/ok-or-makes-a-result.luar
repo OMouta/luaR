@@ -3,6 +3,7 @@
 --- spec: LR8
 --- spec: LR25.1
 --- spec: LR25.2
+--- spec: STD2
 ref struct Tally
     value: int
 end

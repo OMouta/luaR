@@ -1,6 +1,7 @@
 --- expect: compile-ok
 --- spec: LR35
 --- spec: LR54.1
+--- spec: STD2
 ref struct Counter implements Iterator<int>
     current: int
 

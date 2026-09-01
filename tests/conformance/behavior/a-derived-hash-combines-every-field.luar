@@ -2,6 +2,7 @@
 --- exit: 1
 --- spec: LR35
 --- spec: LR75
+--- spec: STD2
 @derive(Hash)
 struct Label
     text: string

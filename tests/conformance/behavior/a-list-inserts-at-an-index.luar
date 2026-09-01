@@ -1,6 +1,7 @@
 --- expect: run
 --- exit: 96
 --- spec: LR13.1
+--- spec: STD2
 export function main(): int
     local values = [1, 2, 3]
     values:insert(0, 10)

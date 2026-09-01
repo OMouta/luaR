@@ -3,6 +3,7 @@
 --- spec: LR13.1
 --- spec: LR57
 --- spec: LR59
+--- spec: STD2
 export function main(): int
     local values = [3, 5, 7, 5]
     local names = ["Alice", "Bob"]

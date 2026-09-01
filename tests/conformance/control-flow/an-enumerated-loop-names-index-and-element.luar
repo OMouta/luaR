@@ -3,6 +3,7 @@
 --- spec: LR10.5
 --- spec: LR13.1
 --- spec: LR59
+--- spec: STD2
 export function main(): int
     local values = [5, 6, 7]
     local total = 0

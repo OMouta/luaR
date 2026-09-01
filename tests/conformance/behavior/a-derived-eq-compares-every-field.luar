@@ -2,6 +2,7 @@
 --- exit: 1
 --- spec: LR75
 --- spec: LR36
+--- spec: STD2
 @derive(Eq)
 struct Point
     x: int

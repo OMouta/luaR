@@ -2,6 +2,7 @@
 --- exit: 57
 --- spec: LR13.1
 --- spec: LR57
+--- spec: STD2
 export function main(): int
     local values = [1, 2, 3, 4]
     values:reverse()
