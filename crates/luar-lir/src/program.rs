@@ -157,6 +157,8 @@ pub struct Function {
     pub inline: Inline,
     /// The native symbol this declaration imports (LR46).
     pub external: Option<String>,
+    /// Whether the imported symbol uses the C ABI (LR46).
+    pub c_abi: bool,
     /// Where it was written, for diagnostics and backtraces.
     pub span: Span,
     /// The block control enters at. Its parameters are the function's.
@@ -179,6 +181,7 @@ impl Function {
             asynchronous: false,
             inline: Inline::Default,
             external: None,
+            c_abi: false,
             span,
             entry: BlockId(0),
             blocks: vec![Block::new()],

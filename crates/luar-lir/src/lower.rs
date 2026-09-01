@@ -608,6 +608,7 @@ impl Lowering<'_> {
         lowered.asynchronous = signature.asynchronous;
         lowered.inline = inline(function);
         lowered.external = extern_symbol(function);
+        lowered.c_abi = lowered.external.is_some() && !is_intrinsic(function);
         if function.body.is_some() {
             // Until the body is lowered the function says it never returns.
             lowered.block_mut(lowered.entry).term = Some(Terminator::Trap(Trap::Unreachable));

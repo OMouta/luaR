@@ -163,7 +163,7 @@ impl Emitter<'_> {
             if function.is_template() {
                 continue;
             }
-            let external_abi = function.external.as_ref().and_then(|_| {
+            let external_abi = if function.c_abi {
                 abi::CAbi::new(
                     self.program,
                     function,
@@ -171,11 +171,13 @@ impl Emitter<'_> {
                     self.call_conv,
                     self.c_abi_target,
                 )
-            });
-            let signature = match (&function.external, &external_abi) {
-                (Some(_), Some(abi)) => Some(abi.signature.clone()),
-                (Some(_), None) => None,
-                (None, _) => signature(function, self.pointer, self.call_conv),
+            } else {
+                None
+            };
+            let signature = match (function.c_abi, &external_abi) {
+                (true, Some(abi)) => Some(abi.signature.clone()),
+                (true, None) => None,
+                (false, _) => signature(function, self.pointer, self.call_conv),
             };
             let Some(signature) = signature else {
                 let offending = function
