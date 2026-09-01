@@ -43,4 +43,15 @@ export ref struct Random
         local biasedHigh = (high as u64) ^ sign
         return (self:uint(biasedLow, biasedHigh) ^ sign) as int
     end
+
+    function shuffle<T>(self, values: List<T>)
+        local i = values.length - 1
+        while i > 0 do
+            local j = self:int(0, i + 1)
+            local held = values[i]
+            values[i] = values[j]
+            values[j] = held
+            i -= 1
+        end
+    end
 end

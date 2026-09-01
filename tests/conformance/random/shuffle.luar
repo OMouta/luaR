@@ -1,0 +1,33 @@
+--- expect: run
+--- exit: 0
+--- spec: STD12
+import { Random } from "std/random"
+
+export function main(): int
+    local left = [0, 1, 2, 3, 4, 5, 6, 7]
+    local right = [0, 1, 2, 3, 4, 5, 6, 7]
+    Random.seeded(99):shuffle(left)
+    Random.seeded(99):shuffle(right)
+
+    local changed = false
+    for i in 0..<left.length do
+        if left[i] ~= right[i] then
+            return 1
+        end
+        if left[i] ~= i then
+            changed = true
+        end
+    end
+    if not changed then
+        return 2
+    end
+
+    local seen = [false, false, false, false, false, false, false, false]
+    for value in left do
+        if value < 0 or value >= seen.length or seen[value] then
+            return 3
+        end
+        seen[value] = true
+    end
+    return 0
+end
