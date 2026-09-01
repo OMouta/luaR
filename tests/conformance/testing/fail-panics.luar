@@ -1,0 +1,8 @@
+--- expect: run
+--- exit: 101
+--- spec: STD20
+import { fail } from "std/testing"
+
+export function main()
+    fail("broken test")
+end

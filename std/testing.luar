@@ -1,0 +1,52 @@
+--- Test assertions (STD20).
+
+export function fail(message: string): never
+    return panic(message)
+end
+
+export function equal<T>(actual: T, expected: T)
+where T: Eq & Display
+    if actual ~= expected then
+        panic("values are not equal")
+    end
+end
+
+export function notEqual<T>(actual: T, expected: T)
+where T: Eq & Display
+    if actual == expected then
+        panic("values are equal")
+    end
+end
+
+export function some<T>(actual: T?): T
+    if actual ~= nil then
+        return actual
+    end
+    return panic("expected a value, got nil")
+end
+
+export function none<T>(actual: T?)
+    if actual ~= nil then
+        panic("expected nil")
+    end
+end
+
+export function ok<T, E>(actual: Result<T, E>): T
+where E: Display
+    match actual
+        case Result.Ok(value)
+            return value
+        case Result.Err(_)
+            return panic("expected Ok, got Err")
+    end
+end
+
+export function err<T, E>(actual: Result<T, E>): E
+where T: Display
+    match actual
+        case Result.Ok(_)
+            return panic("expected Err, got Ok")
+        case Result.Err(error)
+            return error
+    end
+end

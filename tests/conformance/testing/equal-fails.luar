@@ -1,0 +1,8 @@
+--- expect: run
+--- exit: 101
+--- spec: STD20
+import { equal } from "std/testing"
+
+export function main()
+    equal(1, 2)
+end

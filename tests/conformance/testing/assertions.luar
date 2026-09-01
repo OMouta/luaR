@@ -1,0 +1,29 @@
+--- expect: run
+--- exit: 0
+--- spec: LR17.3
+--- spec: LR19
+--- spec: STD20
+import { equal, err, none, notEqual, ok, some } from "std/testing"
+
+export function main(): int
+    equal(4, 4)
+    notEqual(4, 5)
+    local absent: int? = nil
+    none(absent)
+
+    local present: int? = 7
+    if some(present) ~= 7 then
+        return 1
+    end
+
+    local success = Result.Ok<int, string>(9)
+    if ok(success) ~= 9 then
+        return 2
+    end
+
+    local failure = Result.Err<int, string>("broken")
+    if err(failure) ~= "broken" then
+        return 3
+    end
+    return 0
+end
