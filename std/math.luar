@@ -64,3 +64,54 @@ export function clamp(value: float, low: float, high: float): float
     end
     return value
 end
+
+@intrinsic
+export function floor(value: float): float
+
+@intrinsic
+export function ceil(value: float): float
+
+@intrinsic
+export function round(value: float): float
+
+@intrinsic
+export function truncate(value: float): float
+
+@intrinsic
+export function sqrt(value: float): float
+
+@intrinsic
+export function cbrt(value: float): float
+
+@intrinsic
+export function exp(value: float): float
+
+@intrinsic
+export function log(value: float): float
+
+@intrinsic
+export function log2(value: float): float
+
+@intrinsic
+export function log10(value: float): float
+
+@intrinsic
+export function sin(value: float): float
+
+@intrinsic
+export function cos(value: float): float
+
+@intrinsic
+export function tan(value: float): float
+
+@intrinsic
+export function asin(value: float): float
+
+@intrinsic
+export function acos(value: float): float
+
+@intrinsic
+export function atan(value: float): float
+
+@intrinsic
+export function atan2(y: float, x: float): float

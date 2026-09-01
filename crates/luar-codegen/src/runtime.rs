@@ -98,6 +98,7 @@ impl Runtime {
         let concat = define_concat(module, pointer, call_conv, collector.allocate)?;
         define_bytes_of(module, pointer, call_conv)?;
         define_string_from_bytes(module, pointer, call_conv, collector.allocate)?;
+        define_math(module, call_conv)?;
         let text_equal = define_text_equal(module, pointer, call_conv)?;
         let hash_bytes = define_hash_bytes(module, pointer, call_conv)?;
         let display_signed =
@@ -350,6 +351,72 @@ fn declare_power(
     module
         .declare_function(name, Linkage::Import, &signature)
         .map_err(|error| Error::Cranelift(error.to_string()))
+}
+
+fn define_math(module: &mut ObjectModule, call_conv: CallConv) -> Result<(), Error> {
+    for (luar, native) in [
+        ("floor", "floor"),
+        ("ceil", "ceil"),
+        ("round", "round"),
+        ("truncate", "trunc"),
+        ("sqrt", "sqrt"),
+        ("cbrt", "cbrt"),
+        ("exp", "exp"),
+        ("log", "log"),
+        ("log2", "log2"),
+        ("log10", "log10"),
+        ("sin", "sin"),
+        ("cos", "cos"),
+        ("tan", "tan"),
+        ("asin", "asin"),
+        ("acos", "acos"),
+        ("atan", "atan"),
+    ] {
+        define_math_function(module, call_conv, luar, native, 1)?;
+    }
+    define_math_function(module, call_conv, "atan2", "atan2", 2)?;
+    Ok(())
+}
+
+fn define_math_function(
+    module: &mut ObjectModule,
+    call_conv: CallConv,
+    luar: &str,
+    native: &str,
+    arity: usize,
+) -> Result<ModuleFuncId, Error> {
+    let mut signature = Signature::new(call_conv);
+    for _ in 0..arity {
+        signature.params.push(AbiParam::new(types::F64));
+    }
+    signature.returns.push(AbiParam::new(types::F64));
+
+    let native = module
+        .declare_function(native, Linkage::Import, &signature)
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
+    let declared = module
+        .declare_function(&format!("luar_{luar}"), Linkage::Local, &signature)
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
+
+    let mut context = Context::new();
+    let mut frame = FunctionBuilderContext::new();
+    context.func.signature = signature;
+    let native = module.declare_func_in_func(native, &mut context.func);
+    let mut builder = FunctionBuilder::new(&mut context.func, &mut frame);
+    let entry = builder.create_block();
+    builder.append_block_params_for_function_params(entry);
+    builder.switch_to_block(entry);
+    let args = builder.block_params(entry).to_vec();
+    let call = builder.ins().call(native, &args);
+    let result = builder.inst_results(call)[0];
+    builder.ins().return_(&[result]);
+    builder.seal_all_blocks();
+    builder.finalize();
+
+    module
+        .define_function(declared, &mut context)
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
+    Ok(declared)
 }
 
 fn declare_float_formatting(

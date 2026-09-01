@@ -1,0 +1,64 @@
+--- expect: run
+--- exit: 0
+--- spec: STD11
+import {
+    acos,
+    asin,
+    atan,
+    atan2,
+    cbrt,
+    ceil,
+    cos,
+    exp,
+    floor,
+    infinity,
+    log,
+    log10,
+    log2,
+    pi,
+    round,
+    sin,
+    sqrt,
+    tan,
+    truncate,
+} from "std/math"
+
+function near(left: float, right: float): bool
+    local difference = left - right
+    if difference < 0.0 then
+        difference = -difference
+    end
+    return difference < 0.000001
+end
+
+export function main(): int
+    if floor(1.9) ~= 1.0 or ceil(1.1) ~= 2.0 then
+        return 1
+    end
+    if round(1.5) ~= 2.0 or round(-1.5) ~= -2.0 or truncate(-1.9) ~= -1.0 then
+        return 2
+    end
+    if sqrt(9.0) ~= 3.0 or not near(cbrt(27.0), 3.0) then
+        return 3
+    end
+    if exp(0.0) ~= 1.0 or not near(log(exp(1.0)), 1.0) then
+        return 4
+    end
+    if log2(8.0) ~= 3.0 or not near(log10(1000.0), 3.0) then
+        return 5
+    end
+    if sin(0.0) ~= 0.0 or cos(0.0) ~= 1.0 or tan(0.0) ~= 0.0 then
+        return 6
+    end
+    if asin(0.0) ~= 0.0 or acos(1.0) ~= 0.0 or atan(0.0) ~= 0.0 then
+        return 7
+    end
+    if not near(atan2(1.0, 0.0), pi / 2.0) then
+        return 8
+    end
+    local invalid = sqrt(-1.0)
+    if invalid == invalid or exp(1000.0) ~= infinity then
+        return 9
+    end
+    return 0
+end

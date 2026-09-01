@@ -503,6 +503,23 @@ pub fn runtime_symbol(name: &str) -> Option<&'static str> {
     match name {
         "bytesOf" => Some("luar_bytes_of"),
         "stringFromBytes" => Some("luar_string_from_bytes"),
+        "floor" => Some("luar_floor"),
+        "ceil" => Some("luar_ceil"),
+        "round" => Some("luar_round"),
+        "truncate" => Some("luar_truncate"),
+        "sqrt" => Some("luar_sqrt"),
+        "cbrt" => Some("luar_cbrt"),
+        "exp" => Some("luar_exp"),
+        "log" => Some("luar_log"),
+        "log2" => Some("luar_log2"),
+        "log10" => Some("luar_log10"),
+        "sin" => Some("luar_sin"),
+        "cos" => Some("luar_cos"),
+        "tan" => Some("luar_tan"),
+        "asin" => Some("luar_asin"),
+        "acos" => Some("luar_acos"),
+        "atan" => Some("luar_atan"),
+        "atan2" => Some("luar_atan2"),
         _ => None,
     }
 }
