@@ -59,3 +59,28 @@ export function count<T>(source: Iterable<T>): int
     end
     return total
 end
+
+export function sort<T>(values: List<T>)
+where T: Comparable
+    for i in 1..<values.length do
+        local value = values[i]
+        local j = i
+        while j > 0 and value:compare(values[j - 1]) < 0 do
+            values[j] = values[j - 1]
+            j -= 1
+        end
+        values[j] = value
+    end
+end
+
+export function sortBy<T>(values: List<T>, compare: (T, T) -> int)
+    for i in 1..<values.length do
+        local value = values[i]
+        local j = i
+        while j > 0 and compare(value, values[j - 1]) < 0 do
+            values[j] = values[j - 1]
+            j -= 1
+        end
+        values[j] = value
+    end
+end

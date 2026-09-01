@@ -1,0 +1,45 @@
+--- expect: run
+--- exit: 0
+--- spec: STD3
+import { sort, sortBy } from "std/collections"
+
+struct Item implements Comparable
+    key: int
+    order: int
+
+    function compare(self, other: Item): int
+        return self.key - other.key
+    end
+end
+
+function descending(left: Item, right: Item): int
+    return right.key - left.key
+end
+
+function ordered(values: List<Item>, first: int, second: int, third: int, fourth: int): bool
+    return values[0].order == first
+        and values[1].order == second
+        and values[2].order == third
+        and values[3].order == fourth
+end
+
+export function main(): int
+    local values = [
+        Item { key = 2, order = 0 },
+        Item { key = 1, order = 1 },
+        Item { key = 2, order = 2 },
+        Item { key = 1, order = 3 },
+    ]
+
+    sort<Item>(values)
+    if not ordered(values, 1, 3, 0, 2) then
+        return 1
+    end
+
+    sortBy<Item>(values, (left: Item, right: Item) => descending(left, right))
+    if not ordered(values, 0, 2, 1, 3) then
+        return 2
+    end
+
+    return 0
+end
