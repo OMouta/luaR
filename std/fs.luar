@@ -88,6 +88,27 @@ export function writeText(path: string, text: string): Result<(), Error>
     end
 end
 
+export function appendText(path: string, text: string): Result<(), Error>
+    unsafe
+        local name = cString(path)
+        local mode = cString("ab")
+        local file = fopen(name, mode)
+        free(name)
+        free(mode)
+        if file as usize == 0 then
+            return Result.Err(Error(`cannot open {path}`))
+        end
+
+        local length = text.byteLength
+        local written = fwrite(bytesOf(text), 1, length as usize, file)
+        local closeFailed = fclose(file) ~= 0
+        if written ~= length as usize or closeFailed then
+            return Result.Err(Error(`cannot write {path}`))
+        end
+        return Result.Ok(())
+    end
+end
+
 --- `text` copied into C storage with a zero byte after it.
 unsafe function cString(text: string): *mut u8
     local length = text.byteLength

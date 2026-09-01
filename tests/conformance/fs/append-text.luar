@@ -1,0 +1,27 @@
+--- expect: run
+--- exit: 0
+--- stdout: "first second\n"
+--- spec: STD5
+import { appendText, readText, writeText } from "std/fs"
+
+export function main()
+    local path = "../../../target/luar-append-text-test.txt"
+    match writeText(path, "first")
+        case Result.Err(_)
+            print("write failed")
+            return
+        case Result.Ok(_)
+    end
+    match appendText(path, " second")
+        case Result.Err(_)
+            print("append failed")
+            return
+        case Result.Ok(_)
+    end
+    match readText(path)
+        case Result.Err(_)
+            print("read failed")
+        case Result.Ok(text)
+            print(text)
+    end
+end
