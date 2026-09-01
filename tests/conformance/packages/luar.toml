@@ -1,0 +1,9 @@
+[package]
+name = "package-tests"
+version = "0.0.0"
+root = "."
+
+[dependencies]
+alpha = "support/alpha"
+beta = "support/beta"
+http = "support/http"

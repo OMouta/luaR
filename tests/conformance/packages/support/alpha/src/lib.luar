@@ -1,0 +1,5 @@
+import { label } from "shared"
+
+export function alpha(): string
+    return label()
+end

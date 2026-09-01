@@ -1,0 +1,8 @@
+--- expect: compile-ok
+--- spec: LR21.1
+--- spec: LR22
+import { Router } from "http/router"
+
+function route(router: Router): string
+    return router.path
+end

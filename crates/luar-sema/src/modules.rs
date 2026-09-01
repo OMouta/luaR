@@ -120,6 +120,18 @@ fn is_name(component: std::path::Component<'_>) -> bool {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ModuleId(u32);
 
+/// One resolved package identity (LR22).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct PackageId(u32);
+
+/// The name and resolved source identity of a package (LR22).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Package {
+    pub name: String,
+    pub version: String,
+    pub source: PathBuf,
+}
+
 /// One module: its source, its syntax, and what it imports.
 #[derive(Debug)]
 pub struct Node {
@@ -127,6 +139,7 @@ pub struct Node {
     /// The file it was read from, resolved. Two imports naming this module
     /// spell it the same way, so the graph holds it once (LR21.2).
     pub path: PathBuf,
+    pub package: PackageId,
     pub ast: Module,
     /// One edge per import, in the order written.
     pub imports: Vec<Edge>,
@@ -146,10 +159,25 @@ pub struct Edge {
 }
 
 /// Every module one compilation reaches, and the imports between them (LR21.1).
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Graph {
     nodes: Vec<Node>,
     by_path: BTreeMap<PathBuf, ModuleId>,
+    packages: Vec<Package>,
+}
+
+impl Default for Graph {
+    fn default() -> Self {
+        Self {
+            nodes: Vec::new(),
+            by_path: BTreeMap::new(),
+            packages: vec![Package {
+                name: String::new(),
+                version: String::new(),
+                source: PathBuf::new(),
+            }],
+        }
+    }
 }
 
 impl Graph {
@@ -162,7 +190,13 @@ impl Graph {
     /// Adds a module read from `path`, and returns its id.
     ///
     /// # Panics
-    pub fn insert(&mut self, file: FileId, path: PathBuf, ast: Module) -> ModuleId {
+    pub fn insert(
+        &mut self,
+        file: FileId,
+        path: PathBuf,
+        package: PackageId,
+        ast: Module,
+    ) -> ModuleId {
         let id = ModuleId(u32::try_from(self.nodes.len()).expect("module count fits in u32"));
         assert!(
             self.by_path.insert(path.clone(), id).is_none(),
@@ -172,11 +206,33 @@ impl Graph {
         self.nodes.push(Node {
             file,
             path,
+            package,
             ast,
             imports: Vec::new(),
             prelude: None,
         });
         id
+    }
+
+    /// The identity used by source files outside a package.
+    #[must_use]
+    pub fn loose_package(&self) -> PackageId {
+        PackageId(0)
+    }
+
+    /// Records one resolved package identity (LR22).
+    pub fn add_package(&mut self, package: Package) -> PackageId {
+        let id = PackageId(u32::try_from(self.packages.len()).expect("package count fits in u32"));
+        self.packages.push(package);
+        id
+    }
+
+    /// A resolved package identity (LR22).
+    #[must_use]
+    pub fn package(&self, id: PackageId) -> &Package {
+        self.packages
+            .get(id.0 as usize)
+            .expect("package id belongs to another graph")
     }
 
     /// The prelude, once it is in the graph (LR54.1).

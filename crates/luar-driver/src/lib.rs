@@ -1,6 +1,7 @@
 //! Drives one compilation: source in, artifact or diagnostics out.
 
 mod graph;
+mod packages;
 
 use std::path::Path;
 

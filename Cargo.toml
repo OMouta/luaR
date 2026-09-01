@@ -42,6 +42,7 @@ target-lexicon = "=0.13.5"
 wasm-encoder = { version = "=0.256.0", default-features = false, features = ["std"] }
 wasmparser = "=0.256.0"
 cc = "1"
+toml = "1.1.4"
 
 [workspace.lints.rust]
 unsafe_code = "deny"

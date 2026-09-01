@@ -9,6 +9,8 @@ use luar_diagnostics::{Diagnostic, FileId, SourceMap, Span, codes};
 use luar_parser::Target;
 use luar_sema::modules::{Edge, Graph, Missing, ModuleId, PRELUDE};
 
+use crate::packages::Packages;
+
 /// The standard library, one module per source file under `std/` (LR60).
 const STD: &[(&str, &str)] = &[
     (
@@ -33,16 +35,34 @@ pub(crate) fn build(
 ) -> (Graph, Vec<Diagnostic>) {
     let mut graph = Graph::default();
     let mut diagnostics = Vec::new();
+    let mut packages = Packages::default();
 
     let path = luar_sema::modules::normalize(sources.file(root).path().to_path_buf());
+    let package = match packages.root(&mut graph, &path) {
+        Ok(package) => package,
+        Err(message) => {
+            diagnostics.push(Diagnostic::error(
+                codes::UNRESOLVED_IMPORT,
+                Span::at(root, 0),
+                message,
+            ));
+            graph.loose_package()
+        }
+    };
     let text = sources.file(root).text().to_owned();
     let parsed = luar_parser::module_for(&text, root, target);
     diagnostics.extend(parsed.diagnostics);
 
-    let mut queue = VecDeque::from([graph.insert(root, path, parsed.tree)]);
+    let mut queue = VecDeque::from([graph.insert(root, path, package, parsed.tree)]);
+    let standard_package = graph.add_package(luar_sema::modules::Package {
+        name: "std".to_owned(),
+        version: env!("CARGO_PKG_VERSION").to_owned(),
+        source: Path::new("std").to_path_buf(),
+    });
     let prelude = standard(
         PRELUDE,
         target,
+        standard_package,
         sources,
         &mut graph,
         &mut queue,
@@ -50,40 +70,57 @@ pub(crate) fn build(
     )
     .expect("the prelude ships with the compiler");
 
-    while let Some(id) = queue.pop_front() {
-        let importer = graph.module(id).path.clone();
-        let imports: Vec<Import> = graph
-            .module(id)
-            .ast
-            .items
-            .iter()
-            .filter_map(|item| match item {
-                Item::Import(import) => Some(import.clone()),
-                _ => None,
-            })
-            .collect();
+    {
+        let mut state = ReadState {
+            sources,
+            graph: &mut graph,
+            queue: &mut queue,
+            diagnostics: &mut diagnostics,
+        };
+        while let Some(id) = state.queue.pop_front() {
+            let importer = state.graph.module(id).path.clone();
+            let importer_package = state.graph.module(id).package;
+            let imports: Vec<Import> = state
+                .graph
+                .module(id)
+                .ast
+                .items
+                .iter()
+                .filter_map(|item| match item {
+                    Item::Import(import) => Some(import.clone()),
+                    _ => None,
+                })
+                .collect();
 
-        let mut edges = Vec::with_capacity(imports.len());
-        for import in imports {
-            let target = read(
-                &import,
-                target,
-                &importer,
-                sources,
-                &mut graph,
-                &mut queue,
-                &mut diagnostics,
-            );
-            edges.push(Edge {
-                target,
-                span: import.path_span,
-            });
+            let mut edges = Vec::with_capacity(imports.len());
+            for import in imports {
+                let target = read(
+                    &import,
+                    target,
+                    &importer,
+                    importer_package,
+                    standard_package,
+                    &mut packages,
+                    &mut state,
+                );
+                edges.push(Edge {
+                    target,
+                    span: import.path_span,
+                });
+            }
+            state.graph.set_imports(id, edges);
         }
-        graph.set_imports(id, edges);
     }
     graph.open_prelude(prelude);
 
     (graph, diagnostics)
+}
+
+struct ReadState<'a> {
+    sources: &'a mut SourceMap,
+    graph: &'a mut Graph,
+    queue: &'a mut VecDeque<ModuleId>,
+    diagnostics: &'a mut Vec<Diagnostic>,
 }
 
 /// Resolves one import and reads what it names, unless the graph already has
@@ -92,45 +129,70 @@ fn read(
     import: &Import,
     target: Target,
     importer: &Path,
-    sources: &mut SourceMap,
-    graph: &mut Graph,
-    queue: &mut VecDeque<ModuleId>,
-    diagnostics: &mut Vec<Diagnostic>,
+    importer_package: luar_sema::modules::PackageId,
+    standard_package: luar_sema::modules::PackageId,
+    packages: &mut Packages,
+    state: &mut ReadState<'_>,
 ) -> Option<ModuleId> {
     // A path the parser could not read is already reported, and guessing at
     // what was meant would report it twice.
     let path = import.path.as_deref()?;
 
     if STD.iter().any(|(name, _)| *name == path) {
-        return standard(path, target, sources, graph, queue, diagnostics);
+        return standard(
+            path,
+            target,
+            standard_package,
+            state.sources,
+            state.graph,
+            state.queue,
+            state.diagnostics,
+        );
     }
 
-    let file = match luar_sema::modules::resolve(path, importer) {
-        luar_sema::modules::Target::File(file) => file,
-        luar_sema::modules::Target::Missing(why) => {
-            diagnostics.push(missing(import, why));
-            return None;
+    let (file, package) = match luar_sema::modules::classify(path) {
+        Some(luar_sema::modules::Specifier::Package { name, module }) => {
+            match packages.resolve(state.graph, importer_package, name, module) {
+                Ok(resolved) => resolved,
+                Err(message) => {
+                    state.diagnostics.push(Diagnostic::error(
+                        codes::UNRESOLVED_IMPORT,
+                        import.path_span,
+                        message,
+                    ));
+                    return None;
+                }
+            }
         }
+        _ => match luar_sema::modules::resolve(path, importer) {
+            luar_sema::modules::Target::File(file) => (file, importer_package),
+            luar_sema::modules::Target::Missing(why) => {
+                state.diagnostics.push(missing(import, why));
+                return None;
+            }
+        },
     };
 
-    if let Some(known) = graph.find(&file) {
+    if let Some(known) = state.graph.find(&file) {
         return Some(known);
     }
 
     let text = match fs::read_to_string(&file) {
         Ok(text) => text,
         Err(e) => {
-            diagnostics.push(unreadable(import.path_span, &file, &e));
+            state
+                .diagnostics
+                .push(unreadable(import.path_span, &file, &e));
             return None;
         }
     };
 
-    let id = sources.add(file.clone(), text);
-    let parsed = luar_parser::module_for(sources.file(id).text(), id, target);
-    diagnostics.extend(parsed.diagnostics);
+    let id = state.sources.add(file.clone(), text);
+    let parsed = luar_parser::module_for(state.sources.file(id).text(), id, target);
+    state.diagnostics.extend(parsed.diagnostics);
 
-    let module = graph.insert(id, file, parsed.tree);
-    queue.push_back(module);
+    let module = state.graph.insert(id, file, package, parsed.tree);
+    state.queue.push_back(module);
     Some(module)
 }
 
@@ -139,6 +201,7 @@ fn read(
 fn standard(
     path: &str,
     target: Target,
+    package: luar_sema::modules::PackageId,
     sources: &mut SourceMap,
     graph: &mut Graph,
     queue: &mut VecDeque<ModuleId>,
@@ -154,7 +217,7 @@ fn standard(
     let parsed = luar_parser::module_for(sources.file(id).text(), id, target);
     diagnostics.extend(parsed.diagnostics);
 
-    let module = graph.insert(id, file, parsed.tree);
+    let module = graph.insert(id, file, package, parsed.tree);
     queue.push_back(module);
     Some(module)
 }

@@ -1,0 +1,11 @@
+--- expect: run
+--- exit: 0
+--- stdout: "one\ntwo\n"
+--- spec: LR22
+import { alpha } from "alpha"
+import { beta } from "beta"
+
+export function main()
+    print(alpha())
+    print(beta())
+end
