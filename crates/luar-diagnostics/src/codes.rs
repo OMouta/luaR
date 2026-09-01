@@ -155,7 +155,7 @@ registry! {
     active 148 => ARGUMENT_TYPE, "LR9.1",
         "An argument has the type its parameter declares.";
     active 149 => PRIVATE_MEMBER, "LR44",
-        "A `private` member is reachable only inside the module that declares it.";
+        "A member's visibility limits it to its declaring module or package.";
     active 150 => AMBIGUOUS_EXTENSION, "LR20",
         "Two extension blocks in scope offering one method for one type is decided by naming one.";
     active 151 => EXTENSION_OVERRIDES_MEMBER, "LR20",

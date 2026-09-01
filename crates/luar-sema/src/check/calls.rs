@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use luar_ast::{Argument, Expr, ExprKind, Semantics, Visibility};
+use luar_ast::{Argument, Expr, ExprKind, Semantics};
 use luar_diagnostics::{Diagnostic, Span, codes};
 
 use crate::abi;
@@ -826,18 +826,20 @@ impl Checker<'_> {
             _ => return None,
         };
 
-        let overloads = self
+        let mut overloads = self
             .table
             .structure(module, &owner)?
             .methods
             .get(name)?
             .clone();
 
-        let hidden = overloads
+        if overloads
             .iter()
-            .all(|signature| signature.visibility == Some(Visibility::Private));
-        if hidden {
-            self.private(Some(Visibility::Private), module, &owner, name, span);
+            .any(|signature| self.member_is_visible(signature.visibility, module))
+        {
+            overloads.retain(|signature| self.member_is_visible(signature.visibility, module));
+        } else if let Some(signature) = overloads.first() {
+            self.member_visibility(signature.visibility, module, &owner, name, span);
         }
 
         let receiver = takes_self(&overloads).then(|| Type::Named {

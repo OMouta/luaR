@@ -830,7 +830,13 @@ impl Checker<'_> {
                     };
 
                     if let Some((visibility, module, declared)) = owner {
-                        self.private(visibility, module, &declared, &field.field, field.span);
+                        self.member_visibility(
+                            visibility,
+                            module,
+                            &declared,
+                            &field.field,
+                            field.span,
+                        );
                     }
                     self.bind(name, ty);
                 }

@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use luar_ast::{Semantics, Visibility};
+use luar_ast::Semantics;
 use luar_diagnostics::{Diagnostic, Span, codes};
 
 use crate::aliases::substitute;
@@ -546,13 +546,21 @@ impl Checker<'_> {
                                 .type_params
                                 .splice(0..0, structure.type_params.iter().cloned());
                         }
-                        // Where every overload is private, no call from
-                        // outside can reach any of them (LR44).
-                        let hidden = overloads
+                        if overloads
                             .iter()
-                            .all(|signature| signature.visibility == Some(Visibility::Private));
-                        if hidden {
-                            self.private(Some(Visibility::Private), *module, declared, name, span);
+                            .any(|signature| self.member_is_visible(signature.visibility, *module))
+                        {
+                            overloads.retain(|signature| {
+                                self.member_is_visible(signature.visibility, *module)
+                            });
+                        } else if let Some(signature) = overloads.first() {
+                            self.member_visibility(
+                                signature.visibility,
+                                *module,
+                                declared,
+                                name,
+                                span,
+                            );
                         }
 
                         // LR42: a static has no receiver to be called through,

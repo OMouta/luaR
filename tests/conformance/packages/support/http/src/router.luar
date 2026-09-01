@@ -1,3 +1,11 @@
 export struct Router
     path: string
+    internal secret: int = 0
+
+    internal function reset(self)
+    end
+end
+
+export function reset(router: Router)
+    router:reset()
 end

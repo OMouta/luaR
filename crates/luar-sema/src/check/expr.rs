@@ -593,7 +593,7 @@ impl Checker<'_> {
         }
 
         if let Some(found) = self.stored(held, name) {
-            self.private(found.visibility, found.module, &found.owner, name, span);
+            self.member_visibility(found.visibility, found.module, &found.owner, name, span);
             return found.ty;
         }
 
@@ -1056,7 +1056,7 @@ impl Checker<'_> {
             };
 
             let (visibility, wanted) = (declared.visibility, declared.ty.clone());
-            self.private(visibility, module, name, &field.name, field.span);
+            self.member_visibility(visibility, module, name, &field.name, field.span);
             self.expect(&wanted, value, field.value.span);
         }
 
@@ -1079,9 +1079,8 @@ impl Checker<'_> {
         }
     }
 
-    /// LR44: a `private` member is reachable only inside the module that
-    /// declares it, whichever module holds the value.
-    pub(super) fn private(
+    /// Checks a member against its module or package boundary (LR44).
+    pub(super) fn member_visibility(
         &mut self,
         visibility: Option<Visibility>,
         owner: ModuleId,
@@ -1089,18 +1088,39 @@ impl Checker<'_> {
         name: &str,
         span: Span,
     ) {
-        if visibility != Some(Visibility::Private) || owner == self.scope {
+        if self.member_is_visible(visibility, owner) {
             return;
         }
 
+        let (level, boundary) = match visibility {
+            Some(Visibility::Private) => ("private", "module"),
+            Some(Visibility::Internal) => ("internal", "package"),
+            _ => return,
+        };
         self.diagnostics.push(
             Diagnostic::error(
                 codes::PRIVATE_MEMBER,
                 span,
-                format!("`{name}` is private to the module that declares `{declared}`"),
+                format!("`{name}` is {level} to the {boundary} that declares `{declared}`"),
             )
-            .note("A member written `private` is reachable only in that module (LR44)."),
+            .note(format!(
+                "A member written `{level}` is reachable only in that {boundary} (LR44)."
+            )),
         );
+    }
+
+    pub(super) fn member_is_visible(
+        &self,
+        visibility: Option<Visibility>,
+        owner: ModuleId,
+    ) -> bool {
+        match visibility {
+            Some(Visibility::Private) => owner == self.scope,
+            Some(Visibility::Internal) => {
+                self.graph.module(owner).package == self.graph.module(self.scope).package
+            }
+            None | Some(Visibility::Public) => true,
+        }
     }
 
     /// Whether it is settled what `held` holds, which is what a member of it

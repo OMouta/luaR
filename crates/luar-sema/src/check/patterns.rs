@@ -576,7 +576,7 @@ impl Checker<'_> {
 
             let found = &declared[index];
             if let Some((module, name)) = &owner {
-                self.private(found.visibility, *module, name, &field.field, field.span);
+                self.member_visibility(found.visibility, *module, name, &field.field, field.span);
             }
             let ty = found.ty.clone();
             pats[index] = self.field_pattern(field, &ty);
