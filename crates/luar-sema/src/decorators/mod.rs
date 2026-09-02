@@ -1,6 +1,6 @@
 //! Package decorator expansion (LR23.1).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use luar_ast::{
     BinaryOp, Decorator, DecoratorDecl, Expr, ExprKind, Function, FunctionBody, Item, Member,
@@ -46,6 +46,7 @@ struct Target {
     fields: Vec<Value>,
     variants: Vec<Value>,
     attributes: Vec<Value>,
+    members: BTreeSet<String>,
     span: Span,
 }
 
@@ -152,7 +153,7 @@ fn expand_item(
     sources: &mut SourceMap,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Vec<Change> {
-    let Some(mut target) = target(item) else {
+    let Some(mut target) = target(item, module, program.graph) else {
         return Vec::new();
     };
 
@@ -235,10 +236,22 @@ fn expand_decorators(
 
 fn update_target(target: &mut Target, changes: &[Change]) {
     for change in changes {
-        if let Change::Attribute(decorator) = change {
-            target
+        match change {
+            Change::Method(function) => {
+                if let Some(name) = function.name.last() {
+                    target.members.insert(name.clone());
+                }
+            }
+            Change::Attribute(decorator) => target
                 .attributes
-                .push(Value::String(decorator.name.clone()));
+                .push(Value::String(decorator.name.clone())),
+            Change::Implementation { methods, .. } => {
+                target.members.extend(
+                    methods
+                        .iter()
+                        .filter_map(|function| function.name.last().cloned()),
+                );
+            }
         }
     }
 }
@@ -336,7 +349,7 @@ fn apply_changes(
     methods
 }
 
-fn target(item: &Item) -> Option<Target> {
+fn target(item: &Item, module: ModuleId, graph: &Graph) -> Option<Target> {
     let (name, kind, decorators, span) = match item {
         Item::Function(function) => (
             function.name.join("."),
@@ -398,6 +411,37 @@ fn target(item: &Item) -> Option<Target> {
         .iter()
         .map(|decorator| Value::String(decorator.name.clone()))
         .collect();
+    let mut members = match item {
+        Item::Struct(structure) => structure
+            .members
+            .iter()
+            .map(|member| match member {
+                Member::Field(field) => field.name.clone(),
+                Member::Function { function, .. } => function
+                    .name
+                    .last()
+                    .expect("a member function has a name")
+                    .clone(),
+                Member::Property(property) => property.name.clone(),
+            })
+            .collect(),
+        _ => BTreeSet::new(),
+    };
+    members.extend(
+        graph
+            .module(module)
+            .ast
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                Item::Function(function)
+                    if function.name.len() == 2 && function.name[0] == name =>
+                {
+                    function.name.last().cloned()
+                }
+                _ => None,
+            }),
+    );
 
     Some(Target {
         name,
@@ -405,6 +449,7 @@ fn target(item: &Item) -> Option<Target> {
         fields,
         variants,
         attributes,
+        members,
         span,
     })
 }

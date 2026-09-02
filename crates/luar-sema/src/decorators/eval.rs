@@ -31,6 +31,7 @@ pub(super) struct Evaluator<'a> {
     application: Span,
     sources: &'a mut SourceMap,
     values: BTreeMap<String, Value>,
+    members: std::collections::BTreeSet<String>,
     depth: u32,
     changes: Vec<Change>,
     diagnostics: Vec<Diagnostic>,
@@ -57,6 +58,7 @@ impl<'a> Evaluator<'a> {
             application: application.span,
             sources,
             values: BTreeMap::new(),
+            members: target.members.clone(),
             depth: 0,
             changes: Vec::new(),
             diagnostics: Vec::new(),
@@ -423,6 +425,13 @@ impl<'a> Evaluator<'a> {
             self.error(span, "addMethod expects a function body");
             return;
         };
+        if !self.members.insert(name.clone()) {
+            self.error(
+                self.application,
+                format!("`{}` already has a member `{name}`", self.target.name),
+            );
+            return;
+        }
         let FunctionValue {
             asynchronous,
             mut params,
@@ -465,6 +474,13 @@ impl<'a> Evaluator<'a> {
                 self.error(span, "an implementation method must be a function");
                 continue;
             };
+            if !self.members.insert(name.clone()) {
+                self.error(
+                    self.application,
+                    format!("`{}` already has a member `{name}`", self.target.name),
+                );
+                continue;
+            }
             let FunctionValue {
                 asynchronous,
                 mut params,

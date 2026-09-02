@@ -1,0 +1,16 @@
+--- expect: compile-error
+--- code: LR0221
+--- span: 11:1
+--- spec: LR23.1
+decorator AddValue(target: TypeDeclaration)
+    target:addMethod("value", function(self): int
+        return 2
+    end)
+end
+
+@AddValue
+struct Number
+    function value(self): int
+        return 1
+    end
+end
