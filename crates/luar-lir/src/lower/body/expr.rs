@@ -216,7 +216,18 @@ impl<'a> Body<'a> {
             }
 
             ExprKind::Try(inner) => self.propagate(inner, span),
-            ExprKind::Await(_) => self.missing(span, "await"),
+            ExprKind::Await(inner) => {
+                let task = self.expr(inner, None);
+                let result = self.recorded(span);
+                self.emit(
+                    InstKind::GetField {
+                        object: task,
+                        field: 0,
+                    },
+                    result,
+                    span,
+                )
+            }
 
             // LR17.2, LR57: `is` asks a union or a dynamic value which member
             // it carries. Anything else already says what it is.

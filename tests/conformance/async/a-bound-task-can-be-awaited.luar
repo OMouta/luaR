@@ -1,0 +1,12 @@
+--- expect: run
+--- exit: 0
+--- stdout: "5\n"
+--- spec: LR27
+async function add(a: int, b: int): int
+    return a + b
+end
+
+export async function main()
+    local pending: Task<int> = add(2, 3)
+    print(await pending)
+end

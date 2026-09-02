@@ -4,7 +4,7 @@ use luar_ast::{Argument, Binding, Block, Expr, ExprKind, FunctionBody, Param, St
 use luar_diagnostics::Span;
 
 use crate::inst::MethodId;
-use crate::inst::{BinaryOp, Const, InstKind, Target, Terminator, Value};
+use crate::inst::{Allocation, BinaryOp, Const, InstKind, Target, Terminator, Value};
 use crate::lower::body::{Body, Var};
 use crate::lower::names;
 use crate::lower::names::assigned;
@@ -105,12 +105,6 @@ impl<'a> Body<'a> {
         let Some(reached) = self.context.callees.get(&declaration) else {
             return self.missing(span, "a call to a function with no body");
         };
-
-        // LR27: the call produces a `Task`, which is what the state machine
-        // this function has not been turned into would build.
-        if reached.asynchronous {
-            return self.missing(span, "a call to an async function");
-        }
 
         // LR19: a generic call carries what fills each of the callee's type
         // parameters, which is what monomorphization substitutes.
@@ -213,6 +207,17 @@ impl<'a> Body<'a> {
         }
 
         let result = self.recorded(span);
+        let (call_result, task) = if reached.asynchronous {
+            match &result {
+                Ty::Builtin {
+                    kind: Builtin::Task,
+                    args,
+                } if args.len() == 1 => (args[0].clone(), Some(result.clone())),
+                _ => return self.missing(span, "an async call without a task result"),
+            }
+        } else {
+            (result.clone(), None)
+        };
         if reached.throws {
             let produced = self.emit(
                 InstKind::Call {
@@ -220,21 +225,45 @@ impl<'a> Body<'a> {
                     type_args,
                     args: passed,
                 },
-                thrown_or(result.clone()),
+                thrown_or(call_result.clone()),
                 span,
             );
-            return self.caught_or_raised(produced, result, span);
+            let produced = self.caught_or_raised(produced, call_result, span);
+            return match task {
+                Some(task) => self.emit(
+                    InstKind::MakeStruct {
+                        ty: task.clone(),
+                        fields: vec![produced],
+                        allocation: Allocation::Managed,
+                    },
+                    task,
+                    span,
+                ),
+                None => produced,
+            };
         }
 
-        self.emit(
+        let produced = self.emit(
             InstKind::Call {
                 callee: id,
                 type_args,
                 args: passed,
             },
-            result,
+            call_result,
             span,
-        )
+        );
+        match task {
+            Some(task) => self.emit(
+                InstKind::MakeStruct {
+                    ty: task.clone(),
+                    fields: vec![produced],
+                    allocation: Allocation::Managed,
+                },
+                task,
+                span,
+            ),
+            None => produced,
+        }
     }
 
     /// LR25.3: a call that may have thrown says which happened, so the caller
