@@ -152,14 +152,14 @@ fn expand_item(
     sources: &mut SourceMap,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Vec<Change> {
-    let Some(target) = target(item) else {
+    let Some(mut target) = target(item) else {
         return Vec::new();
     };
 
     let mut decorators = take_decorators(item);
     let changes = expand_decorators(
         &mut decorators,
-        &target,
+        &mut target,
         module,
         program,
         sources,
@@ -171,7 +171,7 @@ fn expand_item(
 
 fn expand_decorators(
     decorators: &mut Vec<Decorator>,
-    target: &Target,
+    target: &mut Target,
     module: ModuleId,
     program: Program<'_>,
     sources: &mut SourceMap,
@@ -203,6 +203,7 @@ fn expand_decorators(
                     span: argument.span,
                 };
                 let (added, reported) = Evaluator::run(target, program, sources, application);
+                update_target(target, &added);
                 changes.extend(added);
                 diagnostics.extend(reported);
             }
@@ -220,6 +221,7 @@ fn expand_decorators(
                 span: decorator.span,
             };
             let (added, reported) = Evaluator::run(target, program, sources, application);
+            update_target(target, &added);
             changes.extend(added);
             diagnostics.extend(reported);
         } else {
@@ -229,6 +231,16 @@ fn expand_decorators(
 
     *decorators = retained;
     changes
+}
+
+fn update_target(target: &mut Target, changes: &[Change]) {
+    for change in changes {
+        if let Change::Attribute(decorator) = change {
+            target
+                .attributes
+                .push(Value::String(decorator.name.clone()));
+        }
+    }
 }
 
 /// The decorator `name` reaches from `module`, and the module declaring it.

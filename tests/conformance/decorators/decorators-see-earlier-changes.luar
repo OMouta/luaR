@@ -1,0 +1,26 @@
+--- expect: run
+--- exit: 0
+--- stdout: "7\n"
+--- spec: LR23.1
+decorator Mark(target: TypeDeclaration)
+    target:addAttribute("cold")
+end
+
+decorator ReadMark(target: TypeDeclaration)
+    for attribute in target.attributes do
+        if attribute == "cold" then
+            target:addMethod("value", function(self): int
+                return 7
+            end)
+        end
+    end
+end
+
+@Mark
+@ReadMark
+struct Marked
+end
+
+export function main()
+    print(Marked {}:value())
+end
