@@ -182,6 +182,7 @@ pub enum Ty {
     },
     /// A closure or a function value (LR9.2, LR9.8).
     Function {
+        asynchronous: bool,
         params: Vec<Ty>,
         result: Box<Ty>,
     },
@@ -255,9 +256,11 @@ impl Ty {
                 target: Box::new(target.substitute(params, args)),
             },
             Self::Function {
+                asynchronous,
                 params: takes,
                 result,
             } => Self::Function {
+                asynchronous: *asynchronous,
                 params: each(takes),
                 result: Box::new(result.substitute(params, args)),
             },
@@ -278,7 +281,7 @@ impl Ty {
             Self::Record(fields) => fields.iter().any(|(_, ty)| ty.is_generic()),
             Self::Optional(inner) | Self::Cell(inner) | Self::Array(inner, _) => inner.is_generic(),
             Self::Pointer { target, .. } => target.is_generic(),
-            Self::Function { params, result } => {
+            Self::Function { params, result, .. } => {
                 params.iter().any(Self::is_generic) || result.is_generic()
             }
             _ => false,
@@ -331,7 +334,14 @@ impl fmt::Display for Ty {
                 let qualifier = if *mutable { "mut" } else { "const" };
                 write!(f, "*{qualifier} {target}")
             }
-            Self::Function { params, result } => {
+            Self::Function {
+                asynchronous,
+                params,
+                result,
+            } => {
+                if *asynchronous {
+                    f.write_str("async ")?;
+                }
                 f.write_str("(")?;
                 join(f, params, ", ")?;
                 write!(f, ") -> {result}")

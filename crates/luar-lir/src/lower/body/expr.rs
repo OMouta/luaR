@@ -174,12 +174,7 @@ impl<'a> Body<'a> {
                 params,
                 body,
                 ..
-            } => {
-                if *asynchronous {
-                    return self.missing(span, "an async closure");
-                }
-                self.closure(params, body, span)
-            }
+            } => self.closure(*asynchronous, params, body, span),
             ExprKind::List(values) => self.list(values, wanted, span),
             ExprKind::Map(entries) => self.map(entries, wanted, span),
             ExprKind::Set(values) => self.set(values, wanted, span),

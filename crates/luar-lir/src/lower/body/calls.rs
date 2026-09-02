@@ -329,15 +329,25 @@ impl<'a> Body<'a> {
 
     /// LR9.2, LR9.8: a closure is a function of the program, plus the values
     /// it captured from the scope it was written in.
-    pub(super) fn closure(&mut self, params: &[Param], body: &FunctionBody, span: Span) -> Value {
+    pub(super) fn closure(
+        &mut self,
+        asynchronous: bool,
+        params: &[Param],
+        body: &FunctionBody,
+        span: Span,
+    ) -> Value {
         let ty = self.recorded(span);
         let Ty::Function {
+            asynchronous: recorded,
             params: takes,
             result,
         } = ty.clone()
         else {
             return self.missing(span, "a closure whose type the checker did not work out");
         };
+        if recorded != asynchronous {
+            return self.missing(span, "a closure whose async type does not match its body");
+        }
         if takes.len() != params.len() {
             return self.missing(span, "a closure of a shape the checker did not agree on");
         }
@@ -372,12 +382,13 @@ impl<'a> Body<'a> {
         let id = FuncId(self.context.next_function.get());
         self.context.next_function.set(id.0 + 1);
 
-        let shell = Function::new(
+        let mut shell = Function::new(
             format!("{}#{}", self.function.name, id.0),
             taken,
             thrown_or(*result),
             span,
         );
+        shell.asynchronous = asynchronous;
         let (built, made, gaps) =
             Body::new(self.context, shell, true).lower(Some(&captured), &bindings, &written);
         self.made.push((id, built));
@@ -428,7 +439,12 @@ impl<'a> Body<'a> {
     /// closure or a function passed as one.
     fn through(&mut self, callee: &Expr, args: &[Argument], span: Span) -> Value {
         let value = self.expr(callee, None);
-        let Ty::Function { params, result } = self.function.type_of(value).clone() else {
+        let Ty::Function {
+            asynchronous,
+            params,
+            result,
+        } = self.function.type_of(value).clone()
+        else {
             return self.missing(span, "a call through something that is not a function");
         };
         if args.len() != params.len() || args.iter().any(|argument| argument.name.is_some()) {
@@ -442,16 +458,48 @@ impl<'a> Body<'a> {
             .collect();
         // LR9.3: what a call through a function value gives back is what the
         // function type says, which is more than the checker settles today.
-        let held = self.maybe_recorded(span).unwrap_or(*result);
+        let held = self.maybe_recorded(span).unwrap_or_else(|| {
+            if asynchronous {
+                Ty::Builtin {
+                    kind: Builtin::Task,
+                    args: vec![result.as_ref().clone()],
+                }
+            } else {
+                result.as_ref().clone()
+            }
+        });
+        let (call_result, task) = if asynchronous {
+            match &held {
+                Ty::Builtin {
+                    kind: Builtin::Task,
+                    args,
+                } if args.len() == 1 => (args[0].clone(), Some(held.clone())),
+                _ => return self.missing(span, "an async call without a task result"),
+            }
+        } else {
+            (held.clone(), None)
+        };
         let produced = self.emit(
             InstKind::CallIndirect {
                 callee: value,
                 args: passed,
             },
-            thrown_or(held.clone()),
+            thrown_or(call_result.clone()),
             span,
         );
-        self.caught_or_raised(produced, held, span)
+        let produced = self.caught_or_raised(produced, call_result, span);
+        match task {
+            Some(task) => self.emit(
+                InstKind::MakeStruct {
+                    ty: task.clone(),
+                    fields: vec![produced],
+                    allocation: Allocation::Managed,
+                },
+                task,
+                span,
+            ),
+            None => produced,
+        }
     }
 
     /// LR18.1: a call through an interface finds its implementation at

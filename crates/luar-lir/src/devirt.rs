@@ -260,14 +260,19 @@ fn infer(
         ) if left_mutable == right_mutable => infer(params, left, right, inferred),
         (
             Ty::Function {
+                asynchronous: left_async,
                 params: left_params,
                 result: left_result,
             },
             Ty::Function {
+                asynchronous: right_async,
                 params: right_params,
                 result: right_result,
             },
         ) => {
+            if left_async != right_async {
+                return None;
+            }
             infer_each(params, left_params, right_params, inferred)?;
             infer(params, left_result, right_result, inferred)
         }

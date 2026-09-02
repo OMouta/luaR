@@ -1,0 +1,12 @@
+--- expect: run
+--- exit: 0
+--- stdout: "6\n"
+--- spec: LR9.2
+--- spec: LR27
+export async function main()
+    local add: async (int, int) -> int = async function(a: int, b: int): int
+        return a + b
+    end
+    local pending: Task<int> = add(2, 4)
+    print(await pending)
+end

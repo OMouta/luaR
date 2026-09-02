@@ -253,7 +253,7 @@ fn concrete(ty: &Ty) -> bool {
         Ty::Record(fields) => fields.iter().all(|(_, ty)| concrete(ty)),
         Ty::Optional(held) | Ty::Cell(held) | Ty::Array(held, _) => concrete(held),
         Ty::Pointer { target, .. } => concrete(target),
-        Ty::Function { params, result } => params.iter().all(concrete) && concrete(result),
+        Ty::Function { params, result, .. } => params.iter().all(concrete) && concrete(result),
         _ => true,
     }
 }

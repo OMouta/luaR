@@ -55,17 +55,11 @@ pub fn convert(ty: &Type, ids: &Ids) -> Result<Ty, Refused> {
             sendable: _,
             params,
             result,
-        } => {
-            if *asynchronous {
-                // LR27: calling one produces a `Task<T>`, which is a type the
-                // pass that builds state machines introduces.
-                return Err("an async function value");
-            }
-            Ty::Function {
-                params: each(params, ids)?,
-                result: Box::new(convert(result, ids)?),
-            }
-        }
+        } => Ty::Function {
+            asynchronous: *asynchronous,
+            params: each(params, ids)?,
+            result: Box::new(convert(result, ids)?),
+        },
         Type::Array(element, Some(length)) => Ty::Array(Box::new(convert(element, ids)?), *length),
         Type::Array(_, None) => return Err("an array length not worked out by const evaluation"),
         Type::Pointer { mutable, target } => Ty::Pointer {
