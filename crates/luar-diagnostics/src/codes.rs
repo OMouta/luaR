@@ -296,6 +296,8 @@ registry! {
         "The source and target of `reinterpret` have the same size.";
     active 219 => DECORATOR_DECLARATION, "LR23.1",
         "A decorator declaration has the compile-time callable contract LR23.1 states.";
+    active 220 => DECORATOR_NOT_FOUND, "LR23.1",
+        "A package decorator is imported before it is applied.";
 }
 
 #[cfg(test)]

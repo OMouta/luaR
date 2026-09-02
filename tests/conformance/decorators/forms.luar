@@ -1,6 +1,18 @@
 --- expect: compile-ok
 --- spec: LR23
 --- spec: LR23.2
+decorator serializable(target: TypeDeclaration)
+end
+
+decorator Json(target: TypeDeclaration)
+end
+
+decorator route(target: TypeDeclaration, path: string)
+end
+
+decorator auth(target: TypeDeclaration, role: string)
+end
+
 @serializable
 export struct User
     id: u64

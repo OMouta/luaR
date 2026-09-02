@@ -6,4 +6,5 @@ root = "."
 [dependencies]
 alpha = "support/alpha"
 beta = "support/beta"
+encoding = "support/encoding"
 http = "support/http"

@@ -1,0 +1,9 @@
+--- expect: compile-ok
+--- spec: LR23.1
+--- spec: LR74
+import { Json } from "encoding/json"
+
+@derive(Json)
+struct User
+    id: u64
+end

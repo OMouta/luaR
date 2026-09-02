@@ -25,6 +25,7 @@ use stmt::{assigned, assigned_items};
 mod builtins;
 mod calls;
 mod closures;
+mod decorators;
 mod exhaustive;
 mod expr;
 mod interfaces;
@@ -43,6 +44,7 @@ pub use operators::protocol_of;
 pub fn check(graph: &Graph, names: &Names, table: &Table) -> (Facts, Vec<Diagnostic>) {
     let mut diagnostics = Vec::new();
     check_entrypoint(graph, table, &mut diagnostics);
+    diagnostics.extend(decorators::check(graph, names, table));
     let (_, facts) = walk(graph, names, table, &mut diagnostics);
     (facts, diagnostics)
 }

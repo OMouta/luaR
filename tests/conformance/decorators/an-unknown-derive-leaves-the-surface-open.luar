@@ -1,6 +1,9 @@
 --- expect: compile-ok
 --- spec: LR75
 --- spec: LR23.1
+decorator Json(target: TypeDeclaration)
+end
+
 @derive(Json)
 struct Open
     x: int

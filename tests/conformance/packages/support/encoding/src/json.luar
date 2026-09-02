@@ -1,0 +1,3 @@
+export decorator Json(target: TypeDeclaration)
+    target:report("serialization is generated here")
+end
