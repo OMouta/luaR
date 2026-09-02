@@ -1,0 +1,21 @@
+--- expect: run
+--- exit: 7
+--- spec: LR23.1
+decorator Accessor(target: TypeDeclaration)
+    for field in target.fields do
+        if target.kind == "struct" and field.name == "value" and field.typeName == "int" then
+            target:addMethod("get", function(self): int
+                return self.value
+            end)
+        end
+    end
+end
+
+@Accessor
+struct Box
+    value: int
+end
+
+export function main(): int
+    return Box { value = 7 }:get()
+end

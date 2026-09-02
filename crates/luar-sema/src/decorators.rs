@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use luar_ast::{
     Argument, BinaryOp, Binding, Block, Decorator, DecoratorDecl, Expr, ExprKind, Function,
-    FunctionBody, Item, Param, StmtKind, Type, TypeKind, UnaryOp,
+    FunctionBody, Item, Member, Param, StmtKind, Type, TypeKind, UnaryOp,
 };
 use luar_diagnostics::{Diagnostic, Span, codes};
 
@@ -18,6 +18,8 @@ enum Value {
     Bool(bool),
     Integer(u64),
     String(String),
+    List(Vec<Value>),
+    Record(BTreeMap<String, Value>),
     Function {
         asynchronous: bool,
         params: Vec<Param>,
@@ -30,6 +32,9 @@ enum Value {
 struct Target {
     name: String,
     kind: &'static str,
+    fields: Vec<Value>,
+    variants: Vec<Value>,
+    attributes: Vec<Value>,
     span: Span,
 }
 
@@ -81,38 +86,8 @@ fn expand_item(
     names: &Names,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Vec<Change> {
-    let target = match item {
-        Item::Function(function) => Target {
-            name: function.name.join("."),
-            kind: "function",
-            span: function.span,
-        },
-        Item::Struct(structure) => Target {
-            name: structure.name.clone(),
-            kind: "struct",
-            span: structure.span,
-        },
-        Item::Enum(enumeration) => Target {
-            name: enumeration.name.clone(),
-            kind: "enum",
-            span: enumeration.span,
-        },
-        Item::Interface(interface) => Target {
-            name: interface.name.clone(),
-            kind: "interface",
-            span: interface.span,
-        },
-        Item::Extend(extend) => Target {
-            name: extend.name.clone(),
-            kind: "extension",
-            span: extend.span,
-        },
-        Item::TypeAlias(alias) => Target {
-            name: alias.name.clone(),
-            kind: "alias",
-            span: alias.span,
-        },
-        Item::Import(_) | Item::DecoratorDecl(_) | Item::Stmt(_) => return Vec::new(),
+    let Some(target) = target(item) else {
+        return Vec::new();
     };
 
     let mut decorators = take_decorators(item);
@@ -287,6 +262,12 @@ impl Evaluator<'_> {
                         self.block(block);
                     }
                 }
+                StmtKind::For {
+                    bindings,
+                    iterable,
+                    body,
+                    ..
+                } => self.for_loop(bindings, iterable, body, statement.span),
                 StmtKind::Expr(expression) => {
                     self.expression(expression);
                 }
@@ -305,6 +286,21 @@ impl Evaluator<'_> {
             ExprKind::Bool(value) => Some(Value::Bool(*value)),
             ExprKind::Integer(value) => Some(Value::Integer(*value)),
             ExprKind::String(value) => Some(Value::String(value.clone())),
+            ExprKind::List(values) => Some(Value::List(
+                values
+                    .iter()
+                    .filter_map(|value| self.expression(value))
+                    .collect(),
+            )),
+            ExprKind::Record { path, fields } if path.is_empty() => {
+                let mut record = BTreeMap::new();
+                for field in fields {
+                    if let Some(value) = self.expression(&field.value) {
+                        record.insert(field.name.clone(), value);
+                    }
+                }
+                Some(Value::Record(record))
+            }
             ExprKind::Name(name) => self.values.get(name).cloned().or_else(|| {
                 self.error(
                     expression.span,
@@ -358,18 +354,48 @@ impl Evaluator<'_> {
     }
 
     fn field(&mut self, receiver: &Expr, name: &str, span: Span) -> Option<Value> {
-        if self.is_target(receiver) {
-            return match name {
+        match self.expression(receiver)? {
+            Value::Target => match name {
                 "name" => Some(Value::String(self.target.name.clone())),
                 "kind" => Some(Value::String(self.target.kind.to_owned())),
+                "fields" => Some(Value::List(self.target.fields.clone())),
+                "variants" => Some(Value::List(self.target.variants.clone())),
+                "attributes" => Some(Value::List(self.target.attributes.clone())),
                 _ => {
                     self.error(span, format!("unknown declaration metadata `{name}`"));
                     None
                 }
-            };
+            },
+            Value::Record(record) => record.get(name).cloned().or_else(|| {
+                self.error(span, format!("unknown metadata field `{name}`"));
+                None
+            }),
+            _ => {
+                self.error(span, "metadata field receiver is not a declaration value");
+                None
+            }
         }
-        self.error(span, "metadata field receiver is not the decorator target");
-        None
+    }
+
+    fn for_loop(&mut self, bindings: &[Binding], iterable: &Expr, body: &Block, span: Span) {
+        let [Binding::Name(name)] = bindings else {
+            self.error(span, "a metadata loop binds one name");
+            return;
+        };
+        let Some(Value::List(values)) = self.expression(iterable) else {
+            self.error(span, "a metadata loop iterates a frozen list");
+            return;
+        };
+        let previous = self.values.remove(name);
+        for value in values {
+            self.values.insert(name.clone(), value);
+            self.block(body);
+        }
+        if let Some(previous) = previous {
+            self.values.insert(name.clone(), previous);
+        } else {
+            self.values.remove(name);
+        }
     }
 
     fn unary(&mut self, op: UnaryOp, operand: &Expr, span: Span) -> Option<Value> {
@@ -532,9 +558,27 @@ impl Evaluator<'_> {
             self.error(span, format!("`{name}` is not a built-in attribute"));
             return;
         }
+        let mut args = Vec::new();
+        for argument in &arguments[1..] {
+            let Some(value) = self.expression(&argument.value) else {
+                continue;
+            };
+            let Some(value) = literal(value, argument.span) else {
+                self.error(
+                    argument.span,
+                    "an attribute argument must be a scalar value",
+                );
+                continue;
+            };
+            args.push(Argument {
+                name: argument.name.clone(),
+                value,
+                span: argument.span,
+            });
+        }
         self.changes.push(Change::Attribute(Decorator {
             name,
-            args: Vec::new(),
+            args,
             span: self.application,
         }));
     }
@@ -563,6 +607,21 @@ impl Evaluator<'_> {
                 .label(self.target.span, "attached declaration"),
         );
     }
+}
+
+fn literal(value: Value, span: Span) -> Option<Expr> {
+    let kind = match value {
+        Value::Nil => ExprKind::Nil,
+        Value::Bool(value) => ExprKind::Bool(value),
+        Value::Integer(value) => ExprKind::Integer(value),
+        Value::String(value) => ExprKind::String(value),
+        Value::Target
+        | Value::List(_)
+        | Value::Record(_)
+        | Value::Function { .. }
+        | Value::Map(_) => return None,
+    };
+    Some(Expr::new(kind, span))
 }
 
 fn function(
@@ -628,6 +687,146 @@ fn apply_changes(
         }
     }
     methods
+}
+
+fn target(item: &Item) -> Option<Target> {
+    let (name, kind, decorators, span) = match item {
+        Item::Function(function) => (
+            function.name.join("."),
+            "function",
+            &function.decorators,
+            function.span,
+        ),
+        Item::Struct(structure) => (
+            structure.name.clone(),
+            "struct",
+            &structure.decorators,
+            structure.span,
+        ),
+        Item::Enum(enumeration) => (
+            enumeration.name.clone(),
+            "enum",
+            &enumeration.decorators,
+            enumeration.span,
+        ),
+        Item::Interface(interface) => (
+            interface.name.clone(),
+            "interface",
+            &interface.decorators,
+            interface.span,
+        ),
+        Item::Extend(extend) => (
+            extend.name.clone(),
+            "extension",
+            &extend.decorators,
+            extend.span,
+        ),
+        Item::TypeAlias(alias) => (alias.name.clone(), "alias", &alias.decorators, alias.span),
+        Item::Import(_) | Item::DecoratorDecl(_) | Item::Stmt(_) => return None,
+    };
+
+    let fields = match item {
+        Item::Struct(structure) => structure
+            .members
+            .iter()
+            .filter_map(|member| match member {
+                Member::Field(field) => Some(metadata([
+                    ("name", field.name.clone()),
+                    ("typeName", type_name(&field.ty)),
+                ])),
+                Member::Function { .. } | Member::Property(_) => None,
+            })
+            .collect(),
+        _ => Vec::new(),
+    };
+    let variants = match item {
+        Item::Enum(enumeration) => enumeration
+            .variants
+            .iter()
+            .map(|variant| metadata([("name", variant.name.clone())]))
+            .collect(),
+        _ => Vec::new(),
+    };
+    let attributes = decorators
+        .iter()
+        .map(|decorator| Value::String(decorator.name.clone()))
+        .collect();
+
+    Some(Target {
+        name,
+        kind,
+        fields,
+        variants,
+        attributes,
+        span,
+    })
+}
+
+fn metadata<const N: usize>(fields: [(&str, String); N]) -> Value {
+    Value::Record(
+        fields
+            .into_iter()
+            .map(|(name, value)| (name.to_owned(), Value::String(value)))
+            .collect(),
+    )
+}
+
+fn type_name(ty: &Type) -> String {
+    match &ty.kind {
+        TypeKind::Path { segments, args } => {
+            let mut name = segments.join(".");
+            if !args.is_empty() {
+                name.push('<');
+                name.push_str(&args.iter().map(type_name).collect::<Vec<_>>().join(", "));
+                name.push('>');
+            }
+            name
+        }
+        TypeKind::Optional(inner) => format!("{}?", type_name(inner)),
+        TypeKind::Union(types) => types.iter().map(type_name).collect::<Vec<_>>().join(" | "),
+        TypeKind::Intersection(types) => {
+            types.iter().map(type_name).collect::<Vec<_>>().join(" & ")
+        }
+        TypeKind::Tuple(types) => format!(
+            "({})",
+            types.iter().map(type_name).collect::<Vec<_>>().join(", ")
+        ),
+        TypeKind::Function {
+            asynchronous,
+            params,
+            result,
+        } => format!(
+            "{}({}) -> {}",
+            if *asynchronous { "async " } else { "" },
+            params.iter().map(type_name).collect::<Vec<_>>().join(", "),
+            type_name(result)
+        ),
+        TypeKind::Array { element, length } => {
+            format!("[{}; {}]", type_name(element), const_name(length))
+        }
+        TypeKind::Pointer { mutable, target } => format!(
+            "*{} {}",
+            if *mutable { "mut" } else { "const" },
+            type_name(target)
+        ),
+        TypeKind::Record(fields) => format!(
+            "{{ {} }}",
+            fields
+                .iter()
+                .map(|field| format!("{}: {}", field.name, type_name(&field.ty)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        TypeKind::Error => "<error>".to_owned(),
+    }
+}
+
+fn const_name(expression: &Expr) -> String {
+    match &expression.kind {
+        ExprKind::Integer(value) => value.to_string(),
+        ExprKind::Name(name) => name.clone(),
+        _ => "_".to_owned(),
+    }
 }
 
 fn take_decorators(item: &mut Item) -> Vec<Decorator> {
