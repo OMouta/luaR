@@ -1829,8 +1829,10 @@ Decorator expansion must be deterministic for a fixed compiler environment and p
 Packages declare decorators at module level. A decorator declaration has an implicit compile-time execution context and no runtime value:
 
 ```lua
-export decorator Json(target: TypeDeclaration, options: JsonOptions = JsonOptions {})
-    target:addImplementation("Serialize", serializerFor(target, options))
+export decorator Json(target: TypeDeclaration)
+    target:addMethod("toJson", function(self): string
+        return "{}"
+    end)
 end
 ```
 
@@ -1840,7 +1842,36 @@ Decorator declarations return `()` and may not be `async`, `unsafe`, generic, ne
 
 Decorator names use ordinary module resolution. A package decorator must be imported before use. Several decorators on one declaration expand from top to bottom, and each sees changes made by the decorators above it. Generated members carry the application span and the decorator declaration span for diagnostics.
 
-The decorator API exposes typed declaration metadata and builders for members, implementations, attributes, and diagnostics. It does not accept source text and cannot create a top-level declaration. `@derive(Name)` resolves `Name` as a built-in derivation or an imported decorator declaration, then applies it to the attached type under the same restrictions.
+`TypeDeclaration` is available only while a decorator runs. It has these read-only properties:
+
+- `name: string`;
+- `kind: string`, equal to `"struct"`, `"enum"`, `"interface"`, `"extension"`, `"alias"`, or `"function"`;
+- `fields: FrozenList<DeclarationField>`;
+- `variants: FrozenList<DeclarationVariant>`;
+- `attributes: FrozenList<string>`.
+
+`fields` is empty except for a struct. A `DeclarationField` has read-only `name: string` and `typeName: string` properties. `variants` is empty except for an enum. A `DeclarationVariant` has a read-only `name: string` property. The lists reflect changes made by decorators already applied to the declaration.
+
+The mutation and diagnostic operations are:
+
+```lua
+target:addMethod(name: string, body: function)
+target:addImplementation(interfaceName: string, methods: Map<string, function>)
+target:addAttribute(name: string, ...arguments)
+target:report(message: string)
+```
+
+`addMethod` adds an ordinary method. `body` names `self` as its first parameter and becomes the method body. It may capture only compile-time values from the decorator invocation.
+
+`addImplementation` adds the named interface and every method in `methods`. The interface name resolves in the decorator declaration's module. Each function follows the `addMethod` rules.
+
+`addAttribute` accepts a built-in attribute from LR23.2 and compile-time arguments valid for that attribute. It may not recursively apply a package decorator.
+
+`report` produces a compile-time error at the decorator application. The diagnostic also points to the decorator declaration.
+
+Adding a member that the target already has, adding an implementation it already declares, or adding an attribute that may appear only once is an error. Generated methods and implementations are checked with the target after expansion.
+
+The API accepts names, values, and function values rather than source text. It cannot create a top-level declaration. `@derive(Name)` resolves `Name` as a built-in derivation or an imported decorator declaration, then applies it to the attached type under the same restrictions.
 
 ### 23.2 Built-In Attributes
 
