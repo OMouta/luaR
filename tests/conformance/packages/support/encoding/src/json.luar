@@ -1,3 +1,5 @@
 export decorator Json(target: TypeDeclaration)
-    target:report("serialization is generated here")
+    target:addMethod("toJson", function(self): string
+        return "{}"
+    end)
 end

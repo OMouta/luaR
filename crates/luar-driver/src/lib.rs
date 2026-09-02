@@ -117,9 +117,11 @@ struct Frontend {
 }
 
 fn frontend(sources: &mut SourceMap, root: FileId, target: Target) -> Frontend {
-    let (graph, mut diagnostics) = graph::build(sources, root, target);
+    let (mut graph, mut diagnostics) = graph::build(sources, root, target);
     let (names, reported) = luar_sema::names::resolve(&graph);
     diagnostics.extend(reported);
+
+    diagnostics.extend(luar_sema::decorators::expand(&mut graph, &names));
 
     let (reported, uses) = luar_sema::scope::resolve(&graph, &names);
     diagnostics.extend(reported);

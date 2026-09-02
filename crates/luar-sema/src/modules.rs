@@ -287,6 +287,11 @@ impl Graph {
             .expect("module id belongs to another graph")
     }
 
+    /// # Panics
+    pub fn module_mut(&mut self, id: ModuleId) -> &mut Node {
+        self.node_mut(id)
+    }
+
     /// Every module, in the order they were discovered.
     pub fn modules(&self) -> impl Iterator<Item = (ModuleId, &Node)> {
         self.nodes

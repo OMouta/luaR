@@ -2,6 +2,9 @@
 --- spec: LR75
 --- spec: LR23.1
 decorator Json(target: TypeDeclaration)
+    target:addMethod("whatever", function(self): int
+        return self.x
+    end)
 end
 
 @derive(Json)

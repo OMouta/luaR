@@ -298,6 +298,8 @@ registry! {
         "A decorator declaration has the compile-time callable contract LR23.1 states.";
     active 220 => DECORATOR_NOT_FOUND, "LR23.1",
         "A package decorator is imported before it is applied.";
+    active 221 => DECORATOR_EXPANSION, "LR23.1",
+        "A package decorator expands through the metadata operations LR23.1 defines.";
 }
 
 #[cfg(test)]

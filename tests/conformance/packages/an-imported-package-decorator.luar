@@ -1,4 +1,6 @@
---- expect: compile-ok
+--- expect: run
+--- exit: 0
+--- stdout: "{}\n"
 --- spec: LR23.1
 --- spec: LR74
 import { Json } from "encoding/json"
@@ -6,4 +8,8 @@ import { Json } from "encoding/json"
 @derive(Json)
 struct User
     id: u64
+end
+
+export function main()
+    print(User { id = 1 }:toJson())
 end
