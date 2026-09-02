@@ -1,0 +1,30 @@
+--- expect: run
+--- exit: 3
+--- spec: LR23.1
+decorator Tagged(target: TypeDeclaration, tag: string)
+    local width = 3
+    local names = ["a", "b"]
+    target:addMethod("tag", function(self): string
+        return tag
+    end)
+    target:addMethod("width", function(self): int
+        local tag = 9
+        return width + tag - tag
+    end)
+    target:addMethod("count", function(self): int
+        local list = names
+        return list.length
+    end)
+end
+
+@Tagged("box")
+struct Box
+end
+
+export function main(): int
+    local box = Box {}
+    if box:tag() == "box" and box:count() == 2 then
+        return box:width()
+    end
+    return 1
+end

@@ -1,0 +1,23 @@
+--- expect: run
+--- exit: 6
+--- spec: LR23.1
+decorator Doubled(target: TypeDeclaration)
+    target:addMethod("doubled", function(self): int
+        return self.value * 2
+    end)
+end
+
+@Doubled
+struct A
+    value: int
+end
+
+@Doubled
+struct B
+    pad: string
+    value: int
+end
+
+export function main(): int
+    return A { value = 1 }:doubled() + B { pad = "x", value = 2 }:doubled()
+end

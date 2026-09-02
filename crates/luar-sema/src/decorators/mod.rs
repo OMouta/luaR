@@ -6,13 +6,17 @@ use luar_ast::{
     Argument, BinaryOp, Binding, Block, Decorator, DecoratorDecl, Expr, ExprKind, Function,
     FunctionBody, Item, Member, Param, StmtKind, Type, TypeKind, UnaryOp,
 };
-use luar_diagnostics::{Diagnostic, Span, codes};
+use luar_diagnostics::{Diagnostic, SourceMap, Span, codes};
 
 use crate::modules::{Graph, ModuleId};
 use crate::names::{Names, Origin};
 
+mod rewrite;
+
+use rewrite::Rewrite;
+
 #[derive(Clone)]
-enum Value {
+pub(super) enum Value {
     Target,
     Nil,
     Bool(bool),
@@ -25,6 +29,7 @@ enum Value {
         params: Vec<Param>,
         result: Option<Type>,
         body: FunctionBody,
+        span: Span,
     },
     Map(BTreeMap<String, Value>),
 }
@@ -51,12 +56,13 @@ struct Evaluator<'a> {
     target: &'a Target,
     declaration: Span,
     application: Span,
+    sources: &'a mut SourceMap,
     values: BTreeMap<String, Value>,
     changes: Vec<Change>,
     diagnostics: Vec<Diagnostic>,
 }
 
-pub fn expand(graph: &mut Graph, names: &Names) -> Vec<Diagnostic> {
+pub fn expand(graph: &mut Graph, names: &Names, sources: &mut SourceMap) -> Vec<Diagnostic> {
     let modules: Vec<ModuleId> = graph.modules().map(|(id, _)| id).collect();
     let mut diagnostics = Vec::new();
 
@@ -64,7 +70,7 @@ pub fn expand(graph: &mut Graph, names: &Names) -> Vec<Diagnostic> {
         let items = graph.module(module).ast.items.clone();
         let mut expanded = Vec::with_capacity(items.len());
         for mut item in items {
-            let changes = expand_item(&mut item, module, graph, names, &mut diagnostics);
+            let changes = expand_item(&mut item, module, graph, names, sources, &mut diagnostics);
             expanded.push(item);
             expanded.extend(changes.into_iter().map(|change| match change {
                 Change::Method(function) => Item::Function(function),
@@ -84,6 +90,7 @@ fn expand_item(
     module: ModuleId,
     graph: &Graph,
     names: &Names,
+    sources: &mut SourceMap,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Vec<Change> {
     let Some(target) = target(item) else {
@@ -91,7 +98,15 @@ fn expand_item(
     };
 
     let mut decorators = take_decorators(item);
-    let changes = expand_decorators(&mut decorators, &target, module, graph, names, diagnostics);
+    let changes = expand_decorators(
+        &mut decorators,
+        &target,
+        module,
+        graph,
+        names,
+        sources,
+        diagnostics,
+    );
     put_decorators(item, decorators);
     apply_changes(item, changes, diagnostics)
 }
@@ -102,6 +117,7 @@ fn expand_decorators(
     module: ModuleId,
     graph: &Graph,
     names: &Names,
+    sources: &mut SourceMap,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Vec<Change> {
     let mut changes = Vec::new();
@@ -123,7 +139,14 @@ fn expand_decorators(
                     arguments.push(argument);
                     continue;
                 };
-                changes.extend(run(&declaration, &[], target, argument.span, diagnostics));
+                changes.extend(run(
+                    &declaration,
+                    &[],
+                    target,
+                    argument.span,
+                    sources,
+                    diagnostics,
+                ));
             }
             decorator.args = arguments;
             if !decorator.args.is_empty() {
@@ -137,6 +160,7 @@ fn expand_decorators(
                 &decorator.args,
                 target,
                 decorator.span,
+                sources,
                 diagnostics,
             ));
         } else {
@@ -178,12 +202,14 @@ fn run(
     arguments: &[Argument],
     target: &Target,
     application: Span,
+    sources: &mut SourceMap,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Vec<Change> {
     let mut evaluator = Evaluator {
         target,
         declaration: declaration.span,
         application,
+        sources,
         values: BTreeMap::new(),
         changes: Vec::new(),
         diagnostics: Vec::new(),
@@ -323,6 +349,7 @@ impl Evaluator<'_> {
                 params: params.clone(),
                 result: result.clone(),
                 body: (**body).clone(),
+                span: expression.span,
             }),
             ExprKind::Map(entries) => {
                 let mut map = BTreeMap::new();
@@ -479,14 +506,16 @@ impl Evaluator<'_> {
         };
         let Some(Value::Function {
             asynchronous,
-            params,
-            result,
-            body,
+            mut params,
+            mut result,
+            mut body,
+            span,
         }) = self.argument(arguments, 1)
         else {
             self.error(span, "addMethod expects a function body");
             return;
         };
+        let span = self.rewrite(span, &mut params, result.as_mut(), &mut body);
         self.changes.push(Change::Method(function(
             &self.target.name,
             name,
@@ -494,7 +523,7 @@ impl Evaluator<'_> {
             params,
             result,
             body,
-            self.application,
+            span,
         )));
     }
 
@@ -514,29 +543,30 @@ impl Evaluator<'_> {
             self.error(span, "addImplementation expects a method map");
             return;
         };
-        let methods = methods
-            .into_iter()
-            .filter_map(|(name, value)| match value {
-                Value::Function {
-                    asynchronous,
-                    params,
-                    result,
-                    body,
-                } => Some(function(
-                    &self.target.name,
-                    name,
-                    asynchronous,
-                    params,
-                    result,
-                    body,
-                    self.application,
-                )),
-                _ => {
-                    self.error(span, "an implementation method must be a function");
-                    None
-                }
-            })
-            .collect();
+        let mut functions = Vec::new();
+        for (name, value) in methods {
+            let Value::Function {
+                asynchronous,
+                mut params,
+                mut result,
+                mut body,
+                span,
+            } = value
+            else {
+                self.error(span, "an implementation method must be a function");
+                continue;
+            };
+            let span = self.rewrite(span, &mut params, result.as_mut(), &mut body);
+            functions.push(function(
+                &self.target.name,
+                name,
+                asynchronous,
+                params,
+                result,
+                body,
+                span,
+            ));
+        }
         self.changes.push(Change::Implementation {
             interface: Type::new(
                 TypeKind::Path {
@@ -545,7 +575,7 @@ impl Evaluator<'_> {
                 },
                 self.application,
             ),
-            methods,
+            methods: functions,
         });
     }
 
@@ -589,6 +619,30 @@ impl Evaluator<'_> {
             return;
         };
         self.error(self.application, message);
+    }
+
+    /// A generated body gets a copy of the decorator's file to itself, so
+    /// its spans identify it and nothing else. Returns `span` moved there.
+    fn rewrite(
+        &mut self,
+        span: Span,
+        params: &mut [Param],
+        result: Option<&mut Type>,
+        body: &mut FunctionBody,
+    ) -> Span {
+        let text_len = self.sources.file(self.declaration.file).text().len();
+        let file = self.sources.copy(self.declaration.file);
+        let mut rewrite = Rewrite::new(
+            &self.values,
+            file,
+            u32::try_from(text_len).expect("source offsets fit in u32"),
+            params,
+        );
+        rewrite.function(params, result, body);
+        for (span, message) in rewrite.errors {
+            self.error(span, message);
+        }
+        Span::new(file, span.start, span.end)
     }
 
     fn argument(&mut self, arguments: &[Argument], index: usize) -> Option<Value> {

@@ -130,6 +130,16 @@ impl SourceMap {
         id
     }
 
+    /// Adds a second copy of a file, whose spans resolve to the same text
+    /// but identify nothing in the original.
+    ///
+    /// # Panics
+    pub fn copy(&mut self, id: FileId) -> FileId {
+        let source = self.file(id);
+        let (path, text) = (source.path.clone(), source.text.clone());
+        self.add(path, text)
+    }
+
     /// # Panics
     #[must_use]
     pub fn file(&self, id: FileId) -> &SourceFile {
