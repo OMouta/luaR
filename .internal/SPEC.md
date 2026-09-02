@@ -1840,6 +1840,8 @@ The first parameter accepts a compiler metadata type for the declaration kinds t
 
 Decorator declarations return `()` and may not be `async`, `unsafe`, generic, nested, or overloaded. Their bodies may use ordinary control flow, compile-time values from their defining module, and the typed decorator API. They may not perform runtime I/O, inspect the process environment, call FFI, mutate module state, or depend on time or randomness.
 
+A decorator body may call a function declared at module level in its own module. The call runs while the decorator does, under the same restrictions, and a `return` in the callee gives the call its value. A function whose parameter or result types name `TypeDeclaration`, `DeclarationField`, or `DeclarationVariant` is a compile-time function: it exists only while a decorator runs, it is not compiled into the program, and calling it anywhere else is an error. Any other function called this way is also an ordinary function of its module.
+
 Decorator names use ordinary module resolution. A package decorator must be imported before use. Several decorators on one declaration expand from top to bottom, and each sees changes made by the decorators above it. Generated members carry the application span and the decorator declaration span for diagnostics.
 
 `TypeDeclaration` is available only while a decorator runs. It has these read-only properties:
