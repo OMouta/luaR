@@ -230,7 +230,10 @@ pub fn parts(program: &Program, ty: &Ty) -> Option<Vec<Ty>> {
         Ty::Builtin {
             kind: Builtin::Task,
             args,
-        } if args.len() == 1 => Some(args.clone()),
+        } if args.len() == 1 => Some(vec![Ty::Builtin {
+            kind: Builtin::Result,
+            args: vec![args[0].clone(), Ty::Dynamic],
+        }]),
         _ => None,
     }
 }

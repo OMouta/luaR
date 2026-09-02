@@ -134,9 +134,8 @@ impl Scan<'_> {
             ExprKind::Index {
                 receiver, index, ..
             } => self.expr(receiver) || self.expr(index),
-            ExprKind::Try(inner)
-            | ExprKind::Await(inner)
-            | ExprKind::AddressOf { operand: inner, .. } => self.expr(inner),
+            ExprKind::Await(_) => true,
+            ExprKind::Try(inner) | ExprKind::AddressOf { operand: inner, .. } => self.expr(inner),
             ExprKind::Cast { value, .. } | ExprKind::TypeTest { value, .. } => self.expr(value),
             ExprKind::Tuple(members) | ExprKind::List(members) | ExprKind::Set(members) => {
                 members.iter().any(|member| self.expr(member))

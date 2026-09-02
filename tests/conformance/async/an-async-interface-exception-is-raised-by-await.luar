@@ -1,0 +1,28 @@
+--- expect: run
+--- exit: 0
+--- stdout: "interface\n"
+--- spec: LR18.1
+--- spec: LR27
+struct Failure
+    message: string
+end
+
+interface Reader
+    async function read(self): int
+end
+
+struct Broken implements Reader
+    async function read(self): int
+        throw Failure { message = "interface" }
+    end
+end
+
+export async function main()
+    local reader: Reader = Broken {}
+    local task: Task<int> = reader:read()
+    try
+        print(await task)
+    catch error: Failure
+        print(error.message)
+    end
+end

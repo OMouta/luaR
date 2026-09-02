@@ -1,0 +1,21 @@
+--- expect: run
+--- exit: 0
+--- stdout: "7\n"
+--- spec: LR27
+struct Failure
+    code: int
+end
+
+async function fail(): int
+    throw Failure { code = 7 }
+end
+
+export async function main()
+    local task: Task<int> = fail()
+    try
+        local value: int = await task
+        print(value)
+    catch error: Failure
+        print(error.code)
+    end
+end

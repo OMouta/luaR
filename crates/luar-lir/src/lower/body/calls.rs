@@ -228,8 +228,11 @@ impl<'a> Body<'a> {
                 thrown_or(call_result.clone()),
                 span,
             );
+            if task.is_some() {
+                return self.completed_task(produced, task, span);
+            }
             let produced = self.caught_or_raised(produced, call_result, span);
-            return self.completed_task(produced, task, span);
+            return produced;
         }
 
         let produced = self.emit(
@@ -238,16 +241,20 @@ impl<'a> Body<'a> {
                 type_args,
                 args: passed,
             },
-            call_result,
+            call_result.clone(),
             span,
         );
+        let produced = match task {
+            Some(_) => self.completed_result(produced, call_result, span),
+            None => produced,
+        };
         self.completed_task(produced, task, span)
     }
 
     /// LR25.3: a call that may have thrown says which happened, so the caller
     /// reads what it returned on one path and sends what it threw on outward
     /// on the other.
-    fn caught_or_raised(&mut self, produced: Value, result: Ty, span: Span) -> Value {
+    pub(super) fn caught_or_raised(&mut self, produced: Value, result: Ty, span: Span) -> Value {
         let tag = self.emit(InstKind::GetTag { value: produced }, Ty::INT, span);
         let threw = self.emit(InstKind::Const(Const::Int(1)), Ty::INT, span);
         let raised = self.emit(
@@ -465,8 +472,10 @@ impl<'a> Body<'a> {
             thrown_or(call_result.clone()),
             span,
         );
-        let produced = self.caught_or_raised(produced, call_result, span);
-        self.completed_task(produced, task, span)
+        if task.is_some() {
+            return self.completed_task(produced, task, span);
+        }
+        self.caught_or_raised(produced, call_result, span)
     }
 
     /// LR18.1: a call through an interface finds its implementation at
@@ -517,9 +526,13 @@ impl<'a> Body<'a> {
                     receiver,
                     args: passed,
                 },
-                call_result,
+                call_result.clone(),
                 span,
             );
+            let produced = match task {
+                Some(_) => self.completed_result(produced, call_result, span),
+                None => produced,
+            };
             return self.completed_task(produced, task, span);
         }
         let produced = self.emit(
@@ -531,8 +544,23 @@ impl<'a> Body<'a> {
             thrown_or(call_result.clone()),
             span,
         );
-        let produced = self.caught_or_raised(produced, call_result, span);
-        self.completed_task(produced, task, span)
+        if task.is_some() {
+            return self.completed_task(produced, task, span);
+        }
+        self.caught_or_raised(produced, call_result, span)
+    }
+
+    fn completed_result(&mut self, value: Value, result: Ty, span: Span) -> Value {
+        let ty = thrown_or(result);
+        self.emit(
+            InstKind::MakeEnum {
+                ty: ty.clone(),
+                variant: 0,
+                payload: vec![value],
+            },
+            ty,
+            span,
+        )
     }
 
     fn completed_task(&mut self, value: Value, task: Option<Ty>, span: Span) -> Value {
