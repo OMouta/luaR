@@ -1865,6 +1865,8 @@ target:report(message: string)
 
 `addMethod` adds an ordinary method. `body` names `self` as its first parameter and becomes the method body. It may capture only compile-time values from the decorator invocation.
 
+A generated body is staged before it is checked. An expression in it built only from captured values, literals, and the operations a decorator body may use is replaced by its value. A `for` over a captured list is written out once per element, in place, with the loop binding holding that element. An `if` whose condition is a captured value keeps only the branch it selects. `field:get(value)`, where `field` is a captured `DeclarationField`, reads the field it names from `value`. A captured declaration or function value may not appear anywhere else in a generated body.
+
 `addImplementation` adds the named interface and every method in `methods`. The interface name resolves in the decorator declaration's module. Each function follows the `addMethod` rules.
 
 `addAttribute` accepts a built-in attribute from LR23.2 and compile-time arguments valid for that attribute. It may not recursively apply a package decorator.
