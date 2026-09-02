@@ -1,0 +1,9 @@
+--- expect: run
+--- exit: 0
+--- spec: LR27
+async function complete()
+end
+
+export async function main()
+    local finished: () = await complete()
+end
