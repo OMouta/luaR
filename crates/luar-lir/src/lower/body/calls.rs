@@ -229,18 +229,7 @@ impl<'a> Body<'a> {
                 span,
             );
             let produced = self.caught_or_raised(produced, call_result, span);
-            return match task {
-                Some(task) => self.emit(
-                    InstKind::MakeStruct {
-                        ty: task.clone(),
-                        fields: vec![produced],
-                        allocation: Allocation::Managed,
-                    },
-                    task,
-                    span,
-                ),
-                None => produced,
-            };
+            return self.completed_task(produced, task, span);
         }
 
         let produced = self.emit(
@@ -252,18 +241,7 @@ impl<'a> Body<'a> {
             call_result,
             span,
         );
-        match task {
-            Some(task) => self.emit(
-                InstKind::MakeStruct {
-                    ty: task.clone(),
-                    fields: vec![produced],
-                    allocation: Allocation::Managed,
-                },
-                task,
-                span,
-            ),
-            None => produced,
-        }
+        self.completed_task(produced, task, span)
     }
 
     /// LR25.3: a call that may have thrown says which happened, so the caller
@@ -488,18 +466,7 @@ impl<'a> Body<'a> {
             span,
         );
         let produced = self.caught_or_raised(produced, call_result, span);
-        match task {
-            Some(task) => self.emit(
-                InstKind::MakeStruct {
-                    ty: task.clone(),
-                    fields: vec![produced],
-                    allocation: Allocation::Managed,
-                },
-                task,
-                span,
-            ),
-            None => produced,
-        }
+        self.completed_task(produced, task, span)
     }
 
     /// LR18.1: a call through an interface finds its implementation at
@@ -523,23 +490,37 @@ impl<'a> Body<'a> {
             .map(|argument| self.stored(&argument.value, None))
             .collect();
         let result = self.recorded(span);
-        let throws = match &self.context.program.nominal(method.interface).shape {
+        let (throws, asynchronous) = match &self.context.program.nominal(method.interface).shape {
             crate::program::Shape::Interface(interface) => interface
                 .methods
                 .get(method.slot as usize)
-                .is_some_and(|method| method.throws),
-            _ => false,
+                .map_or((false, false), |method| {
+                    (method.throws, method.asynchronous)
+                }),
+            _ => (false, false),
+        };
+        let (call_result, task) = if asynchronous {
+            match &result {
+                Ty::Builtin {
+                    kind: Builtin::Task,
+                    args,
+                } if args.len() == 1 => (args[0].clone(), Some(result.clone())),
+                _ => return self.missing(span, "an async call without a task result"),
+            }
+        } else {
+            (result.clone(), None)
         };
         if !throws {
-            return self.emit(
+            let produced = self.emit(
                 InstKind::CallVirtual {
                     method,
                     receiver,
                     args: passed,
                 },
-                result,
+                call_result,
                 span,
             );
+            return self.completed_task(produced, task, span);
         }
         let produced = self.emit(
             InstKind::CallVirtual {
@@ -547,9 +528,25 @@ impl<'a> Body<'a> {
                 receiver,
                 args: passed,
             },
-            thrown_or(result.clone()),
+            thrown_or(call_result.clone()),
             span,
         );
-        self.caught_or_raised(produced, result, span)
+        let produced = self.caught_or_raised(produced, call_result, span);
+        self.completed_task(produced, task, span)
+    }
+
+    fn completed_task(&mut self, value: Value, task: Option<Ty>, span: Span) -> Value {
+        match task {
+            Some(task) => self.emit(
+                InstKind::MakeStruct {
+                    ty: task.clone(),
+                    fields: vec![value],
+                    allocation: Allocation::Managed,
+                },
+                task,
+                span,
+            ),
+            None => value,
+        }
     }
 }

@@ -382,6 +382,7 @@ impl Lowering<'_> {
                     params,
                     result,
                     throws: false,
+                    asynchronous: signature.asynchronous,
                 });
             }
         }

@@ -1,0 +1,29 @@
+--- expect: run
+--- exit: 0
+--- stdout: "1\n2\n"
+--- spec: LR18.1
+--- spec: LR27
+interface Reader
+    async function read(self): int
+end
+
+struct One implements Reader
+    async function read(self): int
+        return 1
+    end
+end
+
+struct Two implements Reader
+    async function read(self): int
+        return 2
+    end
+end
+
+async function read(reader: Reader): int
+    return await reader:read()
+end
+
+export async function main()
+    print(await read(One {}))
+    print(await read(Two {}))
+end
