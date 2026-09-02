@@ -2064,6 +2064,8 @@ local task: Task<Result<User, Error>> = fetchUser(1)
 
 `await` suspends the current async task until completion. It takes a `Task<T>` and produces the `T` that task completed with.
 
+If an async function raises an exception, its task completes with that exception. Awaiting the task raises it in the awaiting task.
+
 `await` may only appear in the body of an async function. The entrypoint of LR27.1 is one.
 
 ### 27.1 Async Entry Point
