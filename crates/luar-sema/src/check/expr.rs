@@ -341,6 +341,18 @@ impl Checker<'_> {
                     self.facts.record_constant(expr.span, module, declared);
                     return ty;
                 }
+                // LR23.1: a compile-time function is gone by the time a body
+                // is checked, so a read of its name reaches nothing.
+                if matches!(held, Type::Unresolved) && self.compile_time_function(name) {
+                    self.diagnostics.push(
+                        Diagnostic::error(
+                            codes::COMPILE_TIME_FUNCTION,
+                            expr.span,
+                            format!("`{name}` exists only while a decorator runs"),
+                        )
+                        .note("A function over decorator metadata has no runtime value (LR23.1)."),
+                    );
+                }
                 held
             }
             ExprKind::Unary { op, operand } => self.unary(*op, operand),
@@ -1211,6 +1223,23 @@ impl Checker<'_> {
             Decl::Constant { ty } => Some((module, declared, ty.clone())),
             _ => None,
         }
+    }
+
+    /// Whether `name` is declared but the table holds nothing for it, which
+    /// only a compile-time function leaves behind (LR23.1).
+    fn compile_time_function(&self, name: &str) -> bool {
+        if self.values.iter().any(|scope| scope.contains_key(name)) {
+            return false;
+        }
+        let Some(binding) = self.names.scope(self.scope).get(name) else {
+            return false;
+        };
+        let (module, declared) = match &binding.origin {
+            Origin::Declared { .. } => (self.scope, name),
+            Origin::Imported { module, name } => (*module, name.as_str()),
+            Origin::Binding { .. } | Origin::Namespace(_) => return false,
+        };
+        self.table.get(module, declared).is_none()
     }
 }
 

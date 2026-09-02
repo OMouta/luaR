@@ -481,7 +481,7 @@ impl<'a> Rewrite<'a> {
                     fields: inits,
                 }
             }
-            Value::Target | Value::Function { .. } | Value::Map(_) => return None,
+            Value::Target | Value::Function(_) | Value::Map(_) => return None,
         };
         Some(Expr::new(kind, span))
     }

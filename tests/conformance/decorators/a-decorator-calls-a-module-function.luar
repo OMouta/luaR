@@ -1,0 +1,38 @@
+--- expect: run
+--- exit: 0
+--- stdout: "id,name,\na struct\n"
+--- spec: LR23.1
+function fieldNames(target: TypeDeclaration): string
+    local names = ""
+    for field in target.fields do
+        names = names .. field.name .. ","
+    end
+    return names
+end
+
+function describe(kind: string): string
+    return "a " .. kind
+end
+
+decorator Fields(target: TypeDeclaration)
+    local names = fieldNames(target)
+    local kind = describe(target.kind)
+    target:addMethod("fields", function(self): string
+        return names
+    end)
+    target:addMethod("kind", function(self): string
+        return kind
+    end)
+end
+
+@Fields
+struct User
+    id: int
+    name: string
+end
+
+export function main()
+    local user = User { id = 1, name = "x" }
+    print(user:fields())
+    print(user:kind())
+end

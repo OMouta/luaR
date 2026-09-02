@@ -300,6 +300,8 @@ registry! {
         "A package decorator is imported before it is applied.";
     active 221 => DECORATOR_EXPANSION, "LR23.1",
         "A package decorator expands through the metadata operations LR23.1 defines.";
+    active 222 => COMPILE_TIME_FUNCTION, "LR23.1",
+        "A compile-time function is called only while a decorator runs.";
 }
 
 #[cfg(test)]
