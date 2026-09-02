@@ -338,33 +338,11 @@ impl<'a> Evaluator<'a> {
     }
 
     fn apply(&mut self, op: BinaryOp, left: Value, right: Value, span: Span) -> Option<Value> {
-        match (op, left, right) {
-            (BinaryOp::Equal, Value::String(left), Value::String(right)) => {
-                Some(Value::Bool(left == right))
-            }
-            (BinaryOp::NotEqual, Value::String(left), Value::String(right)) => {
-                Some(Value::Bool(left != right))
-            }
-            (BinaryOp::Concat, Value::String(left), Value::String(right)) => {
-                Some(Value::String(left + &right))
-            }
-            (BinaryOp::And, Value::Bool(left), Value::Bool(right)) => {
-                Some(Value::Bool(left && right))
-            }
-            (BinaryOp::Or, Value::Bool(left), Value::Bool(right)) => {
-                Some(Value::Bool(left || right))
-            }
-            (BinaryOp::Equal, Value::Integer(left), Value::Integer(right)) => {
-                Some(Value::Bool(left == right))
-            }
-            (BinaryOp::NotEqual, Value::Integer(left), Value::Integer(right)) => {
-                Some(Value::Bool(left != right))
-            }
-            _ => {
-                self.error(span, "invalid compile-time binary operation");
-                None
-            }
+        let value = super::apply(op, left, right);
+        if value.is_none() {
+            self.error(span, "invalid compile-time binary operation");
         }
+        value
     }
 
     fn call(
@@ -453,7 +431,7 @@ impl<'a> Evaluator<'a> {
             span,
             captures,
         } = *value;
-        let span = self.rewrite(&captures, span, &mut params, result.as_mut(), &mut body);
+        let span = self.rewrite(captures, span, &mut params, result.as_mut(), &mut body);
         self.changes.push(Change::Method(function(
             &self.target.name,
             name,
@@ -495,7 +473,7 @@ impl<'a> Evaluator<'a> {
                 span,
                 captures,
             } = *value;
-            let span = self.rewrite(&captures, span, &mut params, result.as_mut(), &mut body);
+            let span = self.rewrite(captures, span, &mut params, result.as_mut(), &mut body);
             functions.push(function(
                 &self.target.name,
                 name,
@@ -564,22 +542,16 @@ impl<'a> Evaluator<'a> {
     /// its spans identify it and nothing else. Returns `span` moved there.
     fn rewrite(
         &mut self,
-        captures: &BTreeMap<String, Value>,
+        captures: BTreeMap<String, Value>,
         span: Span,
         params: &mut [Param],
         result: Option<&mut Type>,
         body: &mut FunctionBody,
     ) -> Span {
-        let text_len = self.sources.file(self.declaration.file).text().len();
-        let file = self.sources.copy(self.declaration.file);
-        let mut rewrite = Rewrite::new(
-            captures,
-            file,
-            u32::try_from(text_len).expect("source offsets fit in u32"),
-            params,
-        );
+        let mut rewrite = Rewrite::new(self.sources, self.declaration.file, captures, params);
         rewrite.function(params, result, body);
-        for (span, message) in rewrite.errors {
+        let (file, errors) = (rewrite.file, rewrite.errors);
+        for (span, message) in errors {
             self.error(span, message);
         }
         Span::new(file, span.start, span.end)

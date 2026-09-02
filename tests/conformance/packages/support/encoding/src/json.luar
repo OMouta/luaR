@@ -1,5 +1,20 @@
 export decorator Json(target: TypeDeclaration)
+    local fields = target.fields
     target:addMethod("toJson", function(self): string
-        return "{}"
+        local out = "{"
+        local first = true
+        for field in fields do
+            if not first then
+                out = out .. ","
+            end
+            first = false
+            out = out .. "\"" .. field.name .. "\":"
+            if field.typeName == "string" then
+                out = out .. "\"" .. field:get(self) .. "\""
+            else
+                out = out .. `{field:get(self)}`
+            end
+        end
+        return out .. "}"
     end)
 end

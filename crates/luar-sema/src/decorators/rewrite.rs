@@ -1,41 +1,50 @@
-//! Rewriting a generated body: captured values are spliced in, and every
-//! span moves to the file the body was given (LR23.1).
+//! Rewriting a generated body: captured values are spliced in, staged
+//! control flow is written out, and every span moves to a file of its own
+//! (LR23.1).
 
 use std::collections::BTreeMap;
 
 use luar_ast::{
-    Argument, ArmBody, Binding, Block, Expr, ExprKind, FieldInit, FunctionBody, InterpolationPart,
-    MapKey, Param, Pattern, PatternKind, Payload, Stmt, StmtKind, Type, TypeKind,
+    Argument, ArmBody, Binding, Block, Branch, Expr, ExprKind, FieldInit, FunctionBody,
+    InterpolationPart, MapKey, Param, Pattern, PatternKind, Payload, Stmt, StmtKind, Type,
+    TypeKind, UnaryOp,
 };
-use luar_diagnostics::{FileId, Span};
+use luar_diagnostics::{FileId, SourceMap, Span};
 
 use super::Value;
 
 pub(super) struct Rewrite<'a> {
-    values: &'a BTreeMap<String, Value>,
-    file: FileId,
+    sources: &'a mut SourceMap,
+    /// The decorator's file, which every copy is of.
+    base: FileId,
+    pub(super) file: FileId,
     /// The next offset past the file's text, for a node with no source of
     /// its own.
     next: u32,
+    values: BTreeMap<String, Value>,
     shadowed: Vec<Vec<String>>,
     pub(super) errors: Vec<(Span, String)>,
 }
 
 impl<'a> Rewrite<'a> {
     pub(super) fn new(
-        values: &'a BTreeMap<String, Value>,
-        file: FileId,
-        text_len: u32,
+        sources: &'a mut SourceMap,
+        base: FileId,
+        values: BTreeMap<String, Value>,
         params: &[Param],
     ) -> Self {
         let mut names = Vec::new();
         for param in params {
             binding_names(&param.binding, &mut names);
         }
+        let file = sources.copy(base);
+        let next = text_len(sources, base);
         Self {
-            values,
+            sources,
+            base,
             file,
-            next: text_len,
+            next,
+            values,
             shadowed: vec![names],
             errors: Vec::new(),
         }
@@ -83,14 +92,114 @@ impl<'a> Rewrite<'a> {
     fn block(&mut self, block: &mut Block) {
         self.span(&mut block.span);
         self.shadowed.push(Vec::new());
-        for statement in &mut block.stmts {
-            self.stmt(statement);
+        let statements = std::mem::take(&mut block.stmts);
+        let mut written = Vec::with_capacity(statements.len());
+        for statement in statements {
+            self.stmt(statement, &mut written);
         }
+        block.stmts = written;
         self.shadowed.pop();
     }
 
-    fn stmt(&mut self, statement: &mut Stmt) {
+    /// Writes `statement` out into `written`: as itself, or as what a staged
+    /// `for` or `if` stands for.
+    fn stmt(&mut self, mut statement: Stmt, written: &mut Vec<Stmt>) {
         self.span(&mut statement.span);
+        let kind = std::mem::replace(&mut statement.kind, StmtKind::Error);
+        match kind {
+            StmtKind::For {
+                bindings,
+                iterable,
+                body,
+                label,
+            } => {
+                if let [Binding::Name(name)] = bindings.as_slice()
+                    && let Some(Value::List(values)) = self.fold(&iterable)
+                {
+                    self.unroll(name, values, &body, written);
+                    return;
+                }
+                statement.kind = StmtKind::For {
+                    bindings,
+                    iterable,
+                    body,
+                    label,
+                };
+            }
+            StmtKind::If {
+                branches,
+                otherwise,
+            } => {
+                let Some((branches, otherwise)) = self.select(branches, otherwise, written) else {
+                    return;
+                };
+                statement.kind = StmtKind::If {
+                    branches,
+                    otherwise,
+                };
+            }
+            kind => statement.kind = kind,
+        }
+        self.runtime(&mut statement);
+        written.push(statement);
+    }
+
+    /// LR23.1: a `for` over a captured list is written out once per element.
+    fn unroll(&mut self, name: &str, values: Vec<Value>, body: &Block, written: &mut Vec<Stmt>) {
+        let previous = self.values.remove(name);
+        let (file, next) = (self.file, self.next);
+        for value in values {
+            self.values.insert(name.to_owned(), value);
+            self.file = self.sources.copy(self.base);
+            self.next = text_len(self.sources, self.base);
+            for statement in body.stmts.clone() {
+                self.stmt(statement, written);
+            }
+        }
+        self.file = file;
+        self.next = next;
+        match previous {
+            Some(previous) => self.values.insert(name.to_owned(), previous),
+            None => self.values.remove(name),
+        };
+    }
+
+    /// LR23.1: an `if` on captured conditions keeps the branch it selects.
+    /// Gives back what is left to decide at runtime, if anything is.
+    fn select(
+        &mut self,
+        branches: Vec<Branch>,
+        otherwise: Option<Block>,
+        written: &mut Vec<Stmt>,
+    ) -> Option<(Vec<Branch>, Option<Block>)> {
+        let mut kept = Vec::new();
+        for branch in branches {
+            match self.fold(&branch.condition) {
+                Some(Value::Bool(true)) => {
+                    if kept.is_empty() {
+                        for statement in branch.body.stmts {
+                            self.stmt(statement, written);
+                        }
+                        return None;
+                    }
+                    return Some((kept, Some(branch.body)));
+                }
+                Some(Value::Bool(false)) => {}
+                _ => kept.push(branch),
+            }
+        }
+        if kept.is_empty() {
+            if let Some(otherwise) = otherwise {
+                for statement in otherwise.stmts {
+                    self.stmt(statement, written);
+                }
+            }
+            return None;
+        }
+        Some((kept, otherwise))
+    }
+
+    fn runtime(&mut self, statement: &mut Stmt) {
         match &mut statement.kind {
             StmtKind::Local { binding, ty, value } => {
                 if let Some(value) = value {
@@ -135,9 +244,12 @@ impl<'a> Rewrite<'a> {
             StmtKind::Repeat { body, until, .. } => {
                 self.span(&mut body.span);
                 self.shadowed.push(Vec::new());
-                for statement in &mut body.stmts {
-                    self.stmt(statement);
+                let statements = std::mem::take(&mut body.stmts);
+                let mut written = Vec::with_capacity(statements.len());
+                for statement in statements {
+                    self.stmt(statement, &mut written);
                 }
+                body.stmts = written;
                 self.expr(until);
                 self.shadowed.pop();
             }
@@ -208,23 +320,67 @@ impl<'a> Rewrite<'a> {
         self.shadowed.pop();
     }
 
+    /// LR23.1: the value of an expression over captured values alone.
+    fn fold(&self, expression: &Expr) -> Option<Value> {
+        match &expression.kind {
+            ExprKind::Nil => Some(Value::Nil),
+            ExprKind::Bool(value) => Some(Value::Bool(*value)),
+            ExprKind::Integer(value) => Some(Value::Integer(*value)),
+            ExprKind::String(value) => Some(Value::String(value.clone())),
+            ExprKind::Name(name) if !self.is_shadowed(name) => self.values.get(name).cloned(),
+            ExprKind::Field {
+                receiver,
+                name,
+                optional: false,
+            } => match self.fold(receiver)? {
+                Value::Record(record) => record.get(name).cloned(),
+                _ => None,
+            },
+            ExprKind::Unary {
+                op: UnaryOp::Not,
+                operand,
+            } => match self.fold(operand)? {
+                Value::Bool(value) => Some(Value::Bool(!value)),
+                _ => None,
+            },
+            ExprKind::Binary {
+                op, left, right, ..
+            } => super::apply(*op, self.fold(left)?, self.fold(right)?),
+            _ => None,
+        }
+    }
+
     fn expr(&mut self, expression: &mut Expr) {
         self.span(&mut expression.span);
-        match &mut expression.kind {
-            ExprKind::Name(name) => {
-                if self.is_shadowed(name) {
+        if matches!(
+            expression.kind,
+            ExprKind::Name(_)
+                | ExprKind::Field { .. }
+                | ExprKind::Unary { .. }
+                | ExprKind::Binary { .. }
+        ) && let Some(value) = self.fold(expression)
+        {
+            match self.literal(&value, expression.span) {
+                Some(replacement) => {
+                    *expression = replacement;
                     return;
                 }
-                if let Some(value) = self.values.get(name) {
-                    match self.literal(value, expression.span) {
-                        Some(replacement) => *expression = replacement,
-                        None => self.errors.push((
+                None => {
+                    if let ExprKind::Name(name) = &expression.kind {
+                        self.errors.push((
                             expression.span,
                             format!("`{name}` is not a value a generated body can capture"),
-                        )),
+                        ));
+                        return;
                     }
                 }
             }
+        }
+        if let Some(read) = self.field_read(expression) {
+            *expression = read;
+            return;
+        }
+        match &mut expression.kind {
             ExprKind::Interpolation(parts) => {
                 for part in parts {
                     if let InterpolationPart::Expr(expression) = part {
@@ -330,7 +486,8 @@ impl<'a> Rewrite<'a> {
                 }
                 self.expr(otherwise);
             }
-            ExprKind::Nil
+            ExprKind::Name(_)
+            | ExprKind::Nil
             | ExprKind::Bool(_)
             | ExprKind::Integer(_)
             | ExprKind::Float(_)
@@ -339,6 +496,47 @@ impl<'a> Rewrite<'a> {
             | ExprKind::Char(_)
             | ExprKind::Error => {}
         }
+    }
+
+    /// LR23.1: `field:get(value)` on a captured field reads that field.
+    fn field_read(&mut self, expression: &Expr) -> Option<Expr> {
+        let ExprKind::Call {
+            callee,
+            method: Some(method),
+            args,
+            ..
+        } = &expression.kind
+        else {
+            return None;
+        };
+        if method != "get" {
+            return None;
+        }
+        let Value::Record(field) = self.fold(callee)? else {
+            return None;
+        };
+        let (Some(Value::String(name)), Some(_)) = (field.get("name"), field.get("typeName"))
+        else {
+            return None;
+        };
+        let [
+            Argument {
+                name: None, value, ..
+            },
+        ] = args.as_slice()
+        else {
+            return None;
+        };
+        let mut receiver = value.clone();
+        self.expr(&mut receiver);
+        Some(Expr::new(
+            ExprKind::Field {
+                receiver: Box::new(receiver),
+                name: name.clone(),
+                optional: false,
+            },
+            expression.span,
+        ))
     }
 
     fn argument(&mut self, argument: &mut Argument) {
@@ -485,6 +683,10 @@ impl<'a> Rewrite<'a> {
         };
         Some(Expr::new(kind, span))
     }
+}
+
+fn text_len(sources: &SourceMap, file: FileId) -> u32 {
+    u32::try_from(sources.file(file).text().len()).expect("source offsets fit in u32")
 }
 
 fn binding_names(binding: &Binding, names: &mut Vec<String>) {

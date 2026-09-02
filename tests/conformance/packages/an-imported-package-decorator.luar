@@ -1,6 +1,6 @@
 --- expect: run
 --- exit: 0
---- stdout: "{}\n"
+--- stdout: "{\"id\":1,\"name\":\"ann\"}\n"
 --- spec: LR23.1
 --- spec: LR74
 import { Json } from "encoding/json"
@@ -8,8 +8,9 @@ import { Json } from "encoding/json"
 @derive(Json)
 struct User
     id: u64
+    name: string
 end
 
 export function main()
-    print(User { id = 1 }:toJson())
+    print(User { id = 1, name = "ann" }:toJson())
 end

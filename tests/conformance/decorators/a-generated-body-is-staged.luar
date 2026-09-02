@@ -1,0 +1,34 @@
+--- expect: run
+--- exit: 0
+--- stdout: "x=1;y=2;\nyes\n"
+--- spec: LR23.1
+decorator Fields(target: TypeDeclaration)
+    local fields = target.fields
+    local kind = target.kind
+    target:addMethod("describe", function(self): string
+        local out = ""
+        for field in fields do
+            out = out .. field.name .. "=" .. `{field:get(self)}` .. ";"
+        end
+        return out
+    end)
+    target:addMethod("isStruct", function(self): string
+        if kind == "struct" then
+            return "yes"
+        else
+            return 1
+        end
+    end)
+end
+
+@Fields
+struct Point
+    x: int
+    y: int
+end
+
+export function main()
+    local point = Point { x = 1, y = 2 }
+    print(point:describe())
+    print(point:isStruct())
+end

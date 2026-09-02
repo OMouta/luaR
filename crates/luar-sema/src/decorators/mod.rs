@@ -3,8 +3,8 @@
 use std::collections::BTreeMap;
 
 use luar_ast::{
-    Decorator, DecoratorDecl, Expr, ExprKind, Function, FunctionBody, Item, Member, Param, Type,
-    TypeKind,
+    BinaryOp, Decorator, DecoratorDecl, Expr, ExprKind, Function, FunctionBody, Item, Member,
+    Param, Type, TypeKind,
 };
 use luar_diagnostics::{Diagnostic, SourceMap, Span, codes};
 
@@ -56,6 +56,30 @@ enum Change {
         interface: Type,
         methods: Vec<Function>,
     },
+}
+
+/// The binary operations a decorator body may use, over compile-time values.
+fn apply(op: BinaryOp, left: Value, right: Value) -> Option<Value> {
+    match (op, left, right) {
+        (BinaryOp::Equal, Value::String(left), Value::String(right)) => {
+            Some(Value::Bool(left == right))
+        }
+        (BinaryOp::NotEqual, Value::String(left), Value::String(right)) => {
+            Some(Value::Bool(left != right))
+        }
+        (BinaryOp::Concat, Value::String(left), Value::String(right)) => {
+            Some(Value::String(left + &right))
+        }
+        (BinaryOp::And, Value::Bool(left), Value::Bool(right)) => Some(Value::Bool(left && right)),
+        (BinaryOp::Or, Value::Bool(left), Value::Bool(right)) => Some(Value::Bool(left || right)),
+        (BinaryOp::Equal, Value::Integer(left), Value::Integer(right)) => {
+            Some(Value::Bool(left == right))
+        }
+        (BinaryOp::NotEqual, Value::Integer(left), Value::Integer(right)) => {
+            Some(Value::Bool(left != right))
+        }
+        _ => None,
+    }
 }
 
 /// The compile-time functions, by module and name. They are taken out of
