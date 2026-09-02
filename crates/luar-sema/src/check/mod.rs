@@ -380,6 +380,7 @@ impl Checker<'_> {
         match item {
             // A declaration the table holds was resolved when the table was
             // built, so its body is checked against what is recorded there.
+            Item::DecoratorDecl(_) => {}
             Item::Function(function) => {
                 self.reject_finalizers(&function.decorators);
                 self.check_intrinsic(function);

@@ -21,6 +21,7 @@ pub enum Kind {
     Interface,
     Alias,
     Function,
+    Decorator,
     /// An `extend Name for T` block, which is a name and not a type (LR20).
     Extension,
 }
@@ -172,6 +173,10 @@ pub enum Decl {
         target: Type,
     },
     Function(Overloads),
+    Decorator {
+        params: Vec<Param>,
+        span: Span,
+    },
     /// The methods an extension adds, and what it adds them to (LR20). Each
     /// method carries the block's type parameters ahead of its own.
     Extension {
@@ -256,7 +261,10 @@ impl Table {
                 Decl::Struct(structure) => structure.methods.values().collect(),
                 Decl::Interface(interface) => interface.methods.values().collect(),
                 Decl::Extension { methods, .. } => methods.values().collect(),
-                Decl::Enum(_) | Decl::Alias { .. } | Decl::Constant { .. } => Vec::new(),
+                Decl::Enum(_)
+                | Decl::Alias { .. }
+                | Decl::Decorator { .. }
+                | Decl::Constant { .. } => Vec::new(),
             };
 
             for signature in sets.into_iter().flatten() {
@@ -304,7 +312,9 @@ fn signatures_mut(
             Decl::Struct(structure) => structure.methods.values_mut().collect(),
             Decl::Interface(interface) => interface.methods.values_mut().collect(),
             Decl::Extension { methods, .. } => methods.values_mut().collect(),
-            Decl::Enum(_) | Decl::Alias { .. } | Decl::Constant { .. } => Vec::new(),
+            Decl::Enum(_) | Decl::Alias { .. } | Decl::Decorator { .. } | Decl::Constant { .. } => {
+                Vec::new()
+            }
         };
 
         sets.into_iter().flatten()
@@ -489,6 +499,11 @@ fn expand(decl: &mut Decl, aliases: &Aliases) {
                 signature(held, aliases);
             }
         }
+        Decl::Decorator { params, .. } => {
+            for param in params {
+                param.ty = aliases.expand(&param.ty);
+            }
+        }
         Decl::Extension {
             target, methods, ..
         } => {
@@ -514,6 +529,7 @@ fn kinds_of(items: &[Item], module: ModuleId, kinds: &mut Kinds) {
             Item::Function(function) if function.name.len() == 1 => {
                 (&function.name[0], Kind::Function)
             }
+            Item::DecoratorDecl(decorator) => (&decorator.name, Kind::Decorator),
             Item::Struct(structure) => (&structure.name, Kind::Struct),
             Item::Enum(enumeration) => (&enumeration.name, Kind::Enum),
             Item::Interface(interface) => (&interface.name, Kind::Interface),
@@ -587,6 +603,47 @@ fn declare(
         }
 
         let (name, decl) = match item {
+            Item::DecoratorDecl(decorator) => {
+                let target = decorator.params.first();
+                if !target.is_some_and(metadata_parameter) {
+                    diagnostics.push(
+                        Diagnostic::error(
+                            codes::DECORATOR_DECLARATION,
+                            target.map_or(decorator.span, |param| param.span),
+                            "the first decorator parameter must be a `TypeDeclaration`",
+                        )
+                        .note(
+                            "A decorator receives the declaration it is attached to first (LR23.1).",
+                        ),
+                    );
+                }
+
+                let params = decorator
+                    .params
+                    .iter()
+                    .skip(1)
+                    .map(|param| Param {
+                        name: match &param.binding {
+                            luar_ast::Binding::Name(name) => name.clone(),
+                            _ => String::new(),
+                        },
+                        ty: param
+                            .ty
+                            .as_ref()
+                            .map_or(Type::Unresolved, |ty| resolver.resolve(ty, diagnostics)),
+                        optional: param.default.is_some(),
+                        variadic: param.variadic,
+                    })
+                    .collect();
+
+                (
+                    decorator.name.clone(),
+                    Decl::Decorator {
+                        params,
+                        span: decorator.span,
+                    },
+                )
+            }
             Item::Struct(structure) => {
                 resolver.enter(&structure.type_params);
                 resolver.enter_enclosing(itself(module, &structure.name, &structure.type_params));
@@ -849,7 +906,22 @@ fn declare(
             _ => continue,
         };
 
-        decls.entry((module, name)).or_insert(decl);
+        let key = (module, name);
+        if let Decl::Decorator { span, .. } = &decl
+            && let Some(Decl::Decorator { span: first, .. }) = decls.get(&key)
+        {
+            diagnostics.push(
+                Diagnostic::error(
+                    codes::DECORATOR_DECLARATION,
+                    *span,
+                    "a decorator declaration cannot be overloaded",
+                )
+                .label(*first, "first declared here")
+                .note("A decorator name has one declaration (LR23.1)."),
+            );
+            continue;
+        }
+        decls.entry(key).or_insert(decl);
     }
 }
 
@@ -914,6 +986,19 @@ fn expands(decorators: &[Decorator]) -> bool {
             "derive" => !crate::derive::known(decorator),
             _ => true,
         })
+}
+
+fn metadata_parameter(param: &luar_ast::Param) -> bool {
+    matches!(
+        (&param.binding, param.ty.as_ref().map(|ty| &ty.kind)),
+        (
+            luar_ast::Binding::Name(_),
+            Some(luar_ast::TypeKind::Path { segments, args })
+        ) if segments.as_slice() == ["TypeDeclaration"]
+            && args.is_empty()
+            && param.default.is_none()
+            && !param.variadic
+    )
 }
 
 fn instance_finalizer(function: &Function) -> bool {

@@ -294,6 +294,8 @@ registry! {
         "`reinterpret` takes ABI-representable values without managed references.";
     active 218 => REINTERPRET_SIZE, "LR29.2",
         "The source and target of `reinterpret` have the same size.";
+    active 219 => DECORATOR_DECLARATION, "LR23.1",
+        "A decorator declaration has the compile-time callable contract LR23.1 states.";
 }
 
 #[cfg(test)]

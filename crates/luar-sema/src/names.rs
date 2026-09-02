@@ -168,6 +168,7 @@ fn declarations(items: &[Item], scope: &mut Scope) {
             // A qualified name declares a member of a type (LR20, LR42), not a
             // name of its own.
             Item::Function(f) if f.name.len() == 1 => (&f.name[0], f.exported, f.span),
+            Item::DecoratorDecl(d) => (&d.name, d.exported, d.span),
             Item::Struct(s) => (&s.name, s.exported, s.span),
             Item::Enum(e) => (&e.name, e.exported, e.span),
             Item::Interface(i) => (&i.name, i.exported, i.span),

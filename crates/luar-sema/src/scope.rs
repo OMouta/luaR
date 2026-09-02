@@ -3,8 +3,9 @@
 use std::collections::HashSet;
 
 use luar_ast::{
-    ArmBody, Binding, Block, Expr, ExprKind, Field, Function, FunctionBody, InterpolationPart,
-    Item, MapKey, Member, Module, Param, Pattern, PatternKind, Payload, Property, Stmt, StmtKind,
+    ArmBody, Binding, Block, DecoratorDecl, Expr, ExprKind, Field, Function, FunctionBody,
+    InterpolationPart, Item, MapKey, Member, Module, Param, Pattern, PatternKind, Payload,
+    Property, Stmt, StmtKind,
 };
 use luar_diagnostics::{Diagnostic, Span, codes};
 
@@ -85,6 +86,7 @@ impl Resolver<'_> {
         match item {
             // Bound already, by the pass that reads what each module exports.
             Item::Import(_) => {}
+            Item::DecoratorDecl(decorator) => self.decorator(decorator),
             Item::Function(function) => self.function(function),
             Item::Struct(structure) => {
                 for member in &structure.members {
@@ -105,6 +107,15 @@ impl Resolver<'_> {
                 self.initializing = false;
             }
         }
+    }
+
+    fn decorator(&mut self, decorator: &DecoratorDecl) {
+        let outer = std::mem::replace(&mut self.initializing, false);
+        self.push();
+        self.params(&decorator.params);
+        self.block(&decorator.body);
+        self.pop();
+        self.initializing = outer;
     }
 
     fn member(&mut self, member: &Member) {

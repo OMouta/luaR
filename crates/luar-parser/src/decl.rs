@@ -72,6 +72,12 @@ fn item(cursor: &mut Cursor) -> Option<Item> {
     let export_span = cursor.span();
     let exported = cursor.eat_keyword(Keyword::Export);
 
+    if cursor.kind() == TokenKind::Keyword(Keyword::Decorator) {
+        return Some(Item::DecoratorDecl(decorator_declaration(
+            cursor, start, exported,
+        )));
+    }
+
     // LR12.4, LR31: `const` and `ref` say how a struct is copied, and `const`
     // alone binds a value (LR5.2), so the `struct` decides.
     let semantics = if cursor.kind() == TokenKind::Keyword(Keyword::Const)
@@ -140,6 +146,47 @@ fn item(cursor: &mut Cursor) -> Option<Item> {
     }
 
     function.map(Item::Function)
+}
+
+/// `decorator Name(target: TypeDeclaration, ...) ... end` (LR23.1).
+fn decorator_declaration(
+    cursor: &mut Cursor,
+    start: Span,
+    exported: bool,
+) -> luar_ast::DecoratorDecl {
+    cursor.advance();
+    let name = cursor.name().0;
+    let type_params = type_parameters(cursor);
+    if !type_params.is_empty() {
+        cursor
+            .error(
+                codes::DECORATOR_DECLARATION,
+                start,
+                "a decorator declaration cannot be generic",
+            )
+            .note("Decorator declarations have no type parameters (LR23.1).");
+    }
+    let params = parameters(cursor);
+    if cursor.eat(TokenKind::Colon) {
+        let result = ty::ty(cursor);
+        cursor
+            .error(
+                codes::DECORATOR_DECLARATION,
+                result.span,
+                "a decorator declaration returns nothing",
+            )
+            .note("Decorator declarations return `()` implicitly (LR23.1).");
+    }
+    let body = stmt::block(cursor);
+    close(cursor, start, "decorator");
+
+    luar_ast::DecoratorDecl {
+        exported,
+        name,
+        params,
+        body,
+        span: start.to(cursor.previous_span()),
+    }
 }
 
 /// An `import` declaration (LR21.1).

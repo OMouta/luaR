@@ -17,6 +17,7 @@ pub struct Module {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Item {
     Import(Import),
+    DecoratorDecl(DecoratorDecl),
     Function(Function),
     Struct(Struct),
     Enum(Enum),
@@ -25,6 +26,16 @@ pub enum Item {
     TypeAlias(TypeAlias),
     /// A statement at module level (LR21.3).
     Stmt(crate::stmt::Stmt),
+}
+
+/// A package-defined compile-time decorator declaration (LR23.1).
+#[derive(Debug, Clone, PartialEq)]
+pub struct DecoratorDecl {
+    pub exported: bool,
+    pub name: String,
+    pub params: Vec<Param>,
+    pub body: Block,
+    pub span: Span,
 }
 
 /// An `import` declaration (LR21.1).
