@@ -26,6 +26,10 @@
         "extensions": [
           ".luar"
         ],
+        "icon": {
+          "light": "./icons/luaRLogo.svg",
+          "dark": "./icons/luaRLogo.svg"
+        },
         "configuration": "./language-configuration.json"
       }
     ],
