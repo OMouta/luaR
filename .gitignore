@@ -4,3 +4,6 @@
 # Rust build output
 /target
 target
+
+# VSCode Extensions
+*.vsix
