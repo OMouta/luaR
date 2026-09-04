@@ -534,6 +534,11 @@ fn define_display_float(
     let call = builder.ins().call(strlen, &[destination]);
     let length = builder.inst_results(call)[0];
     let length = integer_width(&mut builder, length, types::I64);
+    let last = builder.ins().iadd_imm(length, -1);
+    let last = load_byte(&mut builder, text, last);
+    let trailing_point = builder.ins().icmp_imm(IntCC::Equal, last, i64::from(b'.'));
+    let without_point = builder.ins().iadd_imm(length, -1);
+    let length = builder.ins().select(trailing_point, without_point, length);
     builder.ins().store(MemFlags::trusted(), length, text, 0);
     builder.ins().return_(&[text]);
     builder.seal_all_blocks();

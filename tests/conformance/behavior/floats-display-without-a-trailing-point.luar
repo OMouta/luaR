@@ -1,0 +1,7 @@
+--- expect: run
+--- exit: 0
+--- stdout: "0\t-1\n"
+--- spec: LR35
+export function main()
+    print(0.0, -1.0)
+end
