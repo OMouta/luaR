@@ -1,0 +1,20 @@
+--- expect: run
+--- exit: 0
+--- stdout: "child argument\n"
+--- spec: STD8
+import { Command } from "std/process"
+
+export function main(): Result<(), Error>
+    #if target.family == "windows"
+    local arguments = ["/C", "echo", "child", "argument"]
+    local command = Command.new("cmd"):args(arguments:frozen())
+    #else
+    local arguments = ["%s\n", "child argument"]
+    local command = Command.new("printf"):args(arguments:frozen())
+    #end
+
+    local status = command:status()?
+    assert(status.success)
+    assert((status.code ?? -1) == 0)
+    return Result.Ok(())
+end

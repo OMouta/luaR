@@ -1,0 +1,17 @@
+--- expect: run
+--- exit: 0
+--- spec: STD8
+import { Command } from "std/process"
+
+export function main(): Result<(), Error>
+    #if target.family == "windows"
+    local command = Command.new("cmd"):arg("/C"):arg("exit 7")
+    #else
+    local command = Command.new("sh"):arg("-c"):arg("exit 7")
+    #end
+
+    local status = command:status()?
+    assert(not status.success)
+    assert((status.code ?? -1) == 7)
+    return Result.Ok(())
+end

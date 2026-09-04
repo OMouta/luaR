@@ -1,0 +1,13 @@
+--- expect: run
+--- exit: 0
+--- spec: STD8
+import { Command } from "std/process"
+
+export function main(): int
+    match Command.new("luar-command-that-does-not-exist"):status()
+        case Result.Ok(_)
+            return 1
+        case Result.Err(_)
+            return 0
+    end
+end
