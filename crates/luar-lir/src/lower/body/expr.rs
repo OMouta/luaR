@@ -69,7 +69,10 @@ impl<'a> Body<'a> {
         let span = expr.span;
         match &expr.kind {
             ExprKind::Nil => {
-                let ty = wanted.cloned().unwrap_or(Ty::Nil);
+                let ty = match wanted {
+                    Some(ty @ Ty::Optional(_)) => ty.clone(),
+                    _ => Ty::Nil,
+                };
                 self.emit(InstKind::Const(Const::Nil), ty, span)
             }
             ExprKind::Bool(value) => {

@@ -1,0 +1,12 @@
+--- expect: run
+--- exit: 0
+--- stdout: "nil\n"
+--- spec: LR18.1
+--- spec: LR35
+function show(value: Display): string
+    return value:display()
+end
+
+export function main()
+    print(show(nil))
+end
