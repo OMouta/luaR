@@ -1,0 +1,17 @@
+--- expect: run
+--- exit: 7
+--- spec: LR16.2
+--- spec: LR17.2
+function measure(id: string | int): int
+    match id
+        case text is string
+            return text.byteLength
+        case number
+            return number + 1
+    end
+end
+
+export function main(): int
+    local ids: List<string | int> = ["abc", 3]
+    return measure(ids[0]) + measure(ids[1])
+end

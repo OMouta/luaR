@@ -14,26 +14,67 @@ use crate::names::bound;
 use crate::table::{Decl, Field, Variant};
 use crate::types::{Builtin, Primitive, Type};
 
-use super::exhaustive::{Ctor, Pat};
+use super::exhaustive::{Ctor, Pat, Row};
 use super::operators::{opaque, settle, unify};
 use super::{Checker, Narrowing};
 
 type DestructuredField = (Type, Option<(Option<Visibility>, ModuleId, String)>);
 
 impl Checker<'_> {
+    /// Checks every case of a `match` over `held` and gives back what each
+    /// covers and what the expression cases agree on, checked at `wanted`
+    /// where the match is used at a type (LR16.1, LR16.4).
+    pub(super) fn arms(
+        &mut self,
+        arms: &[MatchArm],
+        held: &Type,
+        scrutinee: &Expr,
+        wanted: Option<&Type>,
+    ) -> (Vec<Row>, Option<Type>) {
+        let mut produced = wanted.cloned();
+        let mut rows = Vec::with_capacity(arms.len());
+        let mut covered = Vec::new();
+        for arm in arms {
+            let remaining = uncovered(held, &covered);
+            let (pat, value) = self.arm(arm, held, &remaining, scrutinee, produced.as_ref());
+            if arm.guard.is_none()
+                && let Pat::Ctor(Ctor::Member(index), inner) = &pat
+                && matches!(inner.as_slice(), [Pat::Wild])
+            {
+                covered.push(*index);
+            }
+            rows.push(Row {
+                pat,
+                guarded: arm.guard.is_some(),
+                span: arm.pattern.span,
+            });
+            if let (Some(value), ArmBody::Expr(expr)) = (value, &arm.body) {
+                produced = Some(self.agree(produced, value, expr.span, codes::MATCH_ARM_TYPE));
+            }
+        }
+        (rows, produced)
+    }
+
     /// Checks one case against `held`, the type of `scrutinee`, and gives
     /// back what its pattern covers and what its expression produces, where
     /// it has one, checked at `wanted` where the match is used at a type
     /// (LR16.1).
-    pub(super) fn arm(
+    fn arm(
         &mut self,
         arm: &MatchArm,
         held: &Type,
+        remaining: &Type,
         scrutinee: &Expr,
         wanted: Option<&Type>,
     ) -> (Pat, Option<Type>) {
         self.push();
-        let (matched, pat) = self.pattern(&arm.pattern, held);
+        // LR16.2: a binding or `_` takes what the unguarded cases before it
+        // leave uncovered, and any other pattern is checked against the whole.
+        let against = match &arm.pattern.kind {
+            PatternKind::Binding(_) | PatternKind::Wildcard => remaining,
+            _ => held,
+        };
+        let (matched, pat) = self.pattern(&arm.pattern, against);
         self.bind_pattern_slice_origins(&arm.pattern, scrutinee, held);
 
         // LR57: a case that settles which member the value holds narrows the
@@ -787,6 +828,27 @@ fn wrap(index: Option<usize>, pat: Pat) -> Pat {
     match index {
         Some(index) => Pat::Ctor(Ctor::Member(index), vec![pat]),
         None => pat,
+    }
+}
+
+/// The members of a union or an optional other than those at `covered`, and
+/// `held` itself where it is anything else (LR16.2).
+fn uncovered(held: &Type, covered: &[usize]) -> Type {
+    let members = match held {
+        Type::Union(members) => members.clone(),
+        Type::Optional(inner) => vec![inner.as_ref().clone(), Type::Primitive(Primitive::Nil)],
+        _ => return held.clone(),
+    };
+    let mut kept: Vec<Type> = members
+        .into_iter()
+        .enumerate()
+        .filter(|(index, _)| !covered.contains(index))
+        .map(|(_, member)| member)
+        .collect();
+    match kept.len() {
+        0 => held.clone(),
+        1 => kept.pop().expect("one member"),
+        _ => Type::Union(kept),
     }
 }
 

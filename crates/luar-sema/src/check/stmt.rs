@@ -9,7 +9,6 @@ use crate::names::bound;
 use crate::types::{Builtin, Primitive, Type};
 
 use super::builtins::{is_collection, is_frozen_collection};
-use super::exhaustive::Row;
 use super::operators::{is_numeric, protocol_of, settle, union};
 use super::{Checker, ContinueFlow, LoopFlow, Narrowing};
 
@@ -396,14 +395,7 @@ impl Checker<'_> {
             }
             StmtKind::Match { scrutinee, arms } => {
                 let held = self.expr(scrutinee);
-                let rows: Vec<Row> = arms
-                    .iter()
-                    .map(|arm| Row {
-                        pat: self.arm(arm, &held, scrutinee, None).0,
-                        guarded: arm.guard.is_some(),
-                        span: arm.pattern.span,
-                    })
-                    .collect();
+                let (rows, _) = self.arms(arms, &held, scrutinee, None);
                 self.exhaustive(&held, &rows, scrutinee.span);
             }
             StmtKind::Return(value) => {

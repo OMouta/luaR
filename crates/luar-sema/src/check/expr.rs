@@ -13,7 +13,6 @@ use crate::types::{Builtin, Primitive, Type};
 
 use super::builtins::{article, is_collection};
 use super::calls::{against, filled, infer};
-use super::exhaustive::Row;
 use super::interfaces::same_signature;
 use super::narrow::Place;
 use super::operators::{settle, unify};
@@ -224,21 +223,7 @@ impl Checker<'_> {
         wanted: Option<&Type>,
     ) -> Type {
         let held = self.expr(scrutinee);
-        let mut produced = wanted.cloned();
-        let mut rows = Vec::with_capacity(arms.len());
-
-        for arm in arms {
-            let (pat, value) = self.arm(arm, &held, scrutinee, produced.as_ref());
-            rows.push(Row {
-                pat,
-                guarded: arm.guard.is_some(),
-                span: arm.pattern.span,
-            });
-            if let (Some(value), luar_ast::ArmBody::Expr(expr)) = (value, &arm.body) {
-                produced = Some(self.agree(produced, value, expr.span, codes::MATCH_ARM_TYPE));
-            }
-        }
-
+        let (rows, produced) = self.arms(arms, &held, scrutinee, wanted);
         self.exhaustive(&held, &rows, scrutinee.span);
         produced.unwrap_or(Type::Unresolved)
     }
@@ -279,7 +264,13 @@ impl Checker<'_> {
 
     /// The type two branches of one expression agree on, reporting `code` at
     /// `span` where they do not (LR10.1, LR16.1).
-    fn agree(&mut self, running: Option<Type>, held: Type, span: Span, code: Code) -> Type {
+    pub(super) fn agree(
+        &mut self,
+        running: Option<Type>,
+        held: Type,
+        span: Span,
+        code: Code,
+    ) -> Type {
         let Some(running) = running else {
             return held;
         };
