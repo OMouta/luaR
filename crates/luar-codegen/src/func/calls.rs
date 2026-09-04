@@ -144,7 +144,14 @@ impl Translator<'_, '_> {
             self.gap(format!("a call through a value of type `{held}`"));
             return None;
         }
-        let params = declared.params.clone();
+        let params: Vec<Ty> = declared
+            .params
+            .iter()
+            .map(|param| match param {
+                Ty::Parameter(name) if name == "Self" => held.clone(),
+                _ => param.clone(),
+            })
+            .collect();
         let result = self.function.type_of(result?).clone();
         let signature = self.indirect_signature(&params, &result)?;
 

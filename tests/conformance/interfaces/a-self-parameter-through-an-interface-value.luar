@@ -1,0 +1,12 @@
+--- expect: run
+--- exit: 0
+--- stdout: "true\tfalse\n"
+--- spec: LR18.1
+--- spec: LR65
+function equal(left: Eq, right: Eq): bool
+    return left:eq(right)
+end
+
+export function main()
+    print(equal(7, 7), equal("left", "right"))
+end

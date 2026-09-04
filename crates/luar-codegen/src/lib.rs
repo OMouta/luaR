@@ -24,7 +24,7 @@ use cranelift_module::{DataDescription, DataId, FuncId as ModuleFuncId, Linkage,
 use cranelift_object::{ObjectBuilder, ObjectModule};
 use luar_diagnostics::Span;
 use luar_lir::inst::{Const, InstKind};
-use luar_lir::program::{FuncId, Function, Program, Shape};
+use luar_lir::program::{FuncId, Function, Method, Program, Shape};
 use luar_lir::ty::{Ty, TypeId};
 
 pub use crate::link::{LinkError, link};
@@ -325,28 +325,36 @@ impl Emitter<'_> {
 
         let cell = self.pointer.bytes() as usize;
         for (index, (interface, ty)) in tables.into_iter().enumerate() {
-            let Shape::Interface(shape) = &self.program.nominal(interface).shape else {
-                continue;
+            let (methods, functions) = {
+                let Shape::Interface(shape) = &self.program.nominal(interface).shape else {
+                    continue;
+                };
+                let Some(implementation) = shape.implementors.iter().find(|held| held.covers(&ty))
+                else {
+                    continue;
+                };
+                (shape.methods.clone(), implementation.methods.clone())
             };
-            let Some(implementation) = shape.implementors.iter().find(|held| held.covers(&ty))
-            else {
-                continue;
-            };
-            let declared: Option<Vec<ModuleFuncId>> = implementation
-                .methods
+            let declared: Option<Vec<ModuleFuncId>> = functions
                 .iter()
                 .map(|function| self.declared.get(function).copied())
                 .collect();
             let Some(mut declared) = declared else {
                 continue;
             };
-            // A method reached through the table takes the receiver as the
-            // word the interface value carries.
-            if let Some(held) = machine(&ty, self.pointer)
-                && held != self.pointer
-            {
-                for (slot, function) in declared.iter_mut().enumerate() {
-                    *function = self.receiver_thunk(*function, held, &format!("{index}_{slot}"))?;
+            if let Some(held) = machine(&ty, self.pointer) {
+                for (slot, (method, function)) in
+                    methods.iter().zip(declared.iter_mut()).enumerate()
+                {
+                    if held != self.pointer
+                        || method
+                            .params
+                            .iter()
+                            .any(|param| matches!(param, Ty::Parameter(name) if name == "Self"))
+                    {
+                        *function =
+                            self.method_thunk(*function, held, method, &format!("{index}_{slot}"))?;
+                    }
                 }
             }
 
@@ -369,12 +377,11 @@ impl Emitter<'_> {
         Ok(())
     }
 
-    /// Code taking the receiver as a word and passing it to `callee` at
-    /// `held`, its own machine type, which is no wider than the word.
-    fn receiver_thunk(
+    fn method_thunk(
         &mut self,
         callee: ModuleFuncId,
         held: types::Type,
+        method: &Method,
         name: &str,
     ) -> Result<ModuleFuncId, Error> {
         let mut signature = self
@@ -384,6 +391,11 @@ impl Emitter<'_> {
             .signature
             .clone();
         signature.params[0] = AbiParam::new(self.pointer);
+        for (index, param) in method.params.iter().enumerate() {
+            if matches!(param, Ty::Parameter(name) if name == "Self") {
+                signature.params[index + 1] = AbiParam::new(self.pointer);
+            }
+        }
         let thunk = self
             .module
             .declare_function(&format!("luar_receiver{name}"), Linkage::Local, &signature)
@@ -399,18 +411,17 @@ impl Emitter<'_> {
         builder.switch_to_block(block);
 
         let mut passed = builder.block_params(block).to_vec();
-        let word = passed[0];
-        let narrowed = if held.bits() < self.pointer.bits() {
-            let int = held.as_int();
-            builder.ins().ireduce(int, word)
-        } else {
-            word
-        };
-        passed[0] = if held.is_float() {
-            builder.ins().bitcast(held, MemFlags::new(), narrowed)
-        } else {
-            narrowed
-        };
+        passed[0] = carried_value(&mut builder, passed[0], held, self.pointer);
+        for (index, param) in method.params.iter().enumerate() {
+            if matches!(param, Ty::Parameter(name) if name == "Self") {
+                let object = passed[index + 1];
+                let word =
+                    builder
+                        .ins()
+                        .load(self.pointer, MemFlags::trusted(), object, layout::CELL);
+                passed[index + 1] = carried_value(&mut builder, word, held, self.pointer);
+            }
+        }
         let call = builder.ins().call(reference, &passed);
         let results = builder.inst_results(call).to_vec();
         builder.ins().return_(&results);
@@ -733,6 +744,24 @@ impl Emitter<'_> {
         self.module
             .define_function(shim, &mut context)
             .map_err(rejected)
+    }
+}
+
+fn carried_value(
+    builder: &mut FunctionBuilder<'_>,
+    word: cranelift_codegen::ir::Value,
+    held: types::Type,
+    pointer: types::Type,
+) -> cranelift_codegen::ir::Value {
+    let narrowed = if held.bits() < pointer.bits() {
+        builder.ins().ireduce(held.as_int(), word)
+    } else {
+        word
+    };
+    if held.is_float() {
+        builder.ins().bitcast(held, MemFlags::new(), narrowed)
+    } else {
+        narrowed
     }
 }
 
