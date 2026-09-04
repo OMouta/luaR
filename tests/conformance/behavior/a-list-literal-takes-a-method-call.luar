@@ -1,0 +1,8 @@
+--- expect: run
+--- exit: 3
+--- spec: LR13.1
+--- spec: LR59
+export function main(): int
+    local frozen = ["a", "b"]:frozen()
+    return frozen.length + ["c"].length
+end

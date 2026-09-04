@@ -28,6 +28,18 @@ impl Checker<'_> {
         ty
     }
 
+    /// The type a member is read off. A bracket literal with a member read
+    /// off it has nothing asking for an array, so it is a list (LR13.1).
+    fn read_off(&mut self, expr: &Expr) -> Type {
+        let held = self.expr(expr);
+        if !matches!(held, Type::SequenceLiteral(_)) {
+            return held;
+        }
+        let held = settle(held);
+        self.facts.record_type(expr.span, held.clone());
+        held
+    }
+
     /// LR25.1: `Result.Ok(value)` and `Result.Err(error)` take the type
     /// arguments of the `Result` the value is asked for.
     pub(super) fn expr_wanting(&mut self, expr: &Expr, wanted: &Type) -> Type {
@@ -404,7 +416,7 @@ impl Checker<'_> {
                 // The callee is an expression of its own, and what the call
                 // is used at says nothing about it.
                 let expected = self.expected.take();
-                let receiver = self.expr(callee);
+                let receiver = self.read_off(callee);
                 self.expected = expected;
                 let produced = self.call(
                     callee,
@@ -432,7 +444,7 @@ impl Checker<'_> {
                     return built;
                 }
 
-                let held = self.expr(receiver);
+                let held = self.read_off(receiver);
 
                 // LR57: what a condition proved about this field wins over
                 // what it is declared as, for as long as the branch lasts.
@@ -455,7 +467,7 @@ impl Checker<'_> {
                 index,
                 optional,
             } => {
-                let held = self.expr(receiver);
+                let held = self.read_off(receiver);
                 let key = if matches!(
                     held,
                     Type::Builtin {
