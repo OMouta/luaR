@@ -1,0 +1,247 @@
+--- Blocking child processes (STD8).
+import { bytesOf, reinterpret } from "std/mem"
+
+@extern("c")
+unsafe function malloc(size: usize): *mut u8
+
+@extern("c")
+unsafe function free(block: *mut u8)
+
+#if target.family == "windows"
+@extern("c")
+unsafe function _spawnvp(mode: i32, program: *const u8, arguments: *const *const u8): isize
+#else
+@extern("c")
+unsafe function pipe(descriptors: *mut i32): i32
+
+@extern("c")
+unsafe function fork(): i32
+
+@extern("c")
+unsafe function execvp(program: *const u8, arguments: *const *const u8): i32
+
+@extern("c")
+unsafe function waitpid(process: i32, status: *mut i32, options: i32): i32
+
+@extern("c")
+unsafe function close(descriptor: i32): i32
+
+@extern("c")
+unsafe function read(descriptor: i32, buffer: *mut u8, count: usize): isize
+
+@extern("c")
+unsafe function write(descriptor: i32, buffer: *const u8, count: usize): isize
+
+@extern("c")
+unsafe function fcntl(descriptor: i32, command: i32, value: i32): i32
+
+@extern("c")
+unsafe function _exit(code: i32): never
+#end
+
+export struct ExitStatus
+    code: int?
+    success: bool
+end
+
+export ref struct Command
+    private program: string
+    private arguments: List<string>
+
+    static function new(program: string): Command
+        return Command {
+            program = program,
+            arguments = List.new<string>(),
+        }
+    end
+
+    function arg(self, value: string): Command
+        self.arguments:push(value)
+        return self
+    end
+
+    function args(self, values: FrozenList<string>): Command
+        for value in values do
+            self.arguments:push(value)
+        end
+        return self
+    end
+
+    function status(self): Result<ExitStatus, Error>
+        if containsZero(self.program) then
+            return Result.Err(Error("process arguments cannot contain a zero byte"))
+        end
+        for value in self.arguments do
+            if containsZero(value) then
+                return Result.Err(Error("process arguments cannot contain a zero byte"))
+            end
+        end
+
+        unsafe
+            local executable = cString(self.program)
+            local native = List.new<*mut u8>()
+            native:push(argument(self.program))
+            for value in self.arguments do
+                native:push(argument(value))
+            end
+
+            local storage = malloc(((native.length + 1) * 8) as usize)
+            local arguments = reinterpret<*mut *const u8>(storage)
+            for i in 0..<native.length do
+                arguments:add(i as isize):write(native[i])
+            end
+            arguments:add(native.length as isize):write(0 as *const u8)
+
+            local result = run(executable, arguments)
+            free(storage)
+            for pointer in native do
+                free(pointer)
+            end
+            free(executable)
+            return result
+        end
+    end
+end
+
+function containsZero(text: string): bool
+    unsafe
+        local data = bytesOf(text)
+        for i in 0..<text.byteLength do
+            if data:add(i as isize):read() == 0 then
+                return true
+            end
+        end
+        return false
+    end
+end
+
+unsafe function cString(text: string): *mut u8
+    local length = text.byteLength
+    local source = bytesOf(text)
+    local copy = malloc((length + 1) as usize)
+    for i in 0..<length do
+        copy:add(i as isize):write(source:add(i as isize):read())
+    end
+    copy:add(length as isize):write(0)
+    return copy
+end
+
+#if target.family == "windows"
+--- `_spawnvp` joins the arguments with spaces and no quoting, so each one is
+--- quoted the way the C runtime's command-line parser undoes.
+unsafe function argument(text: string): *mut u8
+    local length = text.byteLength
+    local source = bytesOf(text)
+    local plain = length > 0
+    for i in 0..<length do
+        local byte = source:add(i as isize):read()
+        if byte == 32 or byte == 9 or byte == 34 then
+            plain = false
+        end
+    end
+    if plain then
+        return cString(text)
+    end
+
+    local copy = malloc((length * 2 + 3) as usize)
+    local written = 0
+    copy:add(written as isize):write(34)
+    written += 1
+    local backslashes = 0
+    for i in 0..<length do
+        local byte = source:add(i as isize):read()
+        if byte == 92 then
+            backslashes += 1
+        else
+            if byte == 34 then
+                written = fill(copy, written, backslashes * 2 + 1, 92)
+            else
+                written = fill(copy, written, backslashes, 92)
+            end
+            backslashes = 0
+            copy:add(written as isize):write(byte)
+            written += 1
+        end
+    end
+    written = fill(copy, written, backslashes * 2, 92)
+    copy:add(written as isize):write(34)
+    copy:add((written + 1) as isize):write(0)
+    return copy
+end
+
+unsafe function fill(buffer: *mut u8, offset: int, count: int, byte: u8): int
+    for i in 0..<count do
+        buffer:add((offset + i) as isize):write(byte)
+    end
+    return offset + count
+end
+
+unsafe function run(
+    executable: *const u8,
+    arguments: *const *const u8,
+): Result<ExitStatus, Error>
+    local code = _spawnvp(0, executable, arguments)
+    if code < 0 then
+        return Result.Err(Error("cannot start child process"))
+    end
+    return Result.Ok(ExitStatus {
+        code = code as int,
+        success = code == 0,
+    })
+end
+#else
+unsafe function argument(text: string): *mut u8
+    return cString(text)
+end
+
+unsafe function run(
+    executable: *const u8,
+    arguments: *const *const u8,
+): Result<ExitStatus, Error>
+    local descriptors: [i32; 2] = [0, 0]
+    if pipe(&mut descriptors[0]) ~= 0 then
+        return Result.Err(Error("cannot create child process error pipe"))
+    end
+
+    local process = fork()
+    if process < 0 then
+        close(descriptors[0])
+        close(descriptors[1])
+        return Result.Err(Error("cannot start child process"))
+    end
+    if process == 0 then
+        close(descriptors[0])
+        if fcntl(descriptors[1], 2, 1) < 0 then
+            local failed: u8 = 1
+            write(descriptors[1], &failed, 1)
+            _exit(127)
+        end
+        execvp(executable, arguments)
+        local failed: u8 = 1
+        write(descriptors[1], &failed, 1)
+        _exit(127)
+    end
+
+    close(descriptors[1])
+    local failed: u8 = 0
+    local failure = read(descriptors[0], &mut failed, 1)
+    close(descriptors[0])
+
+    local status: i32 = 0
+    if waitpid(process, &mut status, 0) < 0 then
+        return Result.Err(Error("cannot wait for child process"))
+    end
+    if failure > 0 then
+        return Result.Err(Error("cannot start child process"))
+    end
+    if status & 0x7F ~= 0 then
+        return Result.Ok(ExitStatus { code = nil, success = false })
+    end
+
+    local code = (status >> 8) & 0xFF
+    return Result.Ok(ExitStatus {
+        code = code as int,
+        success = code == 0,
+    })
+end
+#end
