@@ -145,6 +145,11 @@ fn emit_function(
             {
                 body.instruction(&Instruction::LocalSet(values[&result]));
             }
+            (InstKind::Convert { value, to }, Some(result))
+                if emit_conversion(&mut body, function.type_of(*value), to, values[value]) =>
+            {
+                body.instruction(&Instruction::LocalSet(values[&result]));
+            }
             (InstKind::Binary { op, left, right }, Some(result))
                 if emit_comparison(
                     &mut body,
@@ -268,6 +273,42 @@ fn emit_unary(body: &mut Function, op: UnaryOp, ty: &Ty, operand: u32) -> bool {
         return false;
     };
     body.instruction(&Instruction::LocalGet(operand));
+    body.instruction(&instruction);
+    true
+}
+
+fn emit_conversion(body: &mut Function, from: &Ty, to: &Ty, value: u32) -> bool {
+    let instruction = match (from, to) {
+        (Ty::Float(FloatTy::F32), Ty::Float(FloatTy::F64)) => Instruction::F64PromoteF32,
+        (Ty::Float(FloatTy::F64), Ty::Float(FloatTy::F32)) => Instruction::F32DemoteF64,
+        (Ty::Int(IntTy::I32), Ty::Int(IntTy::I64)) => Instruction::I64ExtendI32S,
+        (Ty::Int(IntTy::U32), Ty::Int(IntTy::U64)) => Instruction::I64ExtendI32U,
+        (Ty::Int(IntTy::I32), Ty::Float(FloatTy::F32)) => Instruction::F32ConvertI32S,
+        (Ty::Int(IntTy::U32), Ty::Float(FloatTy::F32)) => Instruction::F32ConvertI32U,
+        (Ty::Int(IntTy::I64), Ty::Float(FloatTy::F32)) => Instruction::F32ConvertI64S,
+        (Ty::Int(IntTy::U64), Ty::Float(FloatTy::F32)) => Instruction::F32ConvertI64U,
+        (Ty::Int(IntTy::I32), Ty::Float(FloatTy::F64)) => Instruction::F64ConvertI32S,
+        (Ty::Int(IntTy::U32), Ty::Float(FloatTy::F64)) => Instruction::F64ConvertI32U,
+        (Ty::Int(IntTy::I64), Ty::Float(FloatTy::F64)) => Instruction::F64ConvertI64S,
+        (Ty::Int(IntTy::U64), Ty::Float(FloatTy::F64)) => Instruction::F64ConvertI64U,
+        (Ty::Float(FloatTy::F32), Ty::Int(IntTy::I32)) => Instruction::I32TruncF32S,
+        (Ty::Float(FloatTy::F32), Ty::Int(IntTy::U32)) => Instruction::I32TruncF32U,
+        (Ty::Float(FloatTy::F64), Ty::Int(IntTy::I32)) => Instruction::I32TruncF64S,
+        (Ty::Float(FloatTy::F64), Ty::Int(IntTy::U32)) => Instruction::I32TruncF64U,
+        (Ty::Float(FloatTy::F32), Ty::Int(IntTy::I64)) => Instruction::I64TruncF32S,
+        (Ty::Float(FloatTy::F32), Ty::Int(IntTy::U64)) => Instruction::I64TruncF32U,
+        (Ty::Float(FloatTy::F64), Ty::Int(IntTy::I64)) => Instruction::I64TruncF64S,
+        (Ty::Float(FloatTy::F64), Ty::Int(IntTy::U64)) => Instruction::I64TruncF64U,
+        (Ty::Int(IntTy::I64 | IntTy::U64), Ty::Int(IntTy::I32 | IntTy::U32)) => {
+            Instruction::I32WrapI64
+        }
+        _ if from == to => {
+            body.instruction(&Instruction::LocalGet(value));
+            return true;
+        }
+        _ => return false,
+    };
+    body.instruction(&Instruction::LocalGet(value));
     body.instruction(&instruction);
     true
 }

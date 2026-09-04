@@ -135,3 +135,51 @@ fn scalar_binary_operations_lower_to_webassembly() {
             .any(|op| matches!(op, wasmparser::Operator::F64Div))
     );
 }
+
+// LR33, LR39, LR47
+#[test]
+fn numeric_conversions_lower_to_webassembly() {
+    let mut sources = SourceMap::new();
+    let root = sources.add(
+        "main.luar",
+        "@noinline\nfunction widen(value: i32): i64\n    return value as i64\nend\n\n@noinline\nfunction toFloat(value: i64): f64\n    return value as f64\nend\n\n@noinline\nfunction toInteger(value: f64): i64\n    return value as i64\nend\n\n@noinline\nfunction promote(value: f32): f64\n    return value as f64\nend\n\nexport function main(): i64\n    return widen(1)\nend\n",
+    );
+    let lowered = luar_driver::lower(&mut sources, root).unwrap();
+    assert!(lowered.gaps.is_empty());
+
+    let wasm = luar_codegen::compile_wasm(&lowered.program);
+    assert!(wasm.gaps.is_empty());
+    wasmparser::Validator::new()
+        .validate_all(&wasm.bytes)
+        .unwrap();
+
+    let mut operators = Vec::new();
+    for payload in wasmparser::Parser::new(0).parse_all(&wasm.bytes) {
+        if let wasmparser::Payload::CodeSectionEntry(body) = payload.unwrap() {
+            let mut reader = body.get_operators_reader().unwrap();
+            while !reader.eof() {
+                operators.push(reader.read().unwrap());
+            }
+        }
+    }
+    assert!(
+        operators
+            .iter()
+            .any(|op| matches!(op, wasmparser::Operator::I64ExtendI32S))
+    );
+    assert!(
+        operators
+            .iter()
+            .any(|op| matches!(op, wasmparser::Operator::F64ConvertI64S))
+    );
+    assert!(
+        operators
+            .iter()
+            .any(|op| matches!(op, wasmparser::Operator::I64TruncF64S))
+    );
+    assert!(
+        operators
+            .iter()
+            .any(|op| matches!(op, wasmparser::Operator::F64PromoteF32))
+    );
+}
