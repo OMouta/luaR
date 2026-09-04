@@ -1,0 +1,24 @@
+--- expect: run
+--- exit: 0
+--- stdout: "42\n"
+--- spec: LR18.1
+--- spec: LR19
+interface Reader<T>
+    function read(self): T
+end
+
+ref struct Box<T> implements Reader<T>
+    value: T
+
+    function read(self): T
+        return self.value
+    end
+end
+
+function read(reader: Reader<int>): int
+    return reader:read()
+end
+
+export function main()
+    print(read(Box { value = 42 }))
+end

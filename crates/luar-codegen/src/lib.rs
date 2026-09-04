@@ -329,7 +329,11 @@ impl Emitter<'_> {
                 let Shape::Interface(shape) = &self.program.nominal(interface).shape else {
                     continue;
                 };
-                let Some(implementation) = shape.implementors.iter().find(|held| held.covers(&ty))
+                let Some(implementation) = shape
+                    .implementors
+                    .iter()
+                    .find(|held| held.ty == ty)
+                    .or_else(|| shape.implementors.iter().find(|held| held.covers(&ty)))
                 else {
                     continue;
                 };

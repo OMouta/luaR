@@ -48,6 +48,7 @@ impl Mono {
     /// where this is the first call to ask for it.
     fn rewrite(&mut self, program: &mut Program, id: FuncId) {
         settle_virtuals(program, id);
+        self.specialize_dynamics(program, id);
 
         let calls: Vec<(usize, usize, FuncId, Vec<Ty>)> = program
             .function(id)
@@ -79,6 +80,61 @@ impl Mono {
                 *callee = instance;
                 type_args.clear();
             }
+        }
+    }
+
+    fn specialize_dynamics(&mut self, program: &mut Program, id: FuncId) {
+        let values: Vec<(TypeId, Ty)> = program
+            .function(id)
+            .blocks()
+            .flat_map(|(_, block)| block.insts.iter())
+            .filter_map(|inst| match &inst.kind {
+                InstKind::MakeDyn {
+                    interface: Some(interface),
+                    value,
+                } => {
+                    let held = program.function(id).type_of(*value).clone();
+                    matches!(held, Ty::Named { .. }).then_some((*interface, held))
+                }
+                _ => None,
+            })
+            .collect();
+
+        for (interface, ty) in values {
+            let Ty::Named { args, .. } = &ty else {
+                continue;
+            };
+            let Shape::Interface(shape) = &program.nominal(interface).shape else {
+                continue;
+            };
+            if shape.implementors.iter().any(|held| held.ty == ty) {
+                continue;
+            }
+            let Some(template) = shape
+                .implementors
+                .iter()
+                .find(|held| held.covers(&ty))
+                .cloned()
+            else {
+                continue;
+            };
+            let methods = template
+                .methods
+                .into_iter()
+                .map(|method| {
+                    if program.function(method).is_template() {
+                        self.instance(program, method, args.clone())
+                    } else {
+                        method
+                    }
+                })
+                .collect();
+            let Shape::Interface(shape) = &mut program.nominal_mut(interface).shape else {
+                continue;
+            };
+            shape
+                .implementors
+                .push(crate::program::Implementation { ty, methods });
         }
     }
 
