@@ -1416,7 +1416,7 @@ case value is string
 
 Patterns nest freely.
 
-A pattern is checked against the type of the value it matches. A literal, range, or type pattern names a type that value can hold; a variant pattern names a variant of that enum or a case of `Result`; a record pattern names the type matched and lists fields it declares, every one of them unless the pattern ends with `...`; a tuple pattern has one member per element; a sequence pattern matches a list, an array, or a slice. A pattern no value of that type can match is a compile-time error. A name a pattern binds holds the type of what it matched, and a name under `is` holds the type tested.
+A pattern is checked against the type of the value it matches. A literal, range, or type pattern names a type that value can hold; a variant pattern names a variant of that enum or a case of `Result`; a record pattern names the type matched and lists fields it declares, every one of them unless the pattern ends with `...`; a tuple pattern has one member per element; a sequence pattern matches a list, an array, or a slice. A pattern no value of that type can match is a compile-time error. A name a pattern binds holds the type of what it matched, and a name under `is` holds the type tested. Cases are checked in order, and a case whose pattern is a binding or `_` is checked against the members of a union or an optional that the unguarded cases before it do not cover whole, so after `case nil` a binding holds a `T` rather than a `T?`.
 
 ### 16.3 Guards
 
