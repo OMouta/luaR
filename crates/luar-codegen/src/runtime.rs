@@ -50,6 +50,7 @@ pub(crate) struct Runtime {
     /// Primitive string operations (LR11.2, LR11.3, LR35).
     pub concat: ModuleFuncId,
     pub text_equal: ModuleFuncId,
+    pub text_compare: ModuleFuncId,
     pub hash_bytes: ModuleFuncId,
     pub display_signed: ModuleFuncId,
     pub display_unsigned: ModuleFuncId,
@@ -100,6 +101,7 @@ impl Runtime {
         define_string_from_bytes(module, pointer, call_conv, collector.allocate)?;
         define_math(module, call_conv)?;
         let text_equal = define_text_equal(module, pointer, call_conv)?;
+        let text_compare = define_text_compare(module, pointer, call_conv)?;
         let hash_bytes = define_hash_bytes(module, pointer, call_conv)?;
         let display_signed =
             define_display_integer(module, pointer, call_conv, collector.allocate, true)?;
@@ -149,6 +151,7 @@ impl Runtime {
             slice_finalizer,
             concat,
             text_equal,
+            text_compare,
             hash_bytes,
             display_signed,
             display_unsigned,
@@ -239,6 +242,14 @@ impl Runtime {
         function: &mut cranelift_codegen::ir::Function,
     ) -> FuncRef {
         module.declare_func_in_func(self.text_equal, function)
+    }
+
+    pub fn text_compare_in(
+        &self,
+        module: &mut ObjectModule,
+        function: &mut cranelift_codegen::ir::Function,
+    ) -> FuncRef {
+        module.declare_func_in_func(self.text_compare, function)
     }
 
     pub fn hash_bytes_in(
@@ -1061,6 +1072,105 @@ fn define_text_equal(
     builder.switch_to_block(different);
     let zero = builder.ins().iconst(types::I8, 0);
     builder.ins().return_(&[zero]);
+    builder.seal_all_blocks();
+    builder.finalize();
+    module
+        .define_function(declared, &mut context)
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
+    Ok(declared)
+}
+
+fn define_text_compare(
+    module: &mut ObjectModule,
+    pointer: types::Type,
+    call_conv: CallConv,
+) -> Result<ModuleFuncId, Error> {
+    let mut signature = Signature::new(call_conv);
+    signature.params.push(AbiParam::new(pointer));
+    signature.params.push(AbiParam::new(pointer));
+    signature.returns.push(AbiParam::new(types::I64));
+    let declared = module
+        .declare_function("luar_text_compare", Linkage::Local, &signature)
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
+
+    let mut context = Context::new();
+    let mut frame = FunctionBuilderContext::new();
+    context.func.signature = signature;
+    let mut builder = FunctionBuilder::new(&mut context.func, &mut frame);
+    let entry = builder.create_block();
+    let compare = builder.create_block();
+    let compare_byte = builder.create_block();
+    let lengths = builder.create_block();
+    let before = builder.create_block();
+    let after = builder.create_block();
+    let same = builder.create_block();
+    builder.append_block_params_for_function_params(entry);
+    builder.append_block_param(compare, types::I64);
+    builder.append_block_param(compare_byte, types::I64);
+
+    builder.switch_to_block(entry);
+    let left = builder.block_params(entry)[0];
+    let right = builder.block_params(entry)[1];
+    let left_len = builder.ins().load(types::I64, MemFlags::trusted(), left, 0);
+    let right_len = builder
+        .ins()
+        .load(types::I64, MemFlags::trusted(), right, 0);
+    let zero = builder.ins().iconst(types::I64, 0);
+    builder
+        .ins()
+        .jump(compare, &[cranelift_codegen::ir::BlockArg::Value(zero)]);
+
+    builder.switch_to_block(compare);
+    let index = builder.block_params(compare)[0];
+    let left_more = builder.ins().icmp(IntCC::UnsignedLessThan, index, left_len);
+    let right_more = builder
+        .ins()
+        .icmp(IntCC::UnsignedLessThan, index, right_len);
+    let both_more = builder.ins().band(left_more, right_more);
+    builder.ins().brif(
+        both_more,
+        compare_byte,
+        &[cranelift_codegen::ir::BlockArg::Value(index)],
+        lengths,
+        &[],
+    );
+
+    builder.switch_to_block(compare_byte);
+    let index = builder.block_params(compare_byte)[0];
+    let a = load_byte(&mut builder, left, index);
+    let b = load_byte(&mut builder, right, index);
+    let less = builder.ins().icmp(IntCC::UnsignedLessThan, a, b);
+    let greater = builder.ins().icmp(IntCC::UnsignedGreaterThan, a, b);
+    let not_before = builder.create_block();
+    builder.ins().brif(less, before, &[], not_before, &[]);
+    builder.switch_to_block(not_before);
+    let following = builder.ins().iadd_imm(index, 1);
+    builder.ins().brif(
+        greater,
+        after,
+        &[],
+        compare,
+        &[cranelift_codegen::ir::BlockArg::Value(following)],
+    );
+
+    builder.switch_to_block(lengths);
+    let shorter = builder
+        .ins()
+        .icmp(IntCC::UnsignedLessThan, left_len, right_len);
+    let longer = builder
+        .ins()
+        .icmp(IntCC::UnsignedGreaterThan, left_len, right_len);
+    let not_shorter = builder.create_block();
+    builder.ins().brif(shorter, before, &[], not_shorter, &[]);
+    builder.switch_to_block(not_shorter);
+    builder.ins().brif(longer, after, &[], same, &[]);
+
+    for (block, result) in [(before, -1), (after, 1), (same, 0)] {
+        builder.switch_to_block(block);
+        let result = builder.ins().iconst(types::I64, result);
+        builder.ins().return_(&[result]);
+    }
+
     builder.seal_all_blocks();
     builder.finalize();
     module

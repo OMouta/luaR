@@ -166,7 +166,7 @@ fn hash(held: &Ty, span: Span) -> Option<Function> {
 /// Negative, zero, or positive as the receiver orders before, with, or after
 /// the argument (LR11.3).
 fn compare(held: &Ty, span: Span) -> Option<Function> {
-    if !matches!(held, Ty::Int(_) | Ty::Float(_) | Ty::Char) {
+    if !matches!(held, Ty::Int(_) | Ty::Float(_) | Ty::Char | Ty::Str) {
         return None;
     }
     let mut function = Function::new(

@@ -44,6 +44,19 @@ impl Translator<'_, '_> {
             });
         }
 
+        if matches!(self.function.type_of(left), Ty::Str)
+            && matches!(
+                op,
+                BinaryOp::Less | BinaryOp::LessEqual | BinaryOp::Greater | BinaryOp::GreaterEqual
+            )
+        {
+            let call = self.builder.ins().call(self.text_compare, &[a, b]);
+            let ordering = self.builder.inst_results(call).first().copied()?;
+            let condition = comparison(op, true)?;
+            let zero = self.builder.ins().iconst(types::I64, 0);
+            return Some(self.builder.ins().icmp(condition, ordering, zero));
+        }
+
         // `icmp` already answers the byte holding 0 or 1 that a `bool` is.
         if let Some(condition) = comparison(op, signed) {
             return Some(self.builder.ins().icmp(condition, a, b));

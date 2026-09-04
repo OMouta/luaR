@@ -501,6 +501,9 @@ impl Emitter<'_> {
             let text_equal = self
                 .runtime
                 .text_equal_in(&mut self.module, &mut context.func);
+            let text_compare = self
+                .runtime
+                .text_compare_in(&mut self.module, &mut context.func);
             let hash_bytes = self
                 .runtime
                 .hash_bytes_in(&mut self.module, &mut context.func);
@@ -564,6 +567,7 @@ impl Emitter<'_> {
                 slice_finalizer,
                 concat,
                 text_equal,
+                text_compare,
                 hash_bytes,
                 display_signed,
                 display_unsigned,

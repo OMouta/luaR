@@ -97,6 +97,7 @@ pub(crate) struct Translator<'a, 'b> {
     pub slice_finalizer: FuncRef,
     pub concat: FuncRef,
     pub text_equal: FuncRef,
+    pub text_compare: FuncRef,
     pub hash_bytes: FuncRef,
     pub display_signed: FuncRef,
     pub display_unsigned: FuncRef,

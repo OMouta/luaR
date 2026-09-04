@@ -1,8 +1,8 @@
 --- expect: run
 --- exit: 0
---- stdout: "7\ttrue\n"
+--- stdout: "7\ttrue\t-1\n"
 --- spec: LR35
 --- spec: LR76
 export function main()
-    print(7:display(), true:eq(true))
+    print(7:display(), true:eq(true), "a":compare("b"))
 end
