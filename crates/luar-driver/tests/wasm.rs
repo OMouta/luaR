@@ -59,7 +59,7 @@ fn scalar_binary_operations_lower_to_webassembly() {
     let mut sources = SourceMap::new();
     let root = sources.add(
         "main.luar",
-        "@noinline\nfunction bitwise(left: i64, right: i64): i64\n    return (left & right) | (left ^ right) << right >> right\nend\n\n@noinline\nfunction arithmetic(left: f64, right: f64): f64\n    return (left + right) * (left - right) / right\nend\n\nexport function main(): i64\n    return bitwise(6, 2)\nend\n",
+        "@noinline\nfunction bitwise(left: i64, right: i64): i64\n    return (left & right) | (left ^ right) << right >> right\nend\n\n@noinline\nfunction signedDivision(left: i64, right: i64): i64\n    return left // right\nend\n\n@noinline\nfunction unsignedDivision(left: u32, right: u32): u32\n    return left // right\nend\n\n@noinline\nfunction arithmetic(left: f64, right: f64): f64\n    return (left + right) * (left - right) / right\nend\n\nexport function main(): i64\n    return bitwise(6, 2)\nend\n",
     );
     let lowered = luar_driver::lower(&mut sources, root).unwrap();
     assert!(lowered.gaps.is_empty());
@@ -103,6 +103,16 @@ fn scalar_binary_operations_lower_to_webassembly() {
         operators
             .iter()
             .any(|op| matches!(op, wasmparser::Operator::I64ShrS))
+    );
+    assert!(
+        operators
+            .iter()
+            .any(|op| matches!(op, wasmparser::Operator::I64DivS))
+    );
+    assert!(
+        operators
+            .iter()
+            .any(|op| matches!(op, wasmparser::Operator::I32DivU))
     );
     assert!(
         operators
