@@ -88,8 +88,8 @@ reason.
 `STD…`. A test that cites nothing checks only that the compiler
 agrees with itself.
 
-`run` needs a backend, so it reports as skipped today. Write them anyway. When
-the backend lands, the suite immediately says how much of the language works.
+`run` builds, links, and executes the program. It reports as skipped when
+lowering or code generation does not cover the program yet.
 
 A `run` program starts in the directory holding its test, so a fixture beside
 the test is opened by name.
@@ -125,5 +125,6 @@ to them.
 
 `std/` is the standard library: LuaR source, one module per file, compiled into `luarc`.
 
-`luar-codegen` is empty. `luar-lir` lowers a checked program and lists what it
-could not lower. `luarc lir file.luar` prints both.
+`luar-codegen` emits native object files and a subset of WebAssembly.
+`luar-driver` links native executables. `luarc lir file.luar` prints the lowered
+program and anything lowering could not cover.
