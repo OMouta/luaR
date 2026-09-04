@@ -4,7 +4,8 @@ use std::collections::HashMap;
 
 use crate::inst::{BinaryOp, Inst, InstKind, MethodId, Value};
 use crate::program::{BlockId, FuncId, Function, Program, Shape};
-use crate::ty::Ty;
+use crate::protocols;
+use crate::ty::{Ty, TypeId};
 
 /// Replaces every call to a generic function with a call to an instance of it.
 pub fn run(program: &mut Program) {
@@ -152,7 +153,8 @@ impl Mono {
 
 /// A call through an interface whose receiver an instance has made concrete
 /// reaches the receiver's own method (LR18.1), or the operation the language
-/// builds in for a primitive (LR35).
+/// builds in for a primitive (LR35). A primitive an instance holds as an
+/// interface value gets its method table (LR35).
 fn settle_virtuals(program: &mut Program, id: FuncId) {
     let blocks: Vec<BlockId> = program
         .function(id)
@@ -161,7 +163,7 @@ fn settle_virtuals(program: &mut Program, id: FuncId) {
         .collect();
 
     for block in blocks {
-        let found: Vec<(usize, InstKind)> = program
+        let found: Vec<(usize, MethodId, Value, Vec<Value>, Ty)> = program
             .function(id)
             .block(block)
             .insts
@@ -176,12 +178,15 @@ fn settle_virtuals(program: &mut Program, id: FuncId) {
                 else {
                     return None;
                 };
-                let held = program.function(id).type_of(*receiver);
-                Some((at, settled(program, *method, *receiver, args, held)?))
+                let held = program.function(id).type_of(*receiver).clone();
+                Some((at, *method, *receiver, args.clone(), held))
             })
             .collect();
 
-        for (at, kind) in found {
+        for (at, method, receiver, args, held) in found {
+            let Some(kind) = settled(program, method, receiver, &args, &held) else {
+                continue;
+            };
             let inst = &mut program.function_mut(id).block_mut(block).insts[at];
             *inst = Inst {
                 result: inst.result,
@@ -190,10 +195,30 @@ fn settle_virtuals(program: &mut Program, id: FuncId) {
             };
         }
     }
+
+    let held: Vec<(TypeId, Ty)> = program
+        .function(id)
+        .blocks()
+        .flat_map(|(_, block)| block.insts.iter())
+        .filter_map(|inst| match &inst.kind {
+            InstKind::MakeDyn {
+                interface: Some(interface),
+                value,
+            } => {
+                let held = program.function(id).type_of(*value);
+                (!matches!(held, Ty::Named { .. } | Ty::Parameter(_)))
+                    .then(|| (*interface, held.clone()))
+            }
+            _ => None,
+        })
+        .collect();
+    for (interface, ty) in held {
+        protocols::implementation(program, interface, &ty);
+    }
 }
 
 fn settled(
-    program: &Program,
+    program: &mut Program,
     method: MethodId,
     receiver: Value,
     args: &[Value],
@@ -202,6 +227,12 @@ fn settled(
     let Shape::Interface(interface) = &program.nominal(method.interface).shape else {
         return None;
     };
+    let slot = interface.methods.get(method.slot as usize)?;
+    let (name, throws) = (slot.name.clone(), slot.throws);
+
+    let mut passed = Vec::with_capacity(args.len() + 1);
+    passed.push(receiver);
+    passed.extend_from_slice(args);
 
     match held {
         Ty::Named {
@@ -216,9 +247,6 @@ fn settled(
                 .iter()
                 .find(|candidate| candidate.covers(held))?;
             let callee = *implementation.methods.get(method.slot as usize)?;
-            let mut passed = Vec::with_capacity(args.len() + 1);
-            passed.push(receiver);
-            passed.extend_from_slice(args);
             let type_args = if program.function(callee).is_template() {
                 type_args.clone()
             } else {
@@ -232,16 +260,31 @@ fn settled(
         }
         // LR35: a primitive satisfies only the prelude's protocols, so `eq` on
         // one is the built-in comparison.
-        Ty::Bool | Ty::Int(_) | Ty::Float(_) | Ty::Char | Ty::Str | Ty::Bytes => {
-            let name = interface.methods.get(method.slot as usize)?.name.as_str();
-            match (name, args) {
-                ("eq", [other]) => Some(InstKind::Binary {
+        Ty::Unit
+        | Ty::Nil
+        | Ty::Bool
+        | Ty::Int(_)
+        | Ty::Float(_)
+        | Ty::Char
+        | Ty::Str
+        | Ty::Bytes => {
+            if let ("eq", [other]) = (name.as_str(), args) {
+                return Some(InstKind::Binary {
                     op: BinaryOp::Equal,
                     left: receiver,
                     right: *other,
-                }),
-                _ => None,
+                });
             }
+            if throws {
+                return None;
+            }
+            let implementation = protocols::implementation(program, method.interface, held)?;
+            let callee = *implementation.methods.get(method.slot as usize)?;
+            Some(InstKind::Call {
+                callee,
+                type_args: Vec::new(),
+                args: passed,
+            })
         }
         _ => None,
     }

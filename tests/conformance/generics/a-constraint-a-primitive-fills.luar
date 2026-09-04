@@ -1,0 +1,19 @@
+--- expect: run
+--- exit: 0
+--- stdout: "5\t2.5\ttrue\n-1\t1\t0\t1\t-1\n"
+--- spec: LR19
+--- spec: LR35
+function show<T>(value: T): string
+where T: Display
+    return value:display()
+end
+
+function order<T>(left: T, right: T): int
+where T: Comparable
+    return left:compare(right)
+end
+
+export function main()
+    print(show(5), show(2.5), show(true))
+    print(order(1, 2), order(2, 1), order(3, 3), order(1.5, 0.5), order('a', 'b'))
+end

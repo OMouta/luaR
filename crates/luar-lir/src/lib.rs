@@ -9,6 +9,7 @@ pub mod lower;
 pub mod mono;
 pub mod print;
 pub mod program;
+pub mod protocols;
 pub mod ty;
 
 pub use inst::{

@@ -107,9 +107,9 @@ impl Translator<'_, '_> {
             return None;
         };
         // A method reached through the table takes the value as a word, so
-        // the value has to be one.
+        // the value has to fit in one.
         if interface.is_some()
-            && machine(&held, self.pointer).is_none_or(|ty| ty.bytes() != self.pointer.bytes())
+            && machine(&held, self.pointer).is_none_or(|ty| ty.bytes() > self.pointer.bytes())
         {
             self.gap(format!("an interface value holding `{held}`"));
             return None;
@@ -139,6 +139,11 @@ impl Translator<'_, '_> {
             self.gap("a call to a method slot the interface does not have");
             return None;
         };
+        let held = self.function.type_of(receiver);
+        if !matches!(held, Ty::Named { .. }) {
+            self.gap(format!("a call through a value of type `{held}`"));
+            return None;
+        }
         let params = declared.params.clone();
         let result = self.function.type_of(result?).clone();
         let signature = self.indirect_signature(&params, &result)?;

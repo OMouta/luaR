@@ -337,9 +337,18 @@ impl Emitter<'_> {
                 .iter()
                 .map(|function| self.declared.get(function).copied())
                 .collect();
-            let Some(declared) = declared else {
+            let Some(mut declared) = declared else {
                 continue;
             };
+            // A method reached through the table takes the receiver as the
+            // word the interface value carries.
+            if let Some(held) = machine(&ty, self.pointer)
+                && held != self.pointer
+            {
+                for (slot, function) in declared.iter_mut().enumerate() {
+                    *function = self.receiver_thunk(*function, held, &format!("{index}_{slot}"))?;
+                }
+            }
 
             let mut description = DataDescription::new();
             description.define(vec![0; (declared.len() * cell).max(cell)].into_boxed_slice());
@@ -358,6 +367,60 @@ impl Emitter<'_> {
             self.vtables.insert((interface, ty), data);
         }
         Ok(())
+    }
+
+    /// Code taking the receiver as a word and passing it to `callee` at
+    /// `held`, its own machine type, which is no wider than the word.
+    fn receiver_thunk(
+        &mut self,
+        callee: ModuleFuncId,
+        held: types::Type,
+        name: &str,
+    ) -> Result<ModuleFuncId, Error> {
+        let mut signature = self
+            .module
+            .declarations()
+            .get_function_decl(callee)
+            .signature
+            .clone();
+        signature.params[0] = AbiParam::new(self.pointer);
+        let thunk = self
+            .module
+            .declare_function(&format!("luar_receiver{name}"), Linkage::Local, &signature)
+            .map_err(|error| Error::Cranelift(error.to_string()))?;
+
+        let mut context = Context::new();
+        let mut frame = FunctionBuilderContext::new();
+        context.func.signature = signature;
+        let reference = self.module.declare_func_in_func(callee, &mut context.func);
+        let mut builder = FunctionBuilder::new(&mut context.func, &mut frame);
+        let block = builder.create_block();
+        builder.append_block_params_for_function_params(block);
+        builder.switch_to_block(block);
+
+        let mut passed = builder.block_params(block).to_vec();
+        let word = passed[0];
+        let narrowed = if held.bits() < self.pointer.bits() {
+            let int = held.as_int();
+            builder.ins().ireduce(int, word)
+        } else {
+            word
+        };
+        passed[0] = if held.is_float() {
+            builder.ins().bitcast(held, MemFlags::new(), narrowed)
+        } else {
+            narrowed
+        };
+        let call = builder.ins().call(reference, &passed);
+        let results = builder.inst_results(call).to_vec();
+        builder.ins().return_(&results);
+        builder.seal_all_blocks();
+        builder.finalize();
+
+        self.module
+            .define_function(thunk, &mut context)
+            .map_err(rejected)?;
+        Ok(thunk)
     }
 
     fn define(&mut self) -> Result<(), Error> {

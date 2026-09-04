@@ -25,6 +25,7 @@ use crate::program::{
     Enum, Field, FuncId, Function, Implementation, Interface, Method, Nominal, Program, Shape,
     Struct,
 };
+use crate::protocols;
 use crate::ty::{Builtin, Ty, TypeId};
 
 /// Something the program does and lowering does not handle yet.
@@ -95,6 +96,8 @@ pub fn lower_in_mode(
     lowering.build_vtables();
     lowering.lower_bodies();
     lowering.write_derived();
+    lowering.implement_primitives();
+    lowering.adapt_throwing_virtuals();
 
     Lowered {
         program: lowering.program,
@@ -763,7 +766,6 @@ impl Lowering<'_> {
                 self.implement(module, &name, ty, &claimed);
             }
         }
-        self.adapt_throwing_virtuals();
     }
 
     /// Records that `ty` implements `claimed`, with the function each of the
@@ -829,6 +831,43 @@ impl Lowering<'_> {
                 },
                 methods,
             });
+        }
+    }
+
+    /// Records the implementation of each interface a primitive is held as
+    /// (LR18.1, LR35).
+    fn implement_primitives(&mut self) {
+        let mut wanted: Vec<(TypeId, Ty, Span)> = Vec::new();
+        for (_, function) in self.program.functions() {
+            if function.is_template() {
+                continue;
+            }
+            for (_, block) in function.blocks() {
+                for inst in &block.insts {
+                    let InstKind::MakeDyn {
+                        interface: Some(interface),
+                        value,
+                    } = &inst.kind
+                    else {
+                        continue;
+                    };
+                    let held = function.type_of(*value);
+                    if matches!(held, Ty::Named { .. })
+                        || wanted
+                            .iter()
+                            .any(|(seen, ty, _)| seen == interface && ty == held)
+                    {
+                        continue;
+                    }
+                    wanted.push((*interface, held.clone(), inst.span));
+                }
+            }
+        }
+        for (interface, held, span) in wanted {
+            if protocols::implementation(&mut self.program, interface, &held).is_none() {
+                let name = self.program.nominal(interface).name.clone();
+                self.gap(span, format!("`{held}` held as `{name}`"));
+            }
         }
     }
 

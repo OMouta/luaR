@@ -1,0 +1,15 @@
+--- expect: run
+--- exit: 0
+--- stdout: "1\t2\t3\n-1.5\t0.5\t2.5\n"
+--- spec: STD3
+--- spec: LR35
+import { sort } from "std/collections"
+
+export function main()
+    local values = [3, 1, 2]
+    sort(values)
+    print(values[0], values[1], values[2])
+    local floats = [2.5, -1.5, 0.5]
+    sort(floats)
+    print(floats[0], floats[1], floats[2])
+end
