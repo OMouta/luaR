@@ -1,0 +1,8 @@
+--- expect: run
+--- exit: 0
+--- stdout: "7\ttrue\n"
+--- spec: LR35
+--- spec: LR76
+export function main()
+    print(7:display(), true:eq(true))
+end

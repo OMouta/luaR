@@ -529,6 +529,21 @@ impl Checker<'_> {
             return Some((vec![found], Vec::new()));
         }
 
+        if let Some(prelude) = self.graph.prelude()
+            && let Some(protocol) = match name {
+                "eq" => Some("Eq"),
+                "hash" => Some("Hash"),
+                "display" => Some("Display"),
+                "compare" => Some("Comparable"),
+                _ => None,
+            }
+            && builtin_protocol(protocol, receiver)
+            && let Some(Decl::Interface(interface)) = self.table.get(prelude, protocol)
+            && let Some(overloads) = interface.methods.get(name)
+        {
+            return Some((overloads.clone(), Vec::new()));
+        }
+
         if let Type::Named {
             module,
             name: declared,
