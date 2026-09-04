@@ -75,11 +75,26 @@ pub struct Method {
 /// One type's implementation of an interface: its method table (LR18.1).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Implementation {
-    pub ty: TypeId,
+    /// A declared type carries no type arguments here: one table serves every
+    /// instance of it (LR19). A primitive satisfies the prelude's protocols
+    /// without declaring it (LR35).
+    pub ty: Ty,
     /// The function each of the interface's method slots resolves to, in slot
     /// order. This is the vtable a `CallVirtual` reads at runtime, and what
     /// devirtualization reads at compile time.
     pub methods: Vec<FuncId>,
+}
+
+impl Implementation {
+    /// Whether this is the implementation a value of type `ty` dispatches
+    /// through.
+    #[must_use]
+    pub fn covers(&self, ty: &Ty) -> bool {
+        match (&self.ty, ty) {
+            (Ty::Named { id: mine, .. }, Ty::Named { id, .. }) => mine == id,
+            _ => self.ty == *ty,
+        }
+    }
 }
 
 /// An interface (LR18). A method's index in `methods` is the slot a

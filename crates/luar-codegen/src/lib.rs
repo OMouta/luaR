@@ -325,13 +325,11 @@ impl Emitter<'_> {
 
         let cell = self.pointer.bytes() as usize;
         for (index, (interface, ty)) in tables.into_iter().enumerate() {
-            let Ty::Named { id, .. } = &ty else {
-                continue;
-            };
             let Shape::Interface(shape) = &self.program.nominal(interface).shape else {
                 continue;
             };
-            let Some(implementation) = shape.implementors.iter().find(|held| held.ty == *id) else {
+            let Some(implementation) = shape.implementors.iter().find(|held| held.covers(&ty))
+            else {
                 continue;
             };
             let declared: Option<Vec<ModuleFuncId>> = implementation

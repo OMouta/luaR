@@ -351,7 +351,10 @@ mod tests {
             size.block_mut(size.entry).term = Some(Terminator::Return(held));
             let size = program.add_function(size);
             implementors.push(Implementation {
-                ty,
+                ty: Ty::Named {
+                    id: ty,
+                    args: Vec::new(),
+                },
                 methods: vec![size],
             });
         }
@@ -445,10 +448,7 @@ mod tests {
         let Shape::Interface(held) = &program.nominal(interface).shape else {
             unreachable!()
         };
-        let concrete = Ty::Named {
-            id: held.implementors[0].ty,
-            args: Vec::new(),
-        };
+        let concrete = held.implementors[0].ty.clone();
         let mut caller = Function::new("box".to_owned(), Vec::new(), Ty::Unit, SPAN);
         let value = caller.add_value(concrete.clone());
         caller.block_mut(caller.entry).insts.push(Inst {
@@ -541,7 +541,10 @@ mod tests {
             unreachable!()
         };
         held.implementors.push(Implementation {
-            ty: holder,
+            ty: Ty::Named {
+                id: holder,
+                args: Vec::new(),
+            },
             methods: vec![take],
         });
 

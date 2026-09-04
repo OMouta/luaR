@@ -822,7 +822,13 @@ impl Lowering<'_> {
         }
 
         if let Shape::Interface(held) = &mut self.program.nominal_mut(interface).shape {
-            held.implementors.push(Implementation { ty, methods });
+            held.implementors.push(Implementation {
+                ty: Ty::Named {
+                    id: ty,
+                    args: Vec::new(),
+                },
+                methods,
+            });
         }
     }
 
@@ -835,7 +841,7 @@ impl Lowering<'_> {
             for implementation in &held.implementors {
                 for (slot, callee) in implementation.methods.iter().copied().enumerate() {
                     if held.methods.get(slot).is_some_and(|method| method.throws) {
-                        adapters.push((interface, implementation.ty, slot, callee));
+                        adapters.push((interface, implementation.ty.clone(), slot, callee));
                     }
                 }
             }

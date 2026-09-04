@@ -82,7 +82,7 @@ fn nominal_to(out: &mut String, nominal: &Nominal) {
                     .iter()
                     .map(|func| format!("func{}", func.0))
                     .collect();
-                let _ = writeln!(out, "    impl type{} [{}]", held.ty.0, methods.join(", "));
+                let _ = writeln!(out, "    impl {} [{}]", held.ty, methods.join(", "));
             }
         }
     }

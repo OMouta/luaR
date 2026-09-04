@@ -211,7 +211,10 @@ fn settled(
             if matches!(program.nominal(*id).shape, Shape::Interface(_)) {
                 return None;
             }
-            let implementation = interface.implementors.iter().find(|held| held.ty == *id)?;
+            let implementation = interface
+                .implementors
+                .iter()
+                .find(|candidate| candidate.covers(held))?;
             let callee = *implementation.methods.get(method.slot as usize)?;
             let mut passed = Vec::with_capacity(args.len() + 1);
             passed.push(receiver);
