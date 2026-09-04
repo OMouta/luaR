@@ -384,7 +384,7 @@ impl Checker<'_> {
                 }
                 declared.clone()
             }
-            _ if builtin_method(target, name, span).is_some()
+            _ if builtin_method(target, name, span, self.graph.prelude()).is_some()
                 || self.prelude_adds(target, name) =>
             {
                 target.to_string()
@@ -525,7 +525,7 @@ impl Checker<'_> {
             return None;
         }
 
-        if let Some((_, found)) = builtin_method(receiver, name, span) {
+        if let Some((_, found)) = builtin_method(receiver, name, span, self.graph.prelude()) {
             return Some((vec![found], Vec::new()));
         }
 

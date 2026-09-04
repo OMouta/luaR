@@ -32,6 +32,8 @@ pub enum Builtin {
     SetNew,
     Identical,
     Reinterpret,
+    StringBytes,
+    StringByte,
     Freeze,
     CheckedIndex,
     CheckedSlice,

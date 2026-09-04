@@ -1,0 +1,12 @@
+--- expect: run
+--- exit: 0
+--- stdout: "65\n226\n130\n172\nnil\n"
+--- spec: LR37
+export function main()
+    local bytes = "A€":bytes()
+    print(bytes:next())
+    print(bytes:next())
+    print(bytes:next())
+    print(bytes:next())
+    print(bytes:next())
+end

@@ -33,6 +33,22 @@ export interface Into<T>
     function into(self): T
 end
 
+@intrinsic
+function stringByte(source: string, index: int): u8?
+
+ref struct StringByteIterator<T> implements Iterator<u8>
+    source: string
+    index: int
+
+    function next(self): u8?
+        local value = stringByte(self.source, self.index)
+        if value ~= nil then
+            self.index += 1
+        end
+        return value
+    end
+end
+
 ref struct EnumeratedIterator<T> implements Iterator<(int, T)>, Iterable<(int, T)>
     values: FrozenList<T>
     index: int

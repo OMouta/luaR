@@ -218,7 +218,9 @@ impl Checker<'_> {
         }
 
         let builtin = match method {
-            Some(name) => builtin_method(receiver, name, span).map(|(kind, _)| kind),
+            Some(name) => {
+                builtin_method(receiver, name, span, self.graph.prelude()).map(|(kind, _)| kind)
+            }
             None => self
                 .predeclared(callee, span)
                 .map(|(kind, _)| kind)

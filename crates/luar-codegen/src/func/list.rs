@@ -333,6 +333,34 @@ impl Translator<'_, '_> {
         ) {
             return self.get_index(receiver, index, result, true);
         }
+        if matches!(held, Ty::Str | Ty::Bytes) {
+            let optional = self.function.type_of(result?).clone();
+            let text = self.value(receiver);
+            let index = self.value(index);
+            let length = self
+                .builder
+                .ins()
+                .load(self.pointer, OWNED, text, layout::LENGTH);
+            let present = self
+                .builder
+                .ins()
+                .icmp(IntCC::UnsignedLessThan, index, length);
+            let built = self.allocate(&optional, 0)?;
+            let tag = self.builder.ins().uextend(TAG_TYPE, present);
+            self.builder.ins().store(OWNED, tag, built, TAG);
+
+            let found = self.builder.create_block();
+            let carry_on = self.builder.create_block();
+            self.builder.ins().brif(present, found, &[], carry_on, &[]);
+            self.builder.switch_to_block(found);
+            let start = self.builder.ins().iadd_imm(text, i64::from(layout::CELL));
+            let address = self.builder.ins().iadd(start, index);
+            let value = self.builder.ins().load(types::I8, OWNED, address, 0);
+            self.builder.ins().store(OWNED, value, built, layout::CELL);
+            self.builder.ins().jump(carry_on, &[]);
+            self.builder.switch_to_block(carry_on);
+            return Some(built);
+        }
         if !matches!(
             held,
             Ty::Builtin {

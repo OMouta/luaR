@@ -55,23 +55,24 @@ impl Checker<'_> {
         if self.shadowed(name) {
             return None;
         }
-        let Origin::Imported { module, name } = &self.names.scope(self.scope).get(name)?.origin
-        else {
-            return None;
+        let (module, declared_name) = match &self.names.scope(self.scope).get(name)?.origin {
+            Origin::Imported { module, name } => (*module, name.as_str()),
+            Origin::Declared { .. } => (self.scope, name.as_str()),
+            _ => return None,
         };
         let declared = self
             .graph
-            .module(*module)
+            .module(module)
             .ast
             .items
             .iter()
             .any(|item| match item {
                 Item::Function(function) => {
-                    function.name.as_slice() == [name.as_str()] && is_intrinsic(function)
+                    function.name.as_slice() == [declared_name] && is_intrinsic(function)
                 }
                 _ => false,
             });
-        declared.then(|| intrinsic_named(name)).flatten()
+        declared.then(|| intrinsic_named(declared_name)).flatten()
     }
 
     /// LR60: `@intrinsic` names an operation the compiler implements, in the
@@ -123,6 +124,7 @@ pub(super) fn builtin_method(
     receiver: &Type,
     name: &str,
     span: Span,
+    prelude: Option<crate::modules::ModuleId>,
 ) -> Option<(Builtin, Signature)> {
     let arg = |args: &[Type], index: usize| args.get(index).cloned().unwrap_or(Type::Unresolved);
     let int = Type::Primitive(Primitive::I64);
@@ -230,6 +232,15 @@ pub(super) fn builtin_method(
             ),
             _ => return None,
         },
+        Type::Primitive(Primitive::String) if name == "bytes" => (
+            Builtin::StringBytes,
+            Vec::new(),
+            Type::Named {
+                module: prelude?,
+                name: "Iterator".to_owned(),
+                args: vec![Type::Primitive(Primitive::U8)],
+            },
+        ),
         Type::Primitive(Primitive::Bytes) => match name {
             "unchecked" => (
                 Builtin::Unchecked,
@@ -492,6 +503,7 @@ fn intrinsic_named(name: &str) -> Option<Builtin> {
     match name {
         "identical" => Some(Builtin::Identical),
         "reinterpret" => Some(Builtin::Reinterpret),
+        "stringByte" => Some(Builtin::StringByte),
         _ => None,
     }
 }

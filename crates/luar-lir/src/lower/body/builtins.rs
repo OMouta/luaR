@@ -34,6 +34,8 @@ impl<'a> Body<'a> {
             Builtin::ListNew | Builtin::MapNew | Builtin::SetNew => self.empty_collection(span),
             Builtin::Identical => self.identical(args, span),
             Builtin::Reinterpret => self.reinterpret(args, span),
+            Builtin::StringBytes => self.string_bytes(callee, span),
+            Builtin::StringByte => self.string_byte(args, span),
             Builtin::Freeze => {
                 let value = self.expr(callee, None);
                 let ty = self.recorded(span);
@@ -57,6 +59,60 @@ impl<'a> Body<'a> {
                 self.pointer_method(kind, callee, args, span)
             }
         }
+    }
+
+    fn string_bytes(&mut self, callee: &Expr, span: Span) -> Value {
+        let source = self.expr(callee, Some(&Ty::Str));
+        let Some(iterator) = self
+            .context
+            .program
+            .find_type("std/prelude.StringByteIterator")
+        else {
+            return self.missing(span, "the string byte iterator from the prelude");
+        };
+        let ty = Ty::Named {
+            id: iterator,
+            args: vec![Ty::Int(IntTy::U8)],
+        };
+        let index = self.emit(InstKind::Const(Const::Int(0)), Ty::INT, span);
+        let value = self.emit(
+            InstKind::MakeStruct {
+                ty: ty.clone(),
+                fields: vec![source, index],
+                allocation: crate::inst::Allocation::Managed,
+            },
+            ty,
+            span,
+        );
+        let result = self.recorded(span);
+        let Ty::Named { id: interface, .. } = result else {
+            return self.missing(span, "the `Iterator<u8>` returned by `string:bytes()`");
+        };
+        self.emit(
+            InstKind::MakeDyn {
+                interface: Some(interface),
+                value,
+            },
+            result,
+            span,
+        )
+    }
+
+    fn string_byte(&mut self, args: &[Argument], span: Span) -> Value {
+        let [source, index] = args else {
+            return self.missing(span, "a string byte read without its source and index");
+        };
+        let source = self.expr(&source.value, Some(&Ty::Str));
+        let index = self.expr(&index.value, Some(&Ty::INT));
+        let result = Ty::Optional(Box::new(Ty::Int(IntTy::U8)));
+        self.emit(
+            InstKind::GetCheckedIndex {
+                receiver: source,
+                index,
+            },
+            result,
+            span,
+        )
     }
 
     fn reinterpret(&mut self, args: &[Argument], span: Span) -> Value {
