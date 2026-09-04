@@ -156,6 +156,17 @@ fn emit_function(
             {
                 body.instruction(&Instruction::LocalSet(values[&result]));
             }
+            (InstKind::Binary { op, left, right }, Some(result))
+                if emit_binary(
+                    &mut body,
+                    *op,
+                    function.type_of(*left),
+                    values[left],
+                    values[right],
+                ) =>
+            {
+                body.instruction(&Instruction::LocalSet(values[&result]));
+            }
             (
                 InstKind::Call {
                     callee,
@@ -271,8 +282,42 @@ fn emit_comparison(body: &mut Function, op: BinaryOp, ty: &Ty, left: u32, right:
     true
 }
 
+fn emit_binary(body: &mut Function, op: BinaryOp, ty: &Ty, left: u32, right: u32) -> bool {
+    let instruction = match (value_type(ty), op) {
+        (Some(ValType::I32), BinaryOp::BitAnd) => Instruction::I32And,
+        (Some(ValType::I32), BinaryOp::BitOr) => Instruction::I32Or,
+        (Some(ValType::I32), BinaryOp::BitXor) => Instruction::I32Xor,
+        (Some(ValType::I32), BinaryOp::ShiftLeft) => Instruction::I32Shl,
+        (Some(ValType::I32), BinaryOp::ShiftRight) if is_signed(ty) => Instruction::I32ShrS,
+        (Some(ValType::I32), BinaryOp::ShiftRight) => Instruction::I32ShrU,
+        (Some(ValType::I64), BinaryOp::BitAnd) => Instruction::I64And,
+        (Some(ValType::I64), BinaryOp::BitOr) => Instruction::I64Or,
+        (Some(ValType::I64), BinaryOp::BitXor) => Instruction::I64Xor,
+        (Some(ValType::I64), BinaryOp::ShiftLeft) => Instruction::I64Shl,
+        (Some(ValType::I64), BinaryOp::ShiftRight) if is_signed(ty) => Instruction::I64ShrS,
+        (Some(ValType::I64), BinaryOp::ShiftRight) => Instruction::I64ShrU,
+        (Some(ValType::F32), BinaryOp::Add) => Instruction::F32Add,
+        (Some(ValType::F32), BinaryOp::Subtract) => Instruction::F32Sub,
+        (Some(ValType::F32), BinaryOp::Multiply) => Instruction::F32Mul,
+        (Some(ValType::F32), BinaryOp::Divide) => Instruction::F32Div,
+        (Some(ValType::F64), BinaryOp::Add) => Instruction::F64Add,
+        (Some(ValType::F64), BinaryOp::Subtract) => Instruction::F64Sub,
+        (Some(ValType::F64), BinaryOp::Multiply) => Instruction::F64Mul,
+        (Some(ValType::F64), BinaryOp::Divide) => Instruction::F64Div,
+        _ => return false,
+    };
+    body.instruction(&Instruction::LocalGet(left));
+    body.instruction(&Instruction::LocalGet(right));
+    body.instruction(&instruction);
+    true
+}
+
+fn is_signed(ty: &Ty) -> bool {
+    matches!(ty, Ty::Int(int) if int.is_signed())
+}
+
 fn comparison(op: BinaryOp, ty: &Ty) -> Option<Instruction<'static>> {
-    let signed = matches!(ty, Ty::Int(int) if int.is_signed());
+    let signed = is_signed(ty);
     match (value_type(ty)?, op, signed) {
         (ValType::I32, BinaryOp::Equal, _) => Some(Instruction::I32Eq),
         (ValType::I32, BinaryOp::NotEqual, _) => Some(Instruction::I32Ne),

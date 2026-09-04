@@ -52,3 +52,76 @@ fn int_is_i64_in_webassembly() {
     assert!(saw_comparison);
     assert!(saw_not);
 }
+
+// LR11.1, LR11.5, LR47
+#[test]
+fn scalar_binary_operations_lower_to_webassembly() {
+    let mut sources = SourceMap::new();
+    let root = sources.add(
+        "main.luar",
+        "@noinline\nfunction bitwise(left: i64, right: i64): i64\n    return (left & right) | (left ^ right) << right >> right\nend\n\n@noinline\nfunction arithmetic(left: f64, right: f64): f64\n    return (left + right) * (left - right) / right\nend\n\nexport function main(): i64\n    return bitwise(6, 2)\nend\n",
+    );
+    let lowered = luar_driver::lower(&mut sources, root).unwrap();
+    assert!(lowered.gaps.is_empty());
+
+    let wasm = luar_codegen::compile_wasm(&lowered.program);
+    assert!(wasm.gaps.is_empty());
+    wasmparser::Validator::new()
+        .validate_all(&wasm.bytes)
+        .unwrap();
+
+    let mut operators = Vec::new();
+    for payload in wasmparser::Parser::new(0).parse_all(&wasm.bytes) {
+        if let wasmparser::Payload::CodeSectionEntry(body) = payload.unwrap() {
+            let mut reader = body.get_operators_reader().unwrap();
+            while !reader.eof() {
+                operators.push(reader.read().unwrap());
+            }
+        }
+    }
+    assert!(
+        operators
+            .iter()
+            .any(|op| matches!(op, wasmparser::Operator::I64And))
+    );
+    assert!(
+        operators
+            .iter()
+            .any(|op| matches!(op, wasmparser::Operator::I64Or))
+    );
+    assert!(
+        operators
+            .iter()
+            .any(|op| matches!(op, wasmparser::Operator::I64Xor))
+    );
+    assert!(
+        operators
+            .iter()
+            .any(|op| matches!(op, wasmparser::Operator::I64Shl))
+    );
+    assert!(
+        operators
+            .iter()
+            .any(|op| matches!(op, wasmparser::Operator::I64ShrS))
+    );
+    assert!(
+        operators
+            .iter()
+            .any(|op| matches!(op, wasmparser::Operator::F64Add))
+    );
+    assert!(
+        operators
+            .iter()
+            .any(|op| matches!(op, wasmparser::Operator::F64Sub))
+    );
+    assert!(
+        operators
+            .iter()
+            .any(|op| matches!(op, wasmparser::Operator::F64Mul))
+    );
+    assert!(
+        operators
+            .iter()
+            .any(|op| matches!(op, wasmparser::Operator::F64Div))
+    );
+}
