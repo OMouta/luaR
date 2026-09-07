@@ -2490,6 +2490,8 @@ text:chars()        -- Iterator<char>
 text:graphemes()    -- Iterator<string>
 ```
 
+`graphemes()` yields the default extended grapheme clusters defined by Unicode 17.0.0, UAX #29, in source order, without normalization. An exhausted iterator keeps returning `nil`.
+
 This avoids pretending that UTF-8 strings are arrays of characters. `text.length` is not defined for the same reason; the count you want is `text.byteLength`, `text:chars():count()`, or `text:graphemes():count()`, and they differ.
 
 Strings are not sliced with `[]` either (LR38).
