@@ -1,0 +1,22 @@
+--- expect: run
+--- exit: 0
+--- spec: LR37
+--- spec: LR35
+export function main()
+    local empty: Iterator<string> = "":graphemes()
+    assert(empty:next() == nil)
+    assert(empty:next() == nil)
+
+    local first = "e\u{301}é\u{0}👩\u{200D}💻":graphemes()
+    local shared = first
+    local second = "e\u{301}é":graphemes()
+    assert((first:next() ?? unreachable()) == "e\u{301}")
+    assert((shared:next() ?? unreachable()) == "é")
+    assert((first:next() ?? unreachable()) == "\u{0}")
+    assert((first:next() ?? unreachable()) == "👩\u{200D}💻")
+    assert(first:next() == nil)
+    assert(shared:next() == nil)
+    assert((second:next() ?? unreachable()) == "e\u{301}")
+    assert((second:next() ?? unreachable()) == "é")
+    assert(second:next() == nil)
+end

@@ -27,6 +27,14 @@ const STD: &[(&str, &str)] = &[
     ("std/random", include_str!("../../../std/random.luar")),
     ("std/testing", include_str!("../../../std/testing.luar")),
     ("std/thread", include_str!("../../../std/thread.luar")),
+    (
+        "std/unicode/graphemes",
+        include_str!("../../../std/unicode/graphemes.luar"),
+    ),
+    (
+        "std/unicode/grapheme-data",
+        include_str!("../../../std/unicode/grapheme-data.luar"),
+    ),
 ];
 
 /// Reads and parses `root` and everything reachable from it.

@@ -86,6 +86,12 @@ pub fn compile(program: &Program) -> Result<Object, Error> {
     flags
         .set("enable_verifier", "true")
         .map_err(|error| Error::Cranelift(error.to_string()))?;
+    flags
+        .set("enable_probestack", "true")
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
+    flags
+        .set("probestack_strategy", "inline")
+        .map_err(|error| Error::Cranelift(error.to_string()))?;
     let flags = settings::Flags::new(flags);
 
     let isa = cranelift_native::builder()

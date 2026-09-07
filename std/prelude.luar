@@ -3,6 +3,7 @@
 
 import { reinterpret } from "std/mem"
 import { Cancelled } from "std/async"
+import { graphemeIterator } from "std/unicode/graphemes"
 
 @intrinsic
 function cancelTask<T>(task: Task<T>, error: unknown)
@@ -96,6 +97,10 @@ end
 export extend StringCharacters for string
     function chars(self): Iterator<char>
         return StringCharIterator { source = self, index = 0 }
+    end
+
+    function graphemes(self): Iterator<string>
+        return graphemeIterator(self)
     end
 end
 

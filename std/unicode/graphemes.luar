@@ -1,0 +1,119 @@
+import { bytesOf, stringFromBytes, reinterpret } from "std/mem"
+import { ranges } from "std/unicode/grapheme-data"
+import { Iterator, StringCharacters } from "std/prelude"
+
+function hexField(offset: int, width: int): int
+    local result = 0
+    unsafe
+        local data = bytesOf(ranges)
+        for index in offset..<(offset + width) do
+            local digit = data:add(index as isize):read() as int
+            result = result * 16 + (if digit <= 57 then digit - 48 else digit - 55)
+        end
+    end
+    return result
+end
+
+function properties(scalar: int): int
+    -- UAX #29 section 8, LR37.
+    if scalar >= 0xAC00 and scalar <= 0xD7A3 then
+        return if (scalar - 0xAC00) % 28 == 0 then 12 else 13
+    end
+    local low = 0
+    local high: int = ranges.byteLength // 15
+    while low < high do
+        local middle = low + (high - low) // 2
+        local offset = middle * 15
+        if scalar < hexField(offset, 6) then
+            high = middle
+        elseif scalar > hexField(offset + 6, 6) then
+            low = middle + 1
+        else
+            return hexField(offset + 12, 2)
+        end
+    end
+    return 0
+end
+
+function scalarOf(value: char): int
+    unsafe
+        return reinterpret<u32>(value) as int
+    end
+end
+
+function byteWidth(scalar: int): int
+    if scalar < 0x80 then return 1 end
+    if scalar < 0x800 then return 2 end
+    if scalar < 0x10000 then return 3 end
+    return 4
+end
+
+-- UAX #29 GB3..GB999, LR37.
+function joins(previous: int, current: int, regionalOdd: bool, emojiJoin: bool, linked: bool): bool
+    local left = previous & 15
+    local right = current & 15
+    if left == 1 and right == 2 then return true end
+    if left >= 1 and left <= 3 then return false end
+    if right >= 1 and right <= 3 then return false end
+    if left == 9 and (right == 9 or right == 10 or right == 12 or right == 13) then return true end
+    if (left == 12 or left == 10) and (right == 10 or right == 11) then return true end
+    if (left == 13 or left == 11) and right == 11 then return true end
+    if right == 4 or right == 5 or right == 8 then return true end
+    if left == 7 then return true end
+    if linked and (current & 48) == 16 then return true end
+    if emojiJoin and (current & 64) ~= 0 then return true end
+    return left == 6 and right == 6 and regionalOdd
+end
+
+ref struct GraphemeIterator implements Iterator<string>
+    source: string
+    characters: Iterator<char>
+    pending: char?
+    offset: int
+
+    function next(self): string?
+        local first = self.pending
+        self.pending = nil
+        if first == nil then first = self.characters:next() end
+        if first == nil then return nil end
+        local scalar = scalarOf(first ?? unreachable())
+        local previous = properties(scalar)
+        local start = self.offset
+        self.offset += byteWidth(scalar)
+        local regionalOdd = (previous & 15) == 6
+        local pictographic = (previous & 64) ~= 0
+        local emojiJoin = false
+        local indic = if (previous & 48) == 16 then 1 else 0
+        while true do
+            local following = self.characters:next()
+            if following == nil then break end
+            scalar = scalarOf(following ?? unreachable())
+            local current = properties(scalar)
+            if not joins(previous, current, regionalOdd, emojiJoin, indic == 2) then
+                self.pending = following
+                break
+            end
+            self.offset += byteWidth(scalar)
+            local kind = current & 15
+            regionalOdd = kind == 6 and not regionalOdd
+            emojiJoin = kind == 5 and pictographic
+            pictographic = (current & 64) ~= 0 or (kind == 4 and pictographic)
+            local conjunct = current & 48
+            if conjunct == 16 then
+                indic = 1
+            elseif conjunct == 48 and indic ~= 0 then
+                indic = 2
+            elseif conjunct ~= 32 and conjunct ~= 48 then
+                indic = 0
+            end
+            previous = current
+        end
+        unsafe
+            return stringFromBytes(bytesOf(self.source):add(start as isize), self.offset - start)
+        end
+    end
+end
+
+export function graphemeIterator(source: string): Iterator<string>
+    return GraphemeIterator { source = source, characters = source:chars(), pending = nil, offset = 0 }
+end
