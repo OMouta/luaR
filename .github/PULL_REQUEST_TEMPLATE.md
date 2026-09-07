@@ -6,7 +6,7 @@
 
 ## Before merging
 
-- [ ] `lute luar ci` passes, or the three cargo commands in `CONTRIBUTING.md`
+- [ ] `cargo luar ci` passes, or the three cargo commands in `CONTRIBUTING.md`
 - [ ] New rules have a code in `crates/luar-diagnostics/src/codes.rs`, cited to the section that states them
 - [ ] New tests cite the sections they enforce
 - [ ] Changed expectations ship with the spec commit that makes them right

@@ -63,9 +63,8 @@ Native code enters through `@extern("c")` to libc (LR46). An operation with no L
 cargo fmt --all
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-stylua luar.luau
 ```
 
-CI runs those four. A clippy warning fails the build.
+CI runs those three. A clippy warning fails the build.
 
 Keep commits small, one change each, with a short plain subject line and no trailers. A spec change commits alone.

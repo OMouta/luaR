@@ -13,11 +13,7 @@ cd luaR
 cargo build
 ```
 
-If you have [Rokit](https://github.com/rojo-rbx/rokit), `rokit install` adds
-[Lute](https://github.com/luau-lang/lute), which runs the task runner in
-`luar.luau`, and [StyLua](https://github.com/JohnnyMorganz/StyLua), which
-formats it. Everything but the Luau formatting is a cargo command you can type
-out instead.
+`cargo luar` runs the task runner in `luar.luar` through the compiler.
 
 ## Tests
 
@@ -28,41 +24,41 @@ carrying the behavior it expects and the spec section it enforces. A test that
 runs a program builds and links it, so the suite takes a few seconds.
 
 ```sh
-lute luar test                          # cargo run -q -p luarc -- test
-lute luar test strings                  # only paths containing "strings"
+cargo luar test                         # cargo run -q -p luarc -- test
+cargo luar test strings                 # only paths containing "strings"
 ```
 
 The Rust tests cover the compiler's internals: the precedence table, maximal
 munch in the lexer, error recovery, the conformance runner itself.
 
 ```sh
-lute luar unit                          # cargo test --workspace
+cargo luar unit                         # cargo test --workspace
 ```
 
 CI runs both, plus format and lint. Clippy warnings fail the build. One command
 runs the lot in the same order. Run it before pushing.
 
 ```sh
-lute luar ci
+cargo luar ci
 ```
 
 ## Commands
 
-Each one is a cargo command underneath. `lute luar` with no argument lists
+Each one is a cargo command underneath. `cargo luar` with no argument lists
 them.
 
 | Task | Cargo |
 | --- | --- |
-| `lute luar check file.luar` | `cargo run -q -p luarc -- check file.luar` |
-| `lute luar test [filter]` | `cargo run -q -p luarc -- test [filter]` |
-| `lute luar coverage` | `cargo run -q -p luarc -- coverage` |
-| `lute luar run file.luar` | `cargo run -q -p luarc -- run file.luar` |
-| `lute luar lir file.luar` | `cargo run -q -p luarc -- lir file.luar` |
-| `lute luar build` | `cargo build --workspace` |
-| `lute luar unit` | `cargo test --workspace` |
-| `lute luar fmt` | `cargo fmt --all`, then `stylua luar.luau` |
-| `lute luar lint` | `cargo clippy --workspace --all-targets -- -D warnings` |
-| `lute luar ci` | format, lint, unit tests, conformance |
+| `cargo luar check file.luar` | `cargo run -q -p luarc -- check file.luar` |
+| `cargo luar test [filter]` | `cargo run -q -p luarc -- test [filter]` |
+| `cargo luar coverage` | `cargo run -q -p luarc -- coverage` |
+| `cargo luar run file.luar [args]` | `cargo run -q -p luarc -- run file.luar [args]` |
+| `cargo luar lir file.luar` | `cargo run -q -p luarc -- lir file.luar` |
+| `cargo luar build` | `cargo build --workspace` |
+| `cargo luar unit` | `cargo test --workspace` |
+| `cargo luar fmt` | `cargo fmt --all` |
+| `cargo luar lint` | `cargo clippy --workspace --all-targets -- -D warnings` |
+| `cargo luar ci` | format, lint, unit tests, conformance |
 
 ## Writing a conformance test
 

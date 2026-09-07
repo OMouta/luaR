@@ -1,0 +1,2 @@
+[alias]
+luar = "run -q --target-dir target/runner -p luarc -- run luar.luar"

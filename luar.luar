@@ -1,0 +1,98 @@
+import { Command } from "std/process"
+
+const USAGE = [[
+luar, tasks for working on the compiler
+
+usage:
+  cargo luar test [filter]       run the conformance suite
+  cargo luar check <file>...     read files and report what is wrong with them
+  cargo luar coverage           spec sections no test cites
+  cargo luar run <file> [args]   run a program
+  cargo luar lir <file>          print what a program lowers to
+  cargo luar build               build the workspace
+  cargo luar unit                run the Rust tests
+  cargo luar fmt                 format Rust
+  cargo luar lint                clippy, warnings as errors
+  cargo luar ci                  format checks, lint, unit tests, conformance
+]]
+
+function cargo(arguments: List<string>): int
+    match Command.new("cargo"):args(arguments:frozen()):status()
+        case Result.Ok(status)
+            return status.code ?? 1
+        case Result.Err(_)
+            print("luar: cannot start cargo")
+            return 1
+    end
+end
+
+function luarc(command: string, rest: List<string>): int
+    local arguments = ["run", "-q", "-p", "luarc", "--", command]
+    for argument in rest do
+        arguments:push(argument)
+    end
+    return cargo(arguments)
+end
+
+function checkFormat(): int
+    return cargo(["fmt", "--all", "--check"])
+end
+
+function lint(): int
+    return cargo(["clippy", "--workspace", "--all-targets", "--", "-D", "warnings"])
+end
+
+function unit(): int
+    return cargo(["test", "--workspace"])
+end
+
+function ci(): int
+    for step in ["format", "lint", "unit tests", "conformance"] do
+        print(`\n=== {step}`)
+        local code = match step
+            case "format" => checkFormat()
+            case "lint" => lint()
+            case "unit tests" => unit()
+            case _ => luarc("test", [])
+        end
+        if code ~= 0 then
+            print(`\n{step} failed`)
+            return code
+        end
+    end
+    print("\neverything passed")
+    return 0
+end
+
+export function main(args: List<string>): int
+    if args.length < 2 then
+        print(USAGE)
+        return 2
+    end
+    local name = args[1]
+    local rest = List.new<string>()
+    for i in 2..<args.length do
+        rest:push(args[i])
+    end
+    match name
+        case "help" | "--help" | "-h"
+            print(USAGE)
+            return 0
+        case "test" | "check" | "coverage" | "run" | "lir"
+            return luarc(name, rest)
+        case "build"
+            return cargo(["build", "--workspace"])
+        case "unit"
+            return unit()
+        case "fmt"
+            return cargo(["fmt", "--all"])
+        case "lint"
+            return lint()
+        case "ci"
+            return ci()
+        case _
+            print(`luar: \`{name}\` is not a command\n`)
+            print(USAGE)
+            return 2
+    end
+end
