@@ -1,0 +1,17 @@
+--- expect: run
+--- exit: 0
+--- stdout: "ready\ndone\n"
+--- spec: STD22
+--- spec: LR27
+import { yieldNow } from "std/async"
+
+export async function main()
+    local first: Task<()> = yieldNow()
+    local second = yieldNow()
+    local alias = first
+    print("ready")
+    local result: () = await first
+    local again: () = await alias
+    local other: () = await second
+    print("done")
+end

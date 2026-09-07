@@ -1,0 +1,32 @@
+--- expect: run
+--- exit: 0
+--- stdout: "cleanup\ntyped\nuntyped\n"
+--- spec: STD22
+--- spec: LR27
+--- spec: LR25.3
+--- spec: LR26
+import { Cancelled as TaskCancelled } from "std/async"
+
+struct Cancelled
+end
+
+async function fail()
+    defer print("cleanup")
+    throw TaskCancelled {}
+end
+
+export async function main()
+    local task = fail()
+    try
+        local result = await task
+    catch error: Cancelled
+        print("wrong type")
+    catch error: TaskCancelled
+        print("typed")
+    end
+    try
+        local result = await task
+    catch error
+        print("untyped")
+    end
+end

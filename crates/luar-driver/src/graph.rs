@@ -13,6 +13,7 @@ use crate::packages::Packages;
 
 /// The standard library, one module per source file under `std/` (LR60).
 const STD: &[(&str, &str)] = &[
+    ("std/async", include_str!("../../../std/async.luar")),
     (
         "std/collections",
         include_str!("../../../std/collections.luar"),
