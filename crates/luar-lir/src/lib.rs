@@ -10,6 +10,7 @@ pub mod mono;
 pub mod print;
 pub mod program;
 pub mod protocols;
+pub mod tasks;
 pub mod ty;
 
 pub use inst::{

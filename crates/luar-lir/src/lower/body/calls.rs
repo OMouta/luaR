@@ -14,6 +14,100 @@ use crate::program::{FuncId, Function};
 use crate::ty::{Builtin, Ty};
 
 impl<'a> Body<'a> {
+    // LR27: task handles share a completion; each await copies its result.
+    pub(super) fn await_task(&mut self, task: Value, result: Ty, span: Span) -> Value {
+        let completion = thrown_or(result.clone());
+        let cached_ty = Ty::Optional(Box::new(completion.clone()));
+        let cached = self.emit(
+            InstKind::GetField {
+                object: task,
+                field: 1,
+            },
+            cached_ty.clone(),
+            span,
+        );
+        let tag = self.emit(InstKind::GetTag { value: cached }, Ty::INT, span);
+        let zero = self.emit(InstKind::Const(Const::Int(0)), Ty::INT, span);
+        let pending = self.emit(
+            InstKind::Binary {
+                op: BinaryOp::Equal,
+                left: tag,
+                right: zero,
+            },
+            Ty::Bool,
+            span,
+        );
+        let start = self.function.add_block();
+        let ready = self.function.add_block();
+        let joined = self.function.add_block();
+        let completed = self.function.add_block_param(joined, completion.clone());
+        self.terminate(Terminator::Branch {
+            condition: pending,
+            then: Target::to(start),
+            otherwise: Target::to(ready),
+        });
+        self.switch_to(start);
+        let callee = self.emit(
+            InstKind::GetField {
+                object: task,
+                field: 0,
+            },
+            Ty::Function {
+                asynchronous: false,
+                params: Vec::new(),
+                result: Box::new(result.clone()),
+            },
+            span,
+        );
+        let produced = self.emit(
+            InstKind::CallIndirect {
+                callee,
+                args: Vec::new(),
+            },
+            completion.clone(),
+            span,
+        );
+        let stored = self.emit(
+            InstKind::MakeEnum {
+                ty: cached_ty.clone(),
+                variant: 1,
+                payload: vec![produced],
+            },
+            cached_ty,
+            span,
+        );
+        self.emit_void(
+            InstKind::SetField {
+                object: task,
+                field: 1,
+                value: stored,
+            },
+            span,
+        );
+        self.terminate(Terminator::Jump(Target::new(joined, vec![produced])));
+        self.switch_to(ready);
+        let produced = self.emit(
+            InstKind::GetPayload {
+                value: cached,
+                variant: 1,
+                field: 0,
+            },
+            completion,
+            span,
+        );
+        self.terminate(Terminator::Jump(Target::new(joined, vec![produced])));
+        self.switch_to(joined);
+        let value = self.caught_or_raised(completed, result.clone(), span);
+        self.emit(
+            InstKind::CopyValue {
+                value,
+                allocation: Allocation::Managed,
+            },
+            result,
+            span,
+        )
+    }
+
     pub(super) fn call(
         &mut self,
         callee: &Expr,
@@ -563,6 +657,7 @@ impl<'a> Body<'a> {
         )
     }
 
+    // LR27: tasks::run moves the producing call into a deferred closure.
     fn completed_task(&mut self, value: Value, task: Option<Ty>, span: Span) -> Value {
         match task {
             Some(task) => self.emit(

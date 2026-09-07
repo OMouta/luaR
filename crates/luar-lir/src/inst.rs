@@ -261,8 +261,7 @@ pub enum InstKind {
         captures: Vec<Value>,
     },
 
-    /// A fresh copy of an aggregate, one level deep, which is what a value
-    /// struct is given when it reaches a new holder (LR31).
+    /// Copies value parts and shares references (LR31).
     CopyValue {
         value: Value,
         allocation: Allocation,

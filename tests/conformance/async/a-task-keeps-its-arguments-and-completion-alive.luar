@@ -1,0 +1,31 @@
+--- expect: run
+--- exit: 0
+--- stdout: "7\n7\n"
+--- spec: LR27
+--- spec: LR29
+--- spec: LR31
+ref struct Counter
+    number: int
+end
+
+async function read(value: Counter): Counter
+    return Counter { number = value.number }
+end
+
+function pending(): Task<Counter>
+    return read(Counter { number = 7 })
+end
+
+function allocate()
+    for i in 0..<40000 do
+        local discarded = Counter { number = i }
+    end
+end
+
+export async function main()
+    local task = pending()
+    allocate()
+    print((await task).number)
+    allocate()
+    print((await task).number)
+end

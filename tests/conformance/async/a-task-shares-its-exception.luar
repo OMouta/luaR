@@ -1,0 +1,30 @@
+--- expect: run
+--- exit: 0
+--- stdout: "created\nbody\ncleanup\n7\n7\n"
+--- spec: LR27
+--- spec: LR25.3
+--- spec: LR26
+struct Failure
+    code: int
+end
+
+async function fail(): int
+    defer print("cleanup")
+    print("body")
+    throw Failure { code = 7 }
+end
+
+export async function main()
+    local task = fail()
+    print("created")
+    try
+        print(await task)
+    catch error: Failure
+        print(error.code)
+    end
+    try
+        print(await task)
+    catch error: Failure
+        print(error.code)
+    end
+end

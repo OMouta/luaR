@@ -1,0 +1,31 @@
+--- expect: run
+--- exit: 0
+--- stdout: "argument\ncreated\nbody\n7\n7\n"
+--- spec: LR27
+--- spec: LR9
+--- spec: LR31
+struct Value
+    number: int
+end
+
+function argument(value: Value): Value
+    print("argument")
+    return value
+end
+
+async function read<T>(value: T): T
+    print("body")
+    return value
+end
+
+export async function main()
+    local original = Value { number = 7 }
+    local task = read(argument(original))
+    local alias = task
+    original.number = 9
+    print("created")
+    local first = await task
+    first.number = 11
+    print((await alias).number)
+    print((await task).number)
+end

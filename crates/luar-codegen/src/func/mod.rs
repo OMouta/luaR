@@ -303,7 +303,27 @@ impl Translator<'_, '_> {
             InstKind::CopyValue { value, allocation } => {
                 let ty = self.function.type_of(*value).clone();
                 let source = self.value(*value);
-                self.duplicate(source, &ty, layout::DEPTH, *allocation)
+                let copied = match &ty {
+                    Ty::Named { id, .. } => match &self.program.nominal(*id).shape {
+                        luar_lir::Shape::Struct(structure) => !structure.reference,
+                        luar_lir::Shape::Enum(_) => true,
+                        luar_lir::Shape::Interface(_) => false,
+                    },
+                    Ty::Tuple(_)
+                    | Ty::Record(_)
+                    | Ty::Array(..)
+                    | Ty::Optional(_)
+                    | Ty::Builtin {
+                        kind: luar_lir::Builtin::Result,
+                        ..
+                    } => true,
+                    _ => false,
+                };
+                if copied {
+                    self.duplicate(source, &ty, layout::DEPTH, *allocation)
+                } else {
+                    Some(source)
+                }
             }
             InstKind::Freeze { value } => Some(self.value(*value)),
             InstKind::MakeStruct {

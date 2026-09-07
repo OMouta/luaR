@@ -1,0 +1,18 @@
+--- expect: run
+--- exit: 0
+--- stdout: "created\nbody\n8\n8\n"
+--- spec: LR27
+--- spec: LR9.8
+export async function main()
+    local number = 3
+    local read: async () -> int = async function(): int
+        print("body")
+        return number
+    end
+    local task = read()
+    number = 8
+    print("created")
+    print(await task)
+    number = 12
+    print(await task)
+end

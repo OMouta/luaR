@@ -10,7 +10,6 @@ use crate::inst::{
     Allocation, BinaryOp, Const, InstKind, MethodId, Target, Terminator, UnaryOp, Value,
 };
 use crate::lower::body::Body;
-use crate::lower::thrown_or;
 use crate::program::Shape;
 use crate::ty::{Builtin, IntTy, Ty, TypeId};
 
@@ -218,15 +217,7 @@ impl<'a> Body<'a> {
             ExprKind::Await(inner) => {
                 let task = self.expr(inner, None);
                 let result = self.recorded(span);
-                let completed = self.emit(
-                    InstKind::GetField {
-                        object: task,
-                        field: 0,
-                    },
-                    thrown_or(result.clone()),
-                    span,
-                );
-                self.caught_or_raised(completed, result, span)
+                self.await_task(task, result, span)
             }
 
             // LR17.2, LR57: `is` asks a union or a dynamic value which member

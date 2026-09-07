@@ -1,0 +1,28 @@
+--- expect: run
+--- exit: 0
+--- stdout: "9\n11\n"
+--- spec: LR27
+--- spec: LR31
+--- spec: LR13.1
+ref struct Counter
+    number: int
+end
+
+async function counter(): Counter
+    return Counter { number = 7 }
+end
+
+async function counters(): List<Counter>
+    return [Counter { number = 3 }]
+end
+
+export async function main()
+    local task = counter()
+    local first = await task
+    first.number = 9
+    print((await task).number)
+    local listTask = counters()
+    local list = await listTask
+    list:push(Counter { number = 11 })
+    print((await listTask)[1].number)
+end

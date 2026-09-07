@@ -1,0 +1,14 @@
+--- expect: run
+--- exit: 0
+--- stdout: "done\n"
+--- spec: LR27
+--- spec: LR26
+async function unused()
+    defer print("cleanup")
+    print("body")
+end
+
+export function main()
+    local task = unused()
+    print("done")
+end

@@ -52,6 +52,7 @@ pub fn lower_in_mode(
     // LR19: a generic function is a template until a call says what fills it,
     // so this runs over the whole program rather than one module at a time.
     luar_lir::mono::run(&mut lowered.program);
+    luar_lir::tasks::run(&mut lowered.program);
     luar_lir::inline::run(&mut lowered.program);
     luar_lir::escape::run(&mut lowered.program);
     luar_lir::bounds::run(&mut lowered.program);

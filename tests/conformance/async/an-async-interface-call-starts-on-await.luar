@@ -1,0 +1,34 @@
+--- expect: run
+--- exit: 0
+--- stdout: "created\none\n1\n1\ncreated\ntwo\n2\n2\n"
+--- spec: LR27
+--- spec: LR18.1
+interface Reader
+    async function read(self): int
+end
+
+struct One implements Reader
+    async function read(self): int
+        print("one")
+        return 1
+    end
+end
+
+struct Two implements Reader
+    async function read(self): int
+        print("two")
+        return 2
+    end
+end
+
+async function check(reader: Reader)
+    local task = reader:read()
+    print("created")
+    print(await task)
+    print(await task)
+end
+
+export async function main()
+    await check(One {})
+    await check(Two {})
+end
