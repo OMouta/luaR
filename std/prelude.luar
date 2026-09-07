@@ -2,6 +2,16 @@
 --- (LR54.1). In scope in every module without an import.
 
 import { reinterpret } from "std/mem"
+import { Cancelled } from "std/async"
+
+@intrinsic
+function cancelTask<T>(task: Task<T>, error: unknown)
+
+export extend TaskCancellation<T> for Task<T>
+    function cancel(self)
+        cancelTask(self, Cancelled {})
+    end
+end
 
 export interface Eq
     function eq(self, other: Self): bool

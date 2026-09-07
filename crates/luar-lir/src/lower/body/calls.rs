@@ -14,6 +14,103 @@ use crate::program::{FuncId, Function};
 use crate::ty::{Builtin, Ty};
 
 impl<'a> Body<'a> {
+    // LR27.3: cancellation preserves completions and never starts a task.
+    pub(super) fn cancel_task(&mut self, args: &[Argument], span: Span) -> Value {
+        let [task, error] = args else {
+            return self.missing(span, "cancellation without a task and exception");
+        };
+        let task = self.expr(&task.value, None);
+        let error = self.stored(&error.value, Some(&Ty::Dynamic));
+        let Ty::Builtin {
+            kind: Builtin::Task,
+            args,
+        } = self.function.type_of(task).clone()
+        else {
+            return self.missing(span, "cancellation of a value that is not a task");
+        };
+        let completion = thrown_or(args[0].clone());
+        let cached_ty = Ty::Optional(Box::new(completion.clone()));
+        let cached = self.emit(
+            InstKind::GetField {
+                object: task,
+                field: 1,
+            },
+            cached_ty.clone(),
+            span,
+        );
+        let completed = self.emit(InstKind::IsSome { value: cached }, Ty::Bool, span);
+        let pending = self.function.add_block();
+        let done = self.function.add_block();
+        self.terminate(Terminator::Branch {
+            condition: completed,
+            then: Target::to(done),
+            otherwise: Target::to(pending),
+        });
+        self.switch_to(pending);
+        let cancellation_ty = Ty::Optional(Box::new(Ty::Dynamic));
+        let requested = self.emit(
+            InstKind::GetField {
+                object: task,
+                field: 3,
+            },
+            cancellation_ty.clone(),
+            span,
+        );
+        let cancelled = self.emit(InstKind::IsSome { value: requested }, Ty::Bool, span);
+        let request = self.function.add_block();
+        self.terminate(Terminator::Branch {
+            condition: cancelled,
+            then: Target::to(done),
+            otherwise: Target::to(request),
+        });
+        self.switch_to(request);
+        let requested = self.emit(InstKind::MakeSome { value: error }, cancellation_ty, span);
+        self.emit_void(
+            InstKind::SetField {
+                object: task,
+                field: 3,
+                value: requested,
+            },
+            span,
+        );
+        let started = self.emit(
+            InstKind::GetField {
+                object: task,
+                field: 2,
+            },
+            Ty::Bool,
+            span,
+        );
+        let unstarted = self.function.add_block();
+        self.terminate(Terminator::Branch {
+            condition: started,
+            then: Target::to(done),
+            otherwise: Target::to(unstarted),
+        });
+        self.switch_to(unstarted);
+        let failed = self.emit(
+            InstKind::MakeEnum {
+                ty: completion.clone(),
+                variant: 1,
+                payload: vec![error],
+            },
+            completion,
+            span,
+        );
+        let failed = self.emit(InstKind::MakeSome { value: failed }, cached_ty, span);
+        self.emit_void(
+            InstKind::SetField {
+                object: task,
+                field: 1,
+                value: failed,
+            },
+            span,
+        );
+        self.terminate(Terminator::Jump(Target::to(done)));
+        self.switch_to(done);
+        self.emit(InstKind::Const(Const::Unit), Ty::Unit, span)
+    }
+
     // LR27: task handles share a completion; each await copies its result.
     pub(super) fn await_task(&mut self, task: Value, result: Ty, span: Span) -> Value {
         let completion = thrown_or(result.clone());

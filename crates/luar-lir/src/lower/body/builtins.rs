@@ -36,6 +36,7 @@ impl<'a> Body<'a> {
             Builtin::Reinterpret => self.reinterpret(args, span),
             Builtin::StringBytes => self.string_bytes(callee, span),
             Builtin::StringByte => self.string_byte(args, span),
+            Builtin::CancelTask => self.cancel_task(args, span),
             Builtin::Freeze => {
                 let value = self.expr(callee, None);
                 let ty = self.recorded(span);

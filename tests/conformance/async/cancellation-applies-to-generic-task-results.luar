@@ -1,0 +1,32 @@
+--- expect: run
+--- exit: 0
+--- stdout: "unit\nresult\n"
+--- spec: LR27.3
+--- spec: LR19
+--- spec: STD22
+import { Cancelled, yieldNow } from "std/async"
+
+function cancelled<T>(task: Task<T>): Task<T>
+    task:cancel()
+    return task
+end
+
+async function work(): Result<int, Error>
+    print("body")
+    return Result.Ok(7)
+end
+
+export async function main()
+    local unit = cancelled(yieldNow())
+    local result = cancelled(work())
+    try
+        local value: () = await unit
+    catch error: Cancelled
+        print("unit")
+    end
+    try
+        local value: Result<int, Error> = await result
+    catch error: Cancelled
+        print("result")
+    end
+end

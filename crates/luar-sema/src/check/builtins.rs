@@ -504,6 +504,7 @@ fn intrinsic_named(name: &str) -> Option<Builtin> {
         "identical" => Some(Builtin::Identical),
         "reinterpret" => Some(Builtin::Reinterpret),
         "stringByte" => Some(Builtin::StringByte),
+        "cancelTask" => Some(Builtin::CancelTask),
         _ => None,
     }
 }

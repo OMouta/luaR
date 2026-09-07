@@ -1,0 +1,26 @@
+--- expect: run
+--- exit: 0
+--- stdout: "body\n7\n7\n7\n"
+--- spec: LR27.3
+--- spec: LR27
+--- spec: LR31
+struct Value
+    number: int
+end
+
+async function work(): Value
+    print("body")
+    return Value { number = 7 }
+end
+
+export async function main()
+    local task = work()
+    local first = await task
+    print(first.number)
+    task:cancel()
+    task:cancel()
+    first.number = 9
+    local second = await task
+    print(second.number)
+    print((await task).number)
+end

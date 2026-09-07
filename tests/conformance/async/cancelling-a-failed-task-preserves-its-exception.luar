@@ -1,0 +1,28 @@
+--- expect: run
+--- exit: 0
+--- stdout: "body\nfirst\nsecond\n"
+--- spec: LR27.3
+--- spec: LR27
+--- spec: LR25.3
+struct Failure
+end
+
+async function fail(): int
+    print("body")
+    throw Failure {}
+end
+
+export async function main()
+    local task = fail()
+    try
+        print(await task)
+    catch error: Failure
+        print("first")
+    end
+    task:cancel()
+    try
+        print(await task)
+    catch error: Failure
+        print("second")
+    end
+end

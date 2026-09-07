@@ -34,6 +34,7 @@ pub enum Builtin {
     Reinterpret,
     StringBytes,
     StringByte,
+    CancelTask,
     Freeze,
     CheckedIndex,
     CheckedSlice,

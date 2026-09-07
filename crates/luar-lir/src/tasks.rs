@@ -120,6 +120,9 @@ pub fn run(program: &mut Program) {
                 let func = program.add_function(thunk);
                 let closure = program.function_mut(id).add_value(thunk_ty);
                 let started = program.function_mut(id).add_value(Ty::Bool);
+                let cancellation = program
+                    .function_mut(id)
+                    .add_value(Ty::Optional(Box::new(Ty::Dynamic)));
                 let empty = program
                     .function_mut(id)
                     .add_value(Ty::Optional(Box::new(completion_ty)));
@@ -130,7 +133,7 @@ pub fn run(program: &mut Program) {
                 let InstKind::MakeStruct { fields, .. } = &mut insts[at].kind else {
                     unreachable!()
                 };
-                *fields = vec![closure, empty, started];
+                *fields = vec![closure, empty, started, cancellation];
                 insts.splice(
                     at..at,
                     [
@@ -147,6 +150,11 @@ pub fn run(program: &mut Program) {
                         Inst {
                             result: Some(started),
                             kind: InstKind::Const(Const::Bool(false)),
+                            span,
+                        },
+                        Inst {
+                            result: Some(cancellation),
+                            kind: InstKind::Const(Const::Nil),
                             span,
                         },
                     ],

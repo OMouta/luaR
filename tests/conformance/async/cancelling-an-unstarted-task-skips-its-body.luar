@@ -1,0 +1,31 @@
+--- expect: run
+--- exit: 0
+--- stdout: "cancelled\nshared\n"
+--- spec: LR27.3
+--- spec: LR27
+--- spec: STD22
+import { Cancelled } from "std/async"
+
+async function work(): int
+    defer print("cleanup")
+    print("body")
+    return 7
+end
+
+export async function main()
+    local task = work()
+    local alias = task
+    task:cancel()
+    alias:cancel()
+    try
+        print(await task)
+    catch error: Cancelled
+        print("cancelled")
+    end
+    task:cancel()
+    try
+        print(await alias)
+    catch error
+        print("shared")
+    end
+end
