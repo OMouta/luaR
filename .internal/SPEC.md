@@ -2056,17 +2056,25 @@ async function fetchUser(id: u64): Result<User, Error>
 end
 ```
 
-Calling an async function returns a `Task<T>`.
+Calling an async function evaluates and captures its arguments under LR9 and LR31, then returns a new, unstarted `Task<T>`. The function body does not run during the call. An async closure captures bindings under LR9.8.
 
 ```lua
 local task: Task<Result<User, Error>> = fetchUser(1)
 ```
 
-`await` suspends the current async task until completion. It takes a `Task<T>` and produces the `T` that task completed with.
+`Task<T>` is a reference type. Copying a handle shares one execution and one completion. A task starts at most once, through `await`, a scope's `spawn`, or the runtime entrypoint. Dropping an unstarted task does not run its body or its deferred operations. Dropping a handle to a started task does not cancel it.
+
+`await` takes a `Task<T>` and produces the `T` that task completed with. It starts an unstarted task and suspends the awaiting task until that task completes. Awaiting a completed task does not suspend. Multiple awaits, including concurrent awaits, read the same completion; each result is copied under LR31.
 
 If an async function raises an exception, its task completes with that exception. Awaiting the task raises it in the awaiting task.
 
 `await` may only appear in the body of an async function. The entrypoint of LR27.1 is one.
+
+Tasks execute cooperatively on the thread that starts them. They do not migrate or run in parallel on that thread. `Task<T>` and `TaskScope` are neither `Send` nor `Sync`, regardless of `T` (LR28). Synchronous calls, including blocking foreign calls, do not yield to another task.
+
+Runnable tasks are queued in FIFO order. Starting a task appends it to the queue without running its body inline. A task runs until it suspends or completes. Completion appends its suspended awaiters in the order they began waiting. The order of independent external events is unspecified. `await yieldNow()` from `std/async` (STD22) suspends and queues the current task behind the tasks already runnable.
+
+Awaiting oneself, or adding an await that closes a cycle of tasks waiting for one another, panics. Scope joins count as waits for this rule.
 
 ### 27.1 Async Entry Point
 
@@ -2078,11 +2086,11 @@ export async function main(): Result<(), Error>
 end
 ```
 
-The runtime executes the returned task to completion.
+After module initialization, the runtime starts the returned task and drives its queue until the task and its owned children have completed. Its result determines the process outcome under LR45. An uncaught exception, including `Cancelled` from STD22, follows LR25.3.
 
 ### 27.2 Structured Concurrency
 
-The standard concurrency model favors structured task lifetimes.
+`async scope name ... end` is a statement in an async function. It creates a child-task scope and binds `name` as `TaskScope` within the block.
 
 ```lua
 async scope tasks
@@ -2094,17 +2102,40 @@ async scope tasks
 end
 ```
 
-Tasks created inside a structured scope must finish or be cancelled before the scope exits.
+The scope handle provides:
 
-Detached tasks require an explicit API.
+```lua
+spawn<T>(self, task: Task<T>): Task<T>
+cancel(self): ()
+```
+
+The scope binding may appear only as the receiver of these operations. Copying it, assigning to it, capturing it in a closure, returning it, or storing or passing it as a value is a compile-time error. `TaskScope` has no public constructor.
+
+`spawn` takes an unstarted task, makes the scope its owner, queues it, and returns the same handle. Spawning a task that has already started or completed panics. A task has one owner, assigned when it starts; awaiting an already started task does not transfer ownership.
+
+Every running async function has an implicit scope around its body. An `await` that starts a task assigns it to the innermost active scope of the awaiting task. A synchronous helper called by that task uses the same active scope. Unstarted tasks have no owner and may be returned or stored without starting them.
+
+On normal fall-through, a scope waits for all children it owns. A `return`, `break`, `continue`, exception, or cancellation that leaves the scope requests cancellation of unfinished children, then waits for them. An async function returning normally waits for its implicit scope's children; an exception or cancellation escaping the function cancels them and waits. A scope never exits while an owned child is still running, including its cleanup and its own child scopes.
+
+Each child exception other than `Cancelled` requests cancellation of the scope's other unfinished children. An exception raised through an explicit `await` is observed and is not raised again by the owner's join. After all children finish, the scope raises the first unobserved child exception in completion order. If the body exits with an exception, the body's exception takes precedence. Otherwise the selected child exception takes precedence over fall-through, return, break, or continue. A returned `Result.Err` is a value and does not fail the scope.
+
+`cancel` marks the scope cancelled and requests cancellation of all unfinished children. Any child subsequently started in that scope completes with `Cancelled` without running its body. Cancelling a scope does not cancel the task executing its block. Child completions with `Cancelled` alone do not make the scope raise an exception.
+
+The scope joins its children before running the deferred operations registered directly in its block. A function joins its implicit scope before running function-body deferred operations. Inner blocks unwind under LR26. Completed task handles may outlive their owner and remain awaitable.
+
+No detached-task API is defined in this version.
 
 ### 27.3 Cancellation
 
-Cancellation is cooperative.
+Cancellation is cooperative. Every `Task<T>` provides `cancel(self): ()`. It requests cancellation and returns without waiting. Repeated requests are idempotent. Cancelling a completed task does nothing. Cancelling an unstarted task completes it with `Cancelled {}` from `std/async` (STD22) without executing its body.
 
-Cancellation propagates through structured task relationships unless explicitly shielded.
+For a started task, the request propagates to its owned scopes and their unfinished children. The task receives `Cancelled {}` at its next cancellation point: before its first body instruction, before an `await` evaluates its operand, when resuming from a suspended await, or while joining a scope. A suspended task is appended to the runnable queue to deliver the request; it does not wait for the awaited task to complete first. A task already runnable is not queued twice. Awaiting a task owned elsewhere does not make it a child or propagate cancellation to it.
 
-Resource cleanup through `defer` occurs during ordinary cancellation unwinding.
+A request is delivered at most once per task. `Cancelled` is an ordinary catchable exception. A task that catches it may continue and return a value; its scopes remain cancelled, and new scopes inherit that state. If it escapes, the task completes with that exception, and subsequent awaits raise it under LR27. A loop that neither awaits nor exits a scope need not observe cancellation.
+
+`defer` and `finally` run during cancellation unwinding. Each cleanup body in an async function has an implicit child scope that starts uncancelled. Requests on the enclosing task or scope do not propagate into that cleanup scope; directly cancelling one of its child handles still takes effect. Delivery of a pending request on the enclosing task is postponed across cleanup, its awaits, and its child-scope join. After cleanup, the request is delivered before ordinary execution or successful completion resumes; an already propagating exception takes precedence. An exception raised by an awaited task still propagates normally. Cleanup must not replace an already propagating exception without explicit handling (LR26).
+
+No user-controlled cancellation shielding API is defined in this version.
 
 ---
 
@@ -2966,7 +2997,7 @@ Predeclared names are not a module. They cannot be imported from, renamed, or re
 
 The prelude holds the standard protocols (LR35) and the methods of the collection, optional, and `Result` types (LR13, LR8, LR25.1) that are written in LuaR over the operations the language provides. Which of a type's methods come from the prelude and which from the language is not observable: an extension block adding a method of the same name to the same type is rejected either way (LR20).
 
-Type names work the same way. The primitive types (LR6) need no import, and neither do the collection types the language provides (LR13, LR38, LR59) or the `Task` every async call produces (LR27):
+Type names work the same way. The primitive types (LR6) need no import, and neither do the collection types the language provides (LR13, LR38, LR59), the `Task` every async call produces (LR27), or the `TaskScope` bound by an async scope (LR27.2):
 
 ```text
 List
@@ -2977,6 +3008,7 @@ FrozenMap
 FrozenSet
 Slice
 Task
+TaskScope
 ```
 
 Every other name in a type is declared by the module or imported (LR21.1). The standard protocols (LR35) are exported by `std/prelude`.

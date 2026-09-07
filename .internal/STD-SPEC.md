@@ -2,11 +2,11 @@
 
 > Working specification for the standard library shipped with LuaR.
 
-<!-- normative: STD1-STD21 -->
+<!-- normative: STD1-STD22 -->
 
 ## 1. Contract
 
-Sections STD1 through STD21 are normative. The `normative` directive at the top of this file is the machine-readable source for standard-library conformance coverage.
+Sections STD1 through STD22 are normative. The `normative` directive at the top of this file is the machine-readable source for standard-library conformance coverage.
 
 The language specification defines syntax, types, evaluation, and the boundary between the compiler and standard modules. This specification defines the library available through that boundary.
 
@@ -673,3 +673,18 @@ flush(): ()
 `setLevel` sets the minimum enabled level. The logger's `enabled` method may filter further. Disabled records do not allocate their `Record`, but function arguments are evaluated before the call as required by LR55.
 
 Logging never throws. A logger failure is discarded after its `write` or `flush` method returns.
+
+## 22. `std/async`
+
+`std/async` exports:
+
+```lua
+export struct Cancelled
+end
+
+yieldNow(): Task<()>
+```
+
+`Cancelled {}` is the exception delivered by cancellation under LR27.3. It has no fields. A typed `catch` may handle it; an untyped `catch` also catches it under LR25.3.
+
+`yieldNow` returns an unstarted task that completes with `()` when first dispatched by the scheduler. Awaiting a fresh one suspends the awaiting task under LR27. Awaiting its completed handle again does not yield. Calling it without starting or awaiting the returned task does not yield. It observes cancellation under LR27.3.
