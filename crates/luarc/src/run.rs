@@ -31,7 +31,7 @@ pub fn run(args: &[String]) -> ExitCode {
         return ExitCode::FAILURE;
     }
 
-    let status = Command::new(&output).status();
+    let status = Command::new(&output).args(&args[1..]).status();
     let _ = fs::remove_file(&output);
 
     match status {

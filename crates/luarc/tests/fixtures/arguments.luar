@@ -1,0 +1,11 @@
+--- spec: LR45
+export function main(args: List<string>): int
+    assert(args.length == 5)
+    assert(args[0].byteLength > 0)
+    assert(args[1] == "two words")
+    assert(args[2] == "")
+    assert(args[3] == "a\"quote")
+    assert(args[4] == "--flag")
+    print("arguments received")
+    return 7
+end

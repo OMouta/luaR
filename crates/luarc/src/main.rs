@@ -14,7 +14,7 @@ usage:
   luarc check <file>...     read the files and report what is wrong with them
   luarc test [filter]       run the conformance suite, or the tests matching
   luarc coverage            report which spec sections have no test
-  luarc run <file>          run a program
+  luarc run <file> [args]   run a program
   luarc lir <file>          print what a program lowers to
 
 Paths are relative to the working directory.
