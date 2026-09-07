@@ -24,7 +24,7 @@ carrying the behavior it expects and the spec section it enforces. A test that
 runs a program builds and links it, so the suite takes a few seconds.
 
 ```sh
-cargo luar test                         # cargo run -q -p luarc -- test
+cargo luar test
 cargo luar test strings                 # only paths containing "strings"
 ```
 
@@ -50,14 +50,14 @@ them.
 | Task | Cargo |
 | --- | --- |
 | `cargo luar check file.luar` | `cargo run -q -p luarc -- check file.luar` |
-| `cargo luar test [filter]` | `cargo run -q -p luarc -- test [filter]` |
-| `cargo luar coverage` | `cargo run -q -p luarc -- coverage` |
+| `cargo luar test [filter]` | `cargo run -q -p luar-conformance --features tools --bin conformance -- [filter]` |
+| `cargo luar coverage` | `cargo run -q -p luar-conformance --features tools --bin coverage` |
 | `cargo luar run file.luar [args]` | `cargo run -q -p luarc -- run file.luar [args]` |
 | `cargo luar lir file.luar` | `cargo run -q -p luarc -- lir file.luar` |
 | `cargo luar build` | `cargo build --workspace` |
 | `cargo luar unit` | `cargo test --workspace` |
 | `cargo luar fmt` | `cargo fmt --all` |
-| `cargo luar lint` | `cargo clippy --workspace --all-targets -- -D warnings` |
+| `cargo luar lint` | `cargo clippy --workspace --all-targets --all-features -- -D warnings` |
 | `cargo luar ci` | format, lint, unit tests, conformance |
 
 ## Writing a conformance test

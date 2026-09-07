@@ -1,5 +1,6 @@
 [workspace]
 resolver = "3"
+default-members = ["crates/luarc"]
 members = [
     "crates/luar-ast",
     "crates/luar-diagnostics",
@@ -28,7 +29,6 @@ luar-parser = { path = "crates/luar-parser" }
 luar-sema = { path = "crates/luar-sema" }
 luar-lir = { path = "crates/luar-lir" }
 luar-codegen = { path = "crates/luar-codegen" }
-luar-conformance = { path = "crates/luar-conformance" }
 luar-driver = { path = "crates/luar-driver" }
 
 # Cranelift is versioned 0.x and moves quickly, so the version is exact and

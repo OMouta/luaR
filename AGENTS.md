@@ -41,7 +41,7 @@ Finding a compiler bug while working on something else does not change this. Fix
 - A negative test matches a diagnostic code and a source span, never message wording (LR80).
 - Write conformance tests by default. Save unit tests for code that is itself the contract: integer overflow helpers, UTF-8 boundary math, the range arithmetic in bounds-check elimination. Every test runs the real pipeline, never a mocked stage.
 - Write `run` tests as features arrive.
-- `luarc coverage` lists the spec sections no test cites. Start there when you want work.
+- `cargo luar coverage` lists the spec sections no test cites. Start there when you want work.
 
 ## Adding a rule
 

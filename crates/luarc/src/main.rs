@@ -3,7 +3,6 @@
 mod check;
 mod lir;
 mod run;
-mod test;
 
 use std::process::ExitCode;
 
@@ -12,8 +11,6 @@ luarc — the LuaR compiler
 
 usage:
   luarc check <file>...     read the files and report what is wrong with them
-  luarc test [filter]       run the conformance suite, or the tests matching
-  luarc coverage            report which spec sections have no test
   luarc run <file> [args]   run a program
   luarc lir <file>          print what a program lowers to
 
@@ -32,8 +29,6 @@ fn main() -> ExitCode {
 
     match command {
         "check" => check::run(rest),
-        "test" => test::run(rest.first().map(String::as_str)),
-        "coverage" => test::coverage(),
         "run" => run::run(rest),
         "lir" => lir::run(rest),
         "help" | "--help" | "-h" => {

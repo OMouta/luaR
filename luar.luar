@@ -38,8 +38,16 @@ function checkFormat(): int
     return cargo(["fmt", "--all", "--check"])
 end
 
+function tool(name: string, rest: List<string>): int
+    local arguments = ["run", "-q", "-p", "luar-conformance", "--features", "tools", "--bin", name, "--"]
+    for argument in rest do
+        arguments:push(argument)
+    end
+    return cargo(arguments)
+end
+
 function lint(): int
-    return cargo(["clippy", "--workspace", "--all-targets", "--", "-D", "warnings"])
+    return cargo(["clippy", "--workspace", "--all-targets", "--all-features", "--", "-D", "warnings"])
 end
 
 function unit(): int
@@ -53,7 +61,7 @@ function ci(): int
             case "format" => checkFormat()
             case "lint" => lint()
             case "unit tests" => unit()
-            case _ => luarc("test", [])
+            case _ => tool("conformance", [])
         end
         if code ~= 0 then
             print(`\n{step} failed`)
@@ -78,8 +86,12 @@ export function main(args: List<string>): int
         case "help" | "--help" | "-h"
             print(USAGE)
             return 0
-        case "test" | "check" | "coverage" | "run" | "lir"
+        case "check" | "run" | "lir"
             return luarc(name, rest)
+        case "test"
+            return tool("conformance", rest)
+        case "coverage"
+            return tool("coverage", rest)
         case "build"
             return cargo(["build", "--workspace"])
         case "unit"

@@ -33,7 +33,7 @@ jobs:
       # Warnings fail the build. A warning nobody has to fix is a warning
       # everybody stops reading.
       - name: Lint
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
       - name: Build
         run: cargo build --workspace

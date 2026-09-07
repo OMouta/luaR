@@ -7,6 +7,19 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+tools = []
+
+[[bin]]
+name = "conformance"
+path = "src/bin/conformance.rs"
+required-features = ["tools"]
+
+[[bin]]
+name = "coverage"
+path = "src/bin/coverage.rs"
+required-features = ["tools"]
+
 [dependencies]
 luar-diagnostics = { workspace = true }
 luar-driver = { workspace = true }

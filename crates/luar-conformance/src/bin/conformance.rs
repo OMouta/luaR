@@ -1,4 +1,4 @@
-//! `luarc test` and `luarc coverage`: run the suite and say what it misses.
+//! Runs the repository conformance suite.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -6,16 +6,15 @@ use std::process::ExitCode;
 use luar_conformance::{Outcome, run_suite};
 
 const SUITE: &str = "tests/conformance";
-const SPECS: [&str; 2] = [".internal/SPEC.md", ".internal/STD-SPEC.md"];
 
-/// Runs the suite. `filter` keeps the tests whose path contains it.
-pub fn run(filter: Option<&str>) -> ExitCode {
+fn main() -> ExitCode {
+    let filter = std::env::args().nth(1);
     let root = PathBuf::from(SUITE);
 
     let outcomes = match run_suite(&root) {
         Ok(outcomes) => outcomes,
         Err(e) => {
-            eprintln!("luarc test: {SUITE}: {e}");
+            eprintln!("conformance: {SUITE}: {e}");
             return ExitCode::FAILURE;
         }
     };
@@ -26,7 +25,10 @@ pub fn run(filter: Option<&str>) -> ExitCode {
 
     for (path, outcome) in &outcomes {
         let name = name_of(&root, path);
-        if filter.is_some_and(|filter| !name.contains(filter)) {
+        if filter
+            .as_deref()
+            .is_some_and(|filter| !name.contains(filter))
+        {
             continue;
         }
 
@@ -53,21 +55,6 @@ pub fn run(filter: Option<&str>) -> ExitCode {
         ExitCode::SUCCESS
     } else {
         ExitCode::FAILURE
-    }
-}
-
-/// Reports which spec sections no test cites.
-pub fn coverage() -> ExitCode {
-    let specs: Vec<&Path> = SPECS.iter().map(Path::new).collect();
-    match luar_conformance::coverage::report(&specs, Path::new(SUITE)) {
-        Ok(coverage) => {
-            print!("{coverage}");
-            ExitCode::SUCCESS
-        }
-        Err(e) => {
-            eprintln!("luarc coverage: {e}");
-            ExitCode::FAILURE
-        }
     }
 }
 
