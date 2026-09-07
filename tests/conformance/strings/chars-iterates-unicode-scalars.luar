@@ -1,0 +1,17 @@
+--- expect: run
+--- exit: 0
+--- stdout: "A\né\n€\n😀\ne\ń\nnil\nnil\n"
+--- spec: LR37
+--- spec: LR6.1
+--- spec: LR35
+export function main()
+    local chars: Iterator<char> = "Aé€😀e\u{301}":chars()
+    print(chars:next())
+    print(chars:next())
+    print(chars:next())
+    print(chars:next())
+    print(chars:next())
+    print(chars:next())
+    print(chars:next())
+    print(chars:next())
+end

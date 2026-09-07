@@ -1,6 +1,8 @@
 --- The standard protocols (LR35) and the collection methods written in LuaR
 --- (LR54.1). In scope in every module without an import.
 
+import { reinterpret } from "std/mem"
+
 export interface Eq
     function eq(self, other: Self): bool
 end
@@ -46,6 +48,44 @@ ref struct StringByteIterator<T> implements Iterator<u8>
             self.index += 1
         end
         return value
+    end
+end
+
+ref struct StringCharIterator implements Iterator<char>
+    source: string
+    index: int
+
+    function next(self): char?
+        if self.index >= self.source.byteLength then
+            return nil
+        end
+        local first = stringByte(self.source, self.index) ?? unreachable()
+        local scalar = first as u32
+        local width = 1
+        if scalar >= 0xF0 then
+            scalar &= 0x07
+            width = 4
+        elseif scalar >= 0xE0 then
+            scalar &= 0x0F
+            width = 3
+        elseif scalar >= 0xC0 then
+            scalar &= 0x1F
+            width = 2
+        end
+        for offset in 1..<width do
+            local byte = stringByte(self.source, self.index + offset) ?? unreachable()
+            scalar = (scalar << 6) | ((byte as u32) & 0x3F)
+        end
+        self.index += width
+        unsafe
+            return reinterpret<char>(scalar)
+        end
+    end
+end
+
+export extend StringCharacters for string
+    function chars(self): Iterator<char>
+        return StringCharIterator { source = self, index = 0 }
     end
 end
 
