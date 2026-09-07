@@ -91,7 +91,7 @@ pub fn size(program: &Program, ty: &Ty, pointer: Type) -> Option<i32> {
         Ty::Builtin {
             kind: Builtin::Task,
             args,
-        } if args.len() == 1 => 2,
+        } if args.len() == 1 => 3,
         // LR13: a count, a capacity, and the storage the elements live in.
         Ty::Builtin {
             kind:
@@ -240,6 +240,7 @@ pub fn parts(program: &Program, ty: &Ty) -> Option<Vec<Ty>> {
                 kind: Builtin::Result,
                 args: vec![args[0].clone(), Ty::Dynamic],
             })),
+            Ty::Bool,
         ]),
         _ => None,
     }

@@ -1,0 +1,29 @@
+--- expect: run
+--- exit: 101
+--- stdout: "started\n"
+--- spec: LR27
+--- spec: LR25.4
+ref struct Link
+    task: Task<int>?
+end
+
+async function follow(link: Link): int
+    defer print("cleanup")
+    print("started")
+    local task = link.task
+    if task ~= nil then
+        return await task
+    end
+    return 0
+end
+
+export async function main()
+    local link = Link { task = nil }
+    local task = follow(link)
+    link.task = task
+    try
+        print(await task)
+    catch error
+        print("caught")
+    end
+end

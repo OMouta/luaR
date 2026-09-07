@@ -1,0 +1,21 @@
+--- expect: run
+--- exit: 0
+--- stdout: "leaf\n8\n8\n7\n"
+--- spec: LR27
+async function leaf(): int
+    print("leaf")
+    return 7
+end
+
+async function parent(child: Task<int>): int
+    return (await child) + 1
+end
+
+export async function main()
+    local child = leaf()
+    local first = parent(child)
+    local second = parent(child)
+    print(await first)
+    print(await second)
+    print(await child)
+end

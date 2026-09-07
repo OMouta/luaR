@@ -4,7 +4,7 @@ use luar_ast::{Argument, Binding, Block, Expr, ExprKind, FunctionBody, Param, St
 use luar_diagnostics::Span;
 
 use crate::inst::MethodId;
-use crate::inst::{Allocation, BinaryOp, Const, InstKind, Target, Terminator, Value};
+use crate::inst::{Allocation, BinaryOp, Const, InstKind, Target, Terminator, Trap, Value};
 use crate::lower::body::{Body, Var};
 use crate::lower::names;
 use crate::lower::names::assigned;
@@ -47,6 +47,40 @@ impl<'a> Body<'a> {
             otherwise: Target::to(ready),
         });
         self.switch_to(start);
+        // LR27: an incomplete task already on the call stack closes an await cycle.
+        let started = self.emit(
+            InstKind::GetField {
+                object: task,
+                field: 2,
+            },
+            Ty::Bool,
+            span,
+        );
+        let cycle = self.function.add_block();
+        let run = self.function.add_block();
+        self.terminate(Terminator::Branch {
+            condition: started,
+            then: Target::to(cycle),
+            otherwise: Target::to(run),
+        });
+        self.switch_to(cycle);
+        let message = self.emit(
+            InstKind::Const(Const::Str("cyclic task await".to_owned())),
+            Ty::Str,
+            span,
+        );
+        self.emit_void(InstKind::Panic { message }, span);
+        self.terminate(Terminator::Trap(Trap::Unreachable));
+        self.switch_to(run);
+        let started = self.emit(InstKind::Const(Const::Bool(true)), Ty::Bool, span);
+        self.emit_void(
+            InstKind::SetField {
+                object: task,
+                field: 2,
+                value: started,
+            },
+            span,
+        );
         let callee = self.emit(
             InstKind::GetField {
                 object: task,

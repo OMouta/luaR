@@ -1,0 +1,35 @@
+--- expect: run
+--- exit: 101
+--- stdout: "1\n2\n3\n"
+--- spec: LR27
+--- spec: LR25.4
+ref struct Link
+    task: Task<int>?
+end
+
+async function follow(link: Link, id: int): int
+    defer print("cleanup")
+    print(id)
+    local task = link.task
+    if task ~= nil then
+        return await task
+    end
+    return 0
+end
+
+export async function main()
+    local first = Link { task = nil }
+    local second = Link { task = nil }
+    local third = Link { task = nil }
+    local a = follow(first, 1)
+    local b = follow(second, 2)
+    local c = follow(third, 3)
+    first.task = b
+    second.task = c
+    third.task = a
+    try
+        print(await a)
+    catch error
+        print("caught")
+    end
+end
