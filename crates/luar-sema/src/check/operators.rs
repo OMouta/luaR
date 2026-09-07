@@ -207,13 +207,10 @@ impl Checker<'_> {
                         )
                         .note("Write `/` for floating-point division (LR11.1)."),
                     );
+                    return Type::Unresolved;
                 }
 
-                if held_left == held_right {
-                    held_left
-                } else {
-                    Type::Unresolved
-                }
+                self.arithmetic(op, &held_left, &held_right, op_span)
             }
             // LR11.4: `and` and `or` take `bool` operands and produce one.
             BinaryOp::And | BinaryOp::Or => {
@@ -398,6 +395,7 @@ fn fold(op: BinaryOp, left: u64, right: u64) -> Option<u64> {
         BinaryOp::Add => left.checked_add(right),
         BinaryOp::Subtract => left.checked_sub(right),
         BinaryOp::Multiply => left.checked_mul(right),
+        BinaryOp::IntegerDivide => left.checked_div(right),
         BinaryOp::Remainder => left.checked_rem(right),
         _ => None,
     }

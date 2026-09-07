@@ -1,0 +1,18 @@
+--- expect: run
+--- exit: 0
+--- spec: LR11.1
+--- spec: LR39
+--- spec: LR7
+export function main()
+    local high = 15
+    local low = 3
+    local middle = low + (high - low) // 2
+    assert(middle == 9)
+    local narrow: u8 = 20
+    local quotient = narrow // 3
+    local result: u8 = quotient
+    assert(result == 6)
+    local literal: u8 = 1000 // 10
+    assert(literal == 100)
+    assert(40 // narrow == 2)
+end
