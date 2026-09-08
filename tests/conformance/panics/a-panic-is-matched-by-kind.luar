@@ -1,0 +1,7 @@
+--- expect: run
+--- exit: 101
+--- trap: panic
+--- spec: LR25.4
+export function main()
+    panic("broken invariant")
+end

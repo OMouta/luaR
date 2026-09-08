@@ -232,7 +232,12 @@ fn execute(
     // The trap is matched by its kind, never by the message around it.
     if let Some(wanted) = &directives.trap {
         let reported = String::from_utf8_lossy(&produced.stderr);
-        if !reported.contains(&format!("trap: {wanted}")) {
+        let matched = if wanted == "panic" {
+            reported.starts_with("luar: panic:")
+        } else {
+            reported.contains(&format!("trap: {wanted}"))
+        };
+        if !matched {
             wrong.push(format!("expected the {wanted} trap, got {reported:?}"));
         }
     }
