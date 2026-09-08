@@ -2,6 +2,7 @@ use luar_diagnostics::SourceMap;
 
 // LR4.3, LR47
 #[test]
+#[ignore = "the WebAssembly target is deferred (LR47)"]
 fn int_is_i64_in_webassembly() {
     let mut sources = SourceMap::new();
     let root = sources.add(
@@ -55,6 +56,7 @@ fn int_is_i64_in_webassembly() {
 
 // LR11.1, LR11.5, LR47
 #[test]
+#[ignore = "the WebAssembly target is deferred (LR47)"]
 fn scalar_binary_operations_lower_to_webassembly() {
     let mut sources = SourceMap::new();
     let root = sources.add(
@@ -138,6 +140,7 @@ fn scalar_binary_operations_lower_to_webassembly() {
 
 // LR33, LR39, LR47
 #[test]
+#[ignore = "the WebAssembly target is deferred (LR47)"]
 fn numeric_conversions_lower_to_webassembly() {
     let mut sources = SourceMap::new();
     let root = sources.add(
