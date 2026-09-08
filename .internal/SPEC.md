@@ -2,7 +2,7 @@
 
 > Working specification for a compiled, general-purpose language derived from the syntax and ergonomics of Luau.
 
-<!-- normative: LR1-LR81, LR89.1, LR89.2 -->
+<!-- normative: LR1-LR46, LR48-LR81, LR89.1, LR89.2 -->
 
 ## 1. Overview
 
@@ -2795,6 +2795,8 @@ Native libraries may expose language-native APIs through generated or handwritte
 
 WebAssembly is a valid compilation target, but WebAssembly-specific restrictions are target concerns rather than core source-language semantics.
 
+The WebAssembly target is deferred. This section is not normative until the target is scheduled.
+
 Target capabilities such as filesystem, sockets, threads, and processes depend on the selected runtime environment.
 
 Portable code should query or declare required capabilities through package/build metadata rather than conditional behavior hidden in ordinary expressions.
@@ -3586,7 +3588,7 @@ A compiled package may produce:
 - an executable;
 - a static library;
 - a dynamic/shared library;
-- a WebAssembly module;
+- a WebAssembly module, once the target is scheduled (LR47);
 - implementation-defined intermediate artifacts.
 
 Exporting a foreign ABI symbol requires explicit annotation.
