@@ -1,7 +1,7 @@
 --- The standard protocols (LR35) and the collection methods written in LuaR
 --- (LR54.1). In scope in every module without an import.
 
-import { reinterpret } from "std/mem"
+import { reinterpret, bytesOf, stringFromBytes } from "std/mem"
 import { Cancelled } from "std/async"
 import { graphemeIterator } from "std/unicode/graphemes"
 
@@ -101,6 +101,44 @@ export extend StringCharacters for string
 
     function graphemes(self): Iterator<string>
         return graphemeIterator(self)
+    end
+end
+
+export struct Utf8Error
+end
+
+-- LR38: bounds checks precede UTF-8 boundary checks.
+function sliceStringBytes(source: string, start: int, stop: int): Result<string, Utf8Error>
+    local length = source.byteLength
+    if start < 0 or stop < start or stop > length then
+        panic("string byte slice out of bounds")
+    end
+    if start < length and ((stringByte(source, start) ?? unreachable()) & 0xC0) == 0x80 then
+        return Result.Err(Utf8Error {})
+    end
+    if stop < length and ((stringByte(source, stop) ?? unreachable()) & 0xC0) == 0x80 then
+        return Result.Err(Utf8Error {})
+    end
+    unsafe
+        return Result.Ok(stringFromBytes(bytesOf(source):add(start as isize), stop - start))
+    end
+end
+
+export extend StringByteSlicing for string
+    function byteSlice(self, window: RangeExclusive<int> | RangeInclusive<int>): Result<string, Utf8Error>
+        if window is RangeExclusive<int> then
+            return sliceStringBytes(self, window.start ?? 0, window.stop ?? self.byteLength)
+        else
+            local stop = window.stop
+            if stop == nil then
+                return sliceStringBytes(self, window.start ?? 0, self.byteLength)
+            end
+            local last = stop ?? unreachable()
+            if last < 0 or last >= self.byteLength then
+                panic("string byte slice out of bounds")
+            end
+            return sliceStringBytes(self, window.start ?? 0, last + 1)
+        end
     end
 end
 

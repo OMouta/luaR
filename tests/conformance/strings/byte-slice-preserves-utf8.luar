@@ -1,0 +1,47 @@
+--- expect: run
+--- exit: 0
+--- spec: LR37
+--- spec: LR38
+--- spec: LR10.4
+function value(result: Result<string, Utf8Error>): string
+    match result
+        case Result.Ok(text)
+            return text
+        case Result.Err(_)
+            panic("unexpected UTF-8 error")
+    end
+end
+
+function invalid(result: Result<string, Utf8Error>)
+    match result
+        case Result.Ok(_)
+            panic("expected UTF-8 error")
+        case Result.Err(_)
+            return
+    end
+end
+
+export function main()
+    local text = "Aé€😀e\u{301}\u{0}Z"
+    assert(value(text:byteSlice(1..<3)) == "é")
+    assert(value(text:byteSlice(3..=5)) == "€")
+    local emoji = 6..<10
+    assert(value(text:byteSlice(emoji)) == "😀")
+    assert(value(text:byteSlice(10..<13)) == "e\u{301}")
+    assert(value(text:byteSlice(13..<14)) == "\u{0}")
+    assert(value(text:byteSlice(..<1)) == "A")
+    assert(value(text:byteSlice(..=2)) == "Aé")
+    assert(value(text:byteSlice(14..<)) == "Z")
+    assert(value(text:byteSlice(14..=)) == "Z")
+    assert(value(text:byteSlice(..<)) == text)
+    assert(value(text:byteSlice(..=)) == text)
+    assert(value(text:byteSlice(15..<15)) == "")
+    assert(value(text:byteSlice(1..<1)) == "")
+    assert(value("":byteSlice(..<)) == "")
+    assert(value("":byteSlice(..=)) == "")
+    invalid(text:byteSlice(2..<3))
+    invalid(text:byteSlice(1..<2))
+    invalid(text:byteSlice(2..<2))
+    invalid(text:byteSlice(3..=3))
+    invalid(text:byteSlice(7..<10))
+end

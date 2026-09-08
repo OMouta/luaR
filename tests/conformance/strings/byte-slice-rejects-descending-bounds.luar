@@ -1,0 +1,7 @@
+--- expect: run
+--- exit: 101
+--- trap: panic
+--- spec: LR38
+export function main()
+    "abc":byteSlice(2..<1)
+end
