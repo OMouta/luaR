@@ -1,0 +1,48 @@
+--- expect: run
+--- exit: 0
+--- stdout: "child failed\nbody failed\nbody\n"
+--- spec: LR27.2
+--- spec: LR27.3
+--- spec: STD22
+import { Cancelled, yieldNow } from "std/async"
+
+struct Failure
+    source: string
+end
+
+ref struct Link
+    parent: Task<()>?
+end
+
+async function child(link: Link)
+    local parent = link.parent
+    if parent ~= nil then
+        parent:cancel()
+    end
+    try
+        local yielded: () = await yieldNow()
+    catch error: Cancelled
+        print("child failed")
+        throw Failure { source = "child" }
+    end
+end
+
+async function parent(link: Link)
+    try
+        local waited: () = await child(link)
+    catch error: Cancelled
+        print("body failed")
+        throw Failure { source = "body" }
+    end
+end
+
+export async function main()
+    local link = Link { parent = nil }
+    local task = parent(link)
+    link.parent = task
+    try
+        local waited: () = await task
+    catch error: Failure
+        print(error.source)
+    end
+end

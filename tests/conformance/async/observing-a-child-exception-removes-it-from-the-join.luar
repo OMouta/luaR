@@ -1,0 +1,48 @@
+--- expect: run
+--- exit: 0
+--- stdout: "cancelled\nobserved\n42\n"
+--- spec: LR27.2
+--- spec: LR27.3
+--- spec: STD22
+import { Cancelled, yieldNow } from "std/async"
+
+struct Failure
+end
+
+ref struct Link
+    parent: Task<int>?
+end
+
+async function child(link: Link)
+    local parent = link.parent
+    if parent ~= nil then
+        parent:cancel()
+    end
+    try
+        local yielded: () = await yieldNow()
+    catch error: Cancelled
+        throw Failure {}
+    end
+end
+
+async function parent(link: Link): int
+    local task = child(link)
+    try
+        local waited: () = await task
+    catch error: Cancelled
+        print("cancelled")
+    end
+    try
+        local waited: () = await task
+    catch error: Failure
+        print("observed")
+    end
+    return 42
+end
+
+export async function main()
+    local link = Link { parent = nil }
+    local task = parent(link)
+    link.parent = task
+    print(await task)
+end

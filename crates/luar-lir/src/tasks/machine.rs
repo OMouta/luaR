@@ -20,7 +20,8 @@ use crate::ty::{Builtin, Ty};
 use super::build::Builder;
 use super::runtime::{Runtime, list_of_dynamic};
 use super::{
-    CHILDREN, COMPLETION, DELIVERED, POLL, QUEUED, REQUEST, SCHEDULER, STARTED, WAITERS, WAITING,
+    CHILDREN, COMPLETION, DELIVERED, FAILURES, OBSERVED, OWNER, POLL, QUEUED, REQUEST, SCHEDULER,
+    STARTED, WAITERS, WAITING,
 };
 
 /// The frame's fixed fields. The parameters follow, then the spilled values.
@@ -234,7 +235,37 @@ pub(super) fn transform(
 
     b.switch_to(complete);
     let held = b.get(frame, RESULT, completion_ty.clone());
-    let some = b.some(held);
+    let failed = threw(&mut b, held);
+    let select = b.block();
+    let publish = b.block();
+    let selected = b.param(publish, completion_ty.clone());
+    let preserve = b.block();
+    b.branch(failed, preserve, select);
+    b.switch_to(select);
+    let boxed = b.boxed(me);
+    let error = b.call(
+        runtime.child_error,
+        vec![boxed],
+        Ty::Optional(Box::new(Ty::Dynamic)),
+    );
+    let has_error = b.is_some(error);
+    let raise = b.block();
+    b.branch(has_error, raise, preserve);
+    b.switch_to(raise);
+    let error = b.unwrap(error, Ty::Dynamic);
+    let failed = b.emit(
+        InstKind::MakeEnum {
+            ty: completion_ty.clone(),
+            variant: 1,
+            payload: vec![error],
+        },
+        completion_ty.clone(),
+    );
+    b.jump_with(publish, vec![failed]);
+    b.switch_to(preserve);
+    b.jump_with(publish, vec![held]);
+    b.switch_to(publish);
+    let some = b.some(selected);
     b.set(me, COMPLETION, some);
     let yes = b.bool(true);
     b.ret(yes);
@@ -347,6 +378,9 @@ pub(super) fn transform(
     task_fields[WAITERS as usize] = waiters;
     task_fields[CHILDREN as usize] = children;
     task_fields[SCHEDULER as usize] = scheduler;
+    task_fields[OWNER as usize] = b.nil(Ty::Optional(Box::new(Ty::Dynamic)));
+    task_fields[FAILURES as usize] = empty_list(&mut b);
+    task_fields[OBSERVED as usize] = b.bool(false);
     let task = b.emit(
         InstKind::MakeStruct {
             ty: task_ty.clone(),
@@ -411,7 +445,7 @@ fn threw(b: &mut Builder<'_>, completion: Value) -> Value {
 
 /// LR27.3: the exception cancellation delivers, `Cancelled {}` from
 /// `std/async` (STD22).
-fn cancellation(b: &mut Builder<'_>, cancelled: Option<TypeId>) -> Value {
+pub(super) fn cancellation(b: &mut Builder<'_>, cancelled: Option<TypeId>) -> Value {
     let error = match cancelled {
         Some(id) => {
             let ty = Ty::Named {
@@ -491,6 +525,8 @@ fn expand_await(
     b.branch(has, ready, check);
 
     b.switch_to(ready);
+    let yes = b.bool(true);
+    b.set(task, OBSERVED, yes);
     let held = b.unwrap(completion, completion_ty.clone());
     b.jump_with(post, vec![held]);
 

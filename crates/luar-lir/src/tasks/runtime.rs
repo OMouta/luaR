@@ -11,7 +11,8 @@ use crate::ty::{Builtin, Ty};
 
 use super::build::Builder;
 use super::{
-    CHILDREN, COMPLETION, POLL, QUEUED, REQUEST, SCHEDULER, STARTED, WAITERS, WAITING, erased_task,
+    CHILDREN, COMPLETION, FAILURES, OBSERVED, OWNER, POLL, QUEUED, REQUEST, SCHEDULER, STARTED,
+    WAITERS, WAITING, erased_task,
 };
 
 /// The runnable queue and where its next entry sits.
@@ -26,6 +27,7 @@ pub(super) struct Runtime {
     pub cancel: FuncId,
     pub cancel_children: FuncId,
     pub next_child: FuncId,
+    pub child_error: FuncId,
     pub wait: FuncId,
     pub drive: FuncId,
 }
@@ -92,6 +94,11 @@ pub(super) fn declare(program: &mut Program, span: Span) -> Runtime {
         program.add_function(function)
     };
     let wait = program.add_function(reserved("#task.wait", 2, span));
+    let child_error = {
+        let mut function = reserved("#task.childError", 1, span);
+        function.result = optional_dynamic();
+        program.add_function(function)
+    };
     let drive = program.add_function(reserved("#task.drive", 2, span));
     let runtime = Runtime {
         scheduler,
@@ -101,16 +108,19 @@ pub(super) fn declare(program: &mut Program, span: Span) -> Runtime {
         cancel,
         cancel_children,
         next_child,
+        child_error,
         wait,
         drive,
     };
 
     define_enqueue(program.function_mut(enqueue), &scheduler_ty, span);
     define_start(program.function_mut(start), &runtime, span);
-    define_wake(program.function_mut(wake), &runtime, span);
+    let cancelled = program.find_type("std/async.Cancelled");
+    define_wake(program.function_mut(wake), &runtime, cancelled, span);
     define_cancel(program.function_mut(cancel), &runtime, span);
     define_cancel_children(program.function_mut(cancel_children), &runtime, span);
     define_next_child(program.function_mut(next_child), span);
+    define_child_error(program.function_mut(child_error), span);
     define_wait(program.function_mut(wait), span);
     define_drive(program.function_mut(drive), &runtime, &scheduler_ty, span);
     runtime
@@ -163,6 +173,8 @@ fn define_start(function: &mut Function, runtime: &Runtime, span: Span) {
     let p = b.unboxed(parent, erased_task());
     let sched = b.get(p, SCHEDULER, Ty::Dynamic);
     b.set(c, SCHEDULER, sched);
+    let owner = b.some(parent);
+    b.set(c, OWNER, owner);
     let children = b.get(p, CHILDREN, list_of_dynamic());
     b.emit_void(InstKind::ListPush {
         receiver: children,
@@ -174,12 +186,67 @@ fn define_start(function: &mut Function, runtime: &Runtime, span: Span) {
 }
 
 /// LR27: completion queues the suspended awaiters in the order they began
-/// waiting.
-fn define_wake(function: &mut Function, runtime: &Runtime, span: Span) {
+/// waiting. LR27.2: child failures cancel siblings and enter the owner's
+/// failure list in completion order; `Cancelled` is excluded.
+fn define_wake(function: &mut Function, runtime: &Runtime, cancelled: Option<TypeId>, span: Span) {
     let entry = function.entry;
     let task = function.block(entry).params[0];
     let mut b = Builder::new(function, entry, span);
     let t = b.unboxed(task, erased_task());
+    let owner = b.get(t, OWNER, optional_dynamic());
+    let owned = b.is_some(owner);
+    let inspect = b.block();
+    let notify = b.block();
+    b.branch(owned, inspect, notify);
+    b.switch_to(inspect);
+    let completion = b.get(t, COMPLETION, Ty::Optional(Box::new(erased_completion())));
+    let completion = b.unwrap(completion, erased_completion());
+    let tag = b.emit(InstKind::GetTag { value: completion }, Ty::INT);
+    let one = b.int(1);
+    let failed = b.equal(tag, one);
+    let failure = b.block();
+    b.branch(failed, failure, notify);
+    b.switch_to(failure);
+    let error = b.emit(
+        InstKind::GetPayload {
+            value: completion,
+            variant: 1,
+            field: 0,
+        },
+        Ty::Dynamic,
+    );
+    let record = b.block();
+    if let Some(id) = cancelled {
+        let is_cancelled = b.emit(
+            InstKind::IsType {
+                value: error,
+                ty: Ty::Named {
+                    id,
+                    args: Vec::new(),
+                },
+            },
+            Ty::Bool,
+        );
+        b.branch(is_cancelled, notify, record);
+    } else {
+        b.jump(record);
+    }
+    b.switch_to(record);
+    let parent = b.unwrap(owner, Ty::Dynamic);
+    let p = b.unboxed(parent, erased_task());
+    let failures = b.get(p, FAILURES, list_of_dynamic());
+    b.emit_void(InstKind::ListPush {
+        receiver: failures,
+        value: task,
+    });
+    let cancellation = super::machine::cancellation(&mut b, cancelled);
+    b.call(
+        runtime.cancel_children,
+        vec![parent, cancellation],
+        Ty::Unit,
+    );
+    b.jump(notify);
+    b.switch_to(notify);
     let waiters = b.get(t, WAITERS, list_of_dynamic());
     let count = b.length(waiters);
     let head = b.block();
@@ -329,6 +396,53 @@ fn define_next_child(function: &mut Function, span: Span) {
     let some = b.some(child);
     b.ret(some);
 
+    b.switch_to(none);
+    let nil = b.nil(optional_dynamic());
+    b.ret(nil);
+}
+
+/// LR27.2: the first unobserved child exception in completion order.
+fn define_child_error(function: &mut Function, span: Span) {
+    let entry = function.entry;
+    let task = function.block(entry).params[0];
+    let mut b = Builder::new(function, entry, span);
+    let t = b.unboxed(task, erased_task());
+    let failures = b.get(t, FAILURES, list_of_dynamic());
+    let count = b.length(failures);
+    let head = b.block();
+    let index = b.param(head, Ty::INT);
+    let body = b.block();
+    let step = b.block();
+    let found = b.block();
+    let none = b.block();
+    let zero = b.int(0);
+    b.jump_with(head, vec![zero]);
+
+    b.switch_to(head);
+    let finished = b.equal(index, count);
+    b.branch(finished, none, body);
+    b.switch_to(body);
+    let child = b.index(failures, index, Ty::Dynamic);
+    let c = b.unboxed(child, erased_task());
+    let observed = b.get(c, OBSERVED, Ty::Bool);
+    b.branch(observed, step, found);
+    b.switch_to(step);
+    let one = b.int(1);
+    let next = b.add(index, one);
+    b.jump_with(head, vec![next]);
+    b.switch_to(found);
+    let completion = b.get(c, COMPLETION, Ty::Optional(Box::new(erased_completion())));
+    let completion = b.unwrap(completion, erased_completion());
+    let error = b.emit(
+        InstKind::GetPayload {
+            value: completion,
+            variant: 1,
+            field: 0,
+        },
+        Ty::Dynamic,
+    );
+    let some = b.some(error);
+    b.ret(some);
     b.switch_to(none);
     let nil = b.nil(optional_dynamic());
     b.ret(nil);

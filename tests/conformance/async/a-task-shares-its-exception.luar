@@ -2,6 +2,7 @@
 --- exit: 0
 --- stdout: "created\nbody\ncleanup\n7\n7\n"
 --- spec: LR27
+--- spec: LR27.2
 --- spec: LR25.3
 --- spec: LR26
 struct Failure

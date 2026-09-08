@@ -24,13 +24,17 @@ pub const WAITING: u32 = 6;
 pub const WAITERS: u32 = 7;
 pub const CHILDREN: u32 = 8;
 pub const SCHEDULER: u32 = 9;
+pub const OWNER: u32 = 10;
+pub const FAILURES: u32 = 11;
+pub const OBSERVED: u32 = 12;
 
 /// What a `Task<T>` holds: the closure that advances it and says whether it
 /// completed, its completion, whether it started, its cancellation request
 /// and whether that was delivered, whether it is queued, the task it waits
 /// for, the tasks waiting for it, the children its implicit scope owns, and
-/// the scheduler it runs on. Only the completion depends on `T`, so a
-/// handle can be read as `Task<()>` where `T` is not needed.
+/// the scheduler it runs on, its owner, failed children in completion order,
+/// and whether an await observed its completion. Only the completion depends
+/// on `T`, so a handle can be read as `Task<()>` where `T` is not needed.
 #[must_use]
 pub fn task_fields(result: &Ty) -> Vec<Ty> {
     let optional_dynamic = Ty::Optional(Box::new(Ty::Dynamic));
@@ -52,6 +56,9 @@ pub fn task_fields(result: &Ty) -> Vec<Ty> {
         list_of_dynamic(),
         list_of_dynamic(),
         Ty::Dynamic,
+        Ty::Optional(Box::new(Ty::Dynamic)),
+        list_of_dynamic(),
+        Ty::Bool,
     ]
 }
 
