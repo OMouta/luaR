@@ -738,7 +738,7 @@ end
 
 Ranges are values and may be stored, passed, and used for slicing (LR38).
 
-`a..<b` has type `RangeExclusive<T>` and `a..=b` has type `RangeInclusive<T>`, where `T` is the bounds' common type. Both expose read-only `start: T?` and `stop: T?` properties containing the written bounds. An omitted bound is `nil`.
+`a..<b` has type `RangeExclusive<T>` and `a..=b` has type `RangeInclusive<T>`, where `T` is the bounds' common integer type. Both expose read-only `start: T?` and `stop: T?` properties containing the written bounds. An omitted bound is `nil`.
 
 ```lua
 const window = 10..<20
