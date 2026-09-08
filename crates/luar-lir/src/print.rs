@@ -179,6 +179,9 @@ fn instruction(inst: &Inst, function: &Function) -> String {
             None => format!("assert {}", name(*condition)),
         },
         InstKind::Panic { message } => format!("panic {}", name(*message)),
+        InstKind::Await { task } => format!("await {}", name(*task)),
+        InstKind::CancellationPoint => "cancellation point".to_owned(),
+        InstKind::Cancel { task, error } => format!("cancel {} {}", name(*task), name(*error)),
         InstKind::Convert { value, to } => format!("convert {} to {to}", name(*value)),
         InstKind::Reinterpret { value, to } => {
             format!("reinterpret {} as {to}", name(*value))

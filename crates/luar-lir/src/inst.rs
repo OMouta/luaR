@@ -206,6 +206,22 @@ pub enum InstKind {
         message: Value,
     },
 
+    /// What `task` completed with, starting it where it is unstarted and
+    /// suspending the awaiting task until it completes (LR27). The task
+    /// pass expands it, and delivers a pending cancellation on resumption
+    /// (LR27.3).
+    Await {
+        task: Value,
+    },
+    /// The cancellation request the running task must deliver here, or
+    /// nothing (LR27.3).
+    CancellationPoint,
+    /// `task:cancel()`, with the exception it delivers (LR27.3).
+    Cancel {
+        task: Value,
+        error: Value,
+    },
+
     /// `x as T`, between numeric types (LR33, LR39).
     Convert {
         value: Value,
@@ -503,7 +519,10 @@ impl InstKind {
     /// Visits every value the instruction reads, for renaming.
     pub fn values_mut(&mut self, mut visit: impl FnMut(&mut Value)) {
         match self {
-            Self::Const(_) | Self::AddressOf { .. } | Self::SlotGet { .. } => {}
+            Self::Const(_)
+            | Self::CancellationPoint
+            | Self::AddressOf { .. }
+            | Self::SlotGet { .. } => {}
             Self::Unary { operand, .. } => visit(operand),
             Self::Binary { left, right, .. }
             | Self::HashCombine {
@@ -577,6 +596,10 @@ impl InstKind {
                 value: right,
                 ..
             }
+            | Self::Cancel {
+                task: left,
+                error: right,
+            }
             | Self::Overflowing { left, right, .. } => {
                 visit(left);
                 visit(right);
@@ -608,6 +631,7 @@ impl InstKind {
             | Self::KeepAlive { value: held }
             | Self::ReleaseSlice { value: held }
             | Self::Load { pointer: held }
+            | Self::Await { task: held }
             | Self::SlotSet { value: held, .. } => visit(held),
             Self::Assert { condition, message } => {
                 visit(condition);
@@ -743,7 +767,10 @@ impl InstKind {
             | Self::Store { .. }
             | Self::SlotGet { .. }
             | Self::SlotSet { .. } => Effect::State,
-            Self::Print { .. } => Effect::State,
+            Self::Print { .. }
+            | Self::Await { .. }
+            | Self::CancellationPoint
+            | Self::Cancel { .. } => Effect::State,
         }
     }
 }

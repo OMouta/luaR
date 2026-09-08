@@ -4,7 +4,7 @@ use luar_ast::{Argument, Binding, Block, Expr, ExprKind, FunctionBody, Param, St
 use luar_diagnostics::Span;
 
 use crate::inst::MethodId;
-use crate::inst::{Allocation, BinaryOp, Const, InstKind, Target, Terminator, Trap, Value};
+use crate::inst::{Allocation, BinaryOp, Const, InstKind, Target, Terminator, Value};
 use crate::lower::body::{Body, Var};
 use crate::lower::names;
 use crate::lower::names::assigned;
@@ -14,220 +14,52 @@ use crate::program::{FuncId, Function};
 use crate::ty::{Builtin, Ty};
 
 impl<'a> Body<'a> {
-    // LR27.3: cancellation preserves completions and never starts a task.
+    // LR27.3: the task pass expands cancellation into the request and its
+    // propagation.
     pub(super) fn cancel_task(&mut self, args: &[Argument], span: Span) -> Value {
         let [task, error] = args else {
             return self.missing(span, "cancellation without a task and exception");
         };
         let task = self.expr(&task.value, None);
         let error = self.stored(&error.value, Some(&Ty::Dynamic));
-        let Ty::Builtin {
-            kind: Builtin::Task,
-            args,
-        } = self.function.type_of(task).clone()
-        else {
+        if !matches!(
+            self.function.type_of(task),
+            Ty::Builtin {
+                kind: Builtin::Task,
+                ..
+            }
+        ) {
             return self.missing(span, "cancellation of a value that is not a task");
-        };
-        let completion = thrown_or(args[0].clone());
-        let cached_ty = Ty::Optional(Box::new(completion.clone()));
-        let cached = self.emit(
-            InstKind::GetField {
-                object: task,
-                field: 1,
-            },
-            cached_ty.clone(),
-            span,
-        );
-        let completed = self.emit(InstKind::IsSome { value: cached }, Ty::Bool, span);
-        let pending = self.function.add_block();
-        let done = self.function.add_block();
-        self.terminate(Terminator::Branch {
-            condition: completed,
-            then: Target::to(done),
-            otherwise: Target::to(pending),
-        });
-        self.switch_to(pending);
-        let cancellation_ty = Ty::Optional(Box::new(Ty::Dynamic));
-        let requested = self.emit(
-            InstKind::GetField {
-                object: task,
-                field: 3,
-            },
-            cancellation_ty.clone(),
-            span,
-        );
-        let cancelled = self.emit(InstKind::IsSome { value: requested }, Ty::Bool, span);
-        let request = self.function.add_block();
-        self.terminate(Terminator::Branch {
-            condition: cancelled,
-            then: Target::to(done),
-            otherwise: Target::to(request),
-        });
-        self.switch_to(request);
-        let requested = self.emit(InstKind::MakeSome { value: error }, cancellation_ty, span);
-        self.emit_void(
-            InstKind::SetField {
-                object: task,
-                field: 3,
-                value: requested,
-            },
-            span,
-        );
-        let started = self.emit(
-            InstKind::GetField {
-                object: task,
-                field: 2,
-            },
-            Ty::Bool,
-            span,
-        );
-        let unstarted = self.function.add_block();
-        self.terminate(Terminator::Branch {
-            condition: started,
-            then: Target::to(done),
-            otherwise: Target::to(unstarted),
-        });
-        self.switch_to(unstarted);
-        let failed = self.emit(
-            InstKind::MakeEnum {
-                ty: completion.clone(),
-                variant: 1,
-                payload: vec![error],
-            },
-            completion,
-            span,
-        );
-        let failed = self.emit(InstKind::MakeSome { value: failed }, cached_ty, span);
-        self.emit_void(
-            InstKind::SetField {
-                object: task,
-                field: 1,
-                value: failed,
-            },
-            span,
-        );
-        self.terminate(Terminator::Jump(Target::to(done)));
-        self.switch_to(done);
+        }
+        self.emit_void(InstKind::Cancel { task, error }, span);
         self.emit(InstKind::Const(Const::Unit), Ty::Unit, span)
+    }
+
+    // LR27.3: a pending request is delivered before an await evaluates its
+    // operand.
+    pub(super) fn cancellation_point(&mut self, span: Span) {
+        let request = self.emit(
+            InstKind::CancellationPoint,
+            Ty::Optional(Box::new(Ty::Dynamic)),
+            span,
+        );
+        let pending = self.emit(InstKind::IsSome { value: request }, Ty::Bool, span);
+        let deliver = self.function.add_block();
+        let proceed = self.function.add_block();
+        self.terminate(Terminator::Branch {
+            condition: pending,
+            then: Target::to(deliver),
+            otherwise: Target::to(proceed),
+        });
+        self.switch_to(deliver);
+        let error = self.emit(InstKind::Unwrap { value: request }, Ty::Dynamic, span);
+        self.raise(error, span);
+        self.switch_to(proceed);
     }
 
     // LR27: task handles share a completion; each await copies its result.
     pub(super) fn await_task(&mut self, task: Value, result: Ty, span: Span) -> Value {
-        let completion = thrown_or(result.clone());
-        let cached_ty = Ty::Optional(Box::new(completion.clone()));
-        let cached = self.emit(
-            InstKind::GetField {
-                object: task,
-                field: 1,
-            },
-            cached_ty.clone(),
-            span,
-        );
-        let tag = self.emit(InstKind::GetTag { value: cached }, Ty::INT, span);
-        let zero = self.emit(InstKind::Const(Const::Int(0)), Ty::INT, span);
-        let pending = self.emit(
-            InstKind::Binary {
-                op: BinaryOp::Equal,
-                left: tag,
-                right: zero,
-            },
-            Ty::Bool,
-            span,
-        );
-        let start = self.function.add_block();
-        let ready = self.function.add_block();
-        let joined = self.function.add_block();
-        let completed = self.function.add_block_param(joined, completion.clone());
-        self.terminate(Terminator::Branch {
-            condition: pending,
-            then: Target::to(start),
-            otherwise: Target::to(ready),
-        });
-        self.switch_to(start);
-        // LR27: an incomplete task already on the call stack closes an await cycle.
-        let started = self.emit(
-            InstKind::GetField {
-                object: task,
-                field: 2,
-            },
-            Ty::Bool,
-            span,
-        );
-        let cycle = self.function.add_block();
-        let run = self.function.add_block();
-        self.terminate(Terminator::Branch {
-            condition: started,
-            then: Target::to(cycle),
-            otherwise: Target::to(run),
-        });
-        self.switch_to(cycle);
-        let message = self.emit(
-            InstKind::Const(Const::Str("cyclic task await".to_owned())),
-            Ty::Str,
-            span,
-        );
-        self.emit_void(InstKind::Panic { message }, span);
-        self.terminate(Terminator::Trap(Trap::Unreachable));
-        self.switch_to(run);
-        let started = self.emit(InstKind::Const(Const::Bool(true)), Ty::Bool, span);
-        self.emit_void(
-            InstKind::SetField {
-                object: task,
-                field: 2,
-                value: started,
-            },
-            span,
-        );
-        let callee = self.emit(
-            InstKind::GetField {
-                object: task,
-                field: 0,
-            },
-            Ty::Function {
-                asynchronous: false,
-                params: Vec::new(),
-                result: Box::new(result.clone()),
-            },
-            span,
-        );
-        let produced = self.emit(
-            InstKind::CallIndirect {
-                callee,
-                args: Vec::new(),
-            },
-            completion.clone(),
-            span,
-        );
-        let stored = self.emit(
-            InstKind::MakeEnum {
-                ty: cached_ty.clone(),
-                variant: 1,
-                payload: vec![produced],
-            },
-            cached_ty,
-            span,
-        );
-        self.emit_void(
-            InstKind::SetField {
-                object: task,
-                field: 1,
-                value: stored,
-            },
-            span,
-        );
-        self.terminate(Terminator::Jump(Target::new(joined, vec![produced])));
-        self.switch_to(ready);
-        let produced = self.emit(
-            InstKind::GetPayload {
-                value: cached,
-                variant: 1,
-                field: 0,
-            },
-            completion,
-            span,
-        );
-        self.terminate(Terminator::Jump(Target::new(joined, vec![produced])));
-        self.switch_to(joined);
+        let completed = self.emit(InstKind::Await { task }, thrown_or(result.clone()), span);
         let value = self.caught_or_raised(completed, result.clone(), span);
         self.emit(
             InstKind::CopyValue {
@@ -432,17 +264,22 @@ impl<'a> Body<'a> {
         }
 
         let result = self.recorded(span);
-        let (call_result, task) = if reached.asynchronous {
-            match &result {
-                Ty::Builtin {
-                    kind: Builtin::Task,
-                    args,
-                } if args.len() == 1 => (args[0].clone(), Some(result.clone())),
-                _ => return self.missing(span, "an async call without a task result"),
+        // LR27: an async call produces the task, which the task pass makes
+        // the callee build.
+        if reached.asynchronous {
+            if !is_task(&result) {
+                return self.missing(span, "an async call without a task result");
             }
-        } else {
-            (result.clone(), None)
-        };
+            return self.emit(
+                InstKind::Call {
+                    callee: id,
+                    type_args,
+                    args: passed,
+                },
+                result,
+                span,
+            );
+        }
         if reached.throws {
             let produced = self.emit(
                 InstKind::Call {
@@ -450,30 +287,21 @@ impl<'a> Body<'a> {
                     type_args,
                     args: passed,
                 },
-                thrown_or(call_result.clone()),
+                thrown_or(result.clone()),
                 span,
             );
-            if task.is_some() {
-                return self.completed_task(produced, task, span);
-            }
-            let produced = self.caught_or_raised(produced, call_result, span);
-            return produced;
+            return self.caught_or_raised(produced, result, span);
         }
 
-        let produced = self.emit(
+        self.emit(
             InstKind::Call {
                 callee: id,
                 type_args,
                 args: passed,
             },
-            call_result.clone(),
+            result,
             span,
-        );
-        let produced = match task {
-            Some(_) => self.completed_result(produced, call_result, span),
-            None => produced,
-        };
-        self.completed_task(produced, task, span)
+        )
     }
 
     /// LR25.3: a call that may have thrown says which happened, so the caller
@@ -678,29 +506,28 @@ impl<'a> Body<'a> {
                 result.as_ref().clone()
             }
         });
-        let (call_result, task) = if asynchronous {
-            match &held {
-                Ty::Builtin {
-                    kind: Builtin::Task,
-                    args,
-                } if args.len() == 1 => (args[0].clone(), Some(held.clone())),
-                _ => return self.missing(span, "an async call without a task result"),
+        if asynchronous {
+            if !is_task(&held) {
+                return self.missing(span, "an async call without a task result");
             }
-        } else {
-            (held.clone(), None)
-        };
+            return self.emit(
+                InstKind::CallIndirect {
+                    callee: value,
+                    args: passed,
+                },
+                held,
+                span,
+            );
+        }
         let produced = self.emit(
             InstKind::CallIndirect {
                 callee: value,
                 args: passed,
             },
-            thrown_or(call_result.clone()),
+            thrown_or(held.clone()),
             span,
         );
-        if task.is_some() {
-            return self.completed_task(produced, task, span);
-        }
-        self.caught_or_raised(produced, call_result, span)
+        self.caught_or_raised(produced, held, span)
     }
 
     /// LR18.1: a call through an interface finds its implementation at
@@ -733,32 +560,30 @@ impl<'a> Body<'a> {
                 }),
             _ => (false, false),
         };
-        let (call_result, task) = if asynchronous {
-            match &result {
-                Ty::Builtin {
-                    kind: Builtin::Task,
-                    args,
-                } if args.len() == 1 => (args[0].clone(), Some(result.clone())),
-                _ => return self.missing(span, "an async call without a task result"),
+        if asynchronous {
+            if !is_task(&result) {
+                return self.missing(span, "an async call without a task result");
             }
-        } else {
-            (result.clone(), None)
-        };
-        if !throws {
-            let produced = self.emit(
+            return self.emit(
                 InstKind::CallVirtual {
                     method,
                     receiver,
                     args: passed,
                 },
-                call_result.clone(),
+                result,
                 span,
             );
-            let produced = match task {
-                Some(_) => self.completed_result(produced, call_result, span),
-                None => produced,
-            };
-            return self.completed_task(produced, task, span);
+        }
+        if !throws {
+            return self.emit(
+                InstKind::CallVirtual {
+                    method,
+                    receiver,
+                    args: passed,
+                },
+                result,
+                span,
+            );
         }
         let produced = self.emit(
             InstKind::CallVirtual {
@@ -766,41 +591,19 @@ impl<'a> Body<'a> {
                 receiver,
                 args: passed,
             },
-            thrown_or(call_result.clone()),
+            thrown_or(result.clone()),
             span,
         );
-        if task.is_some() {
-            return self.completed_task(produced, task, span);
-        }
-        self.caught_or_raised(produced, call_result, span)
+        self.caught_or_raised(produced, result, span)
     }
+}
 
-    fn completed_result(&mut self, value: Value, result: Ty, span: Span) -> Value {
-        let ty = thrown_or(result);
-        self.emit(
-            InstKind::MakeEnum {
-                ty: ty.clone(),
-                variant: 0,
-                payload: vec![value],
-            },
-            ty,
-            span,
-        )
-    }
-
-    // LR27: tasks::run moves the producing call into a deferred closure.
-    fn completed_task(&mut self, value: Value, task: Option<Ty>, span: Span) -> Value {
-        match task {
-            Some(task) => self.emit(
-                InstKind::MakeStruct {
-                    ty: task.clone(),
-                    fields: vec![value],
-                    allocation: Allocation::Managed,
-                },
-                task,
-                span,
-            ),
-            None => value,
-        }
-    }
+fn is_task(ty: &Ty) -> bool {
+    matches!(
+        ty,
+        Ty::Builtin {
+            kind: Builtin::Task,
+            args,
+        } if args.len() == 1
+    )
 }

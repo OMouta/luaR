@@ -91,7 +91,7 @@ pub fn size(program: &Program, ty: &Ty, pointer: Type) -> Option<i32> {
         Ty::Builtin {
             kind: Builtin::Task,
             args,
-        } if args.len() == 1 => 4,
+        } if args.len() == 1 => u32::try_from(luar_lir::tasks::task_fields(&args[0]).len()).ok()?,
         // LR13: a count, a capacity, and the storage the elements live in.
         Ty::Builtin {
             kind:
@@ -230,19 +230,7 @@ pub fn parts(program: &Program, ty: &Ty) -> Option<Vec<Ty>> {
         Ty::Builtin {
             kind: Builtin::Task,
             args,
-        } if args.len() == 1 => Some(vec![
-            Ty::Function {
-                asynchronous: false,
-                params: Vec::new(),
-                result: Box::new(args[0].clone()),
-            },
-            Ty::Optional(Box::new(Ty::Builtin {
-                kind: Builtin::Result,
-                args: vec![args[0].clone(), Ty::Dynamic],
-            })),
-            Ty::Bool,
-            Ty::Optional(Box::new(Ty::Dynamic)),
-        ]),
+        } if args.len() == 1 => Some(luar_lir::tasks::task_fields(&args[0])),
         _ => None,
     }
 }

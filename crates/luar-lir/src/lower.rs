@@ -600,7 +600,9 @@ impl Lowering<'_> {
         // LR25.3: exceptions are absent from signatures, so a function an
         // exception can escape gives back either what it returned or what it
         // threw, and every call to it says which happened.
-        let throws = self.throwing.contains(&span);
+        // LR27: an async function completes with what it returned or what it
+        // threw, so its task can hold either.
+        let throws = signature.asynchronous || self.throwing.contains(&span);
         let result = if throws {
             thrown_or(declared)
         } else {
@@ -879,7 +881,11 @@ impl Lowering<'_> {
             };
             for implementation in &held.implementors {
                 for (slot, callee) in implementation.methods.iter().copied().enumerate() {
-                    if held.methods.get(slot).is_some_and(|method| method.throws) {
+                    if held
+                        .methods
+                        .get(slot)
+                        .is_some_and(|method| method.throws && !method.asynchronous)
+                    {
                         adapters.push((interface, implementation.ty.clone(), slot, callee));
                     }
                 }

@@ -215,6 +215,7 @@ impl<'a> Body<'a> {
 
             ExprKind::Try(inner) => self.propagate(inner, span),
             ExprKind::Await(inner) => {
+                self.cancellation_point(span);
                 let task = self.expr(inner, None);
                 let result = self.recorded(span);
                 self.await_task(task, result, span)

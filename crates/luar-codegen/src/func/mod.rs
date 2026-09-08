@@ -147,8 +147,7 @@ impl Translator<'_, '_> {
             self.values.insert(*param, value);
         }
 
-        let ids: Vec<BlockId> = self.function.blocks().map(|(id, _)| id).collect();
-        for id in ids {
+        for id in self.order() {
             self.block(id);
         }
 
@@ -157,6 +156,38 @@ impl Translator<'_, '_> {
         self.gaps
     }
 
+    /// Blocks in reverse postorder from the entry, so a definition is
+    /// translated before its uses, followed by any block nothing reaches.
+    fn order(&self) -> Vec<BlockId> {
+        let mut seen = std::collections::HashSet::new();
+        let mut post = Vec::new();
+        let mut stack = vec![(self.function.entry, false)];
+        while let Some((id, expanded)) = stack.pop() {
+            if expanded {
+                post.push(id);
+                continue;
+            }
+            if !seen.insert(id) {
+                continue;
+            }
+            stack.push((id, true));
+            if let Some(term) = &self.function.block(id).term {
+                for target in term.targets() {
+                    if !seen.contains(&target.block) {
+                        stack.push((target.block, false));
+                    }
+                }
+            }
+        }
+        post.reverse();
+        post.extend(
+            self.function
+                .blocks()
+                .map(|(id, _)| id)
+                .filter(|id| !seen.contains(id)),
+        );
+        post
+    }
     fn create_blocks(&mut self) {
         let ids: Vec<BlockId> = self.function.blocks().map(|(id, _)| id).collect();
         for id in ids {
@@ -573,6 +604,10 @@ impl Translator<'_, '_> {
                 None
             }
 
+            InstKind::Await { .. } | InstKind::CancellationPoint | InstKind::Cancel { .. } => {
+                self.gap("an async instruction the task pass did not expand");
+                None
+            }
             InstKind::SlotGet { slot } => match self.slots.get(slot).copied() {
                 Some(stack) => {
                     let ty = inst
@@ -724,6 +759,14 @@ impl Translator<'_, '_> {
             }
             Const::Str(text) => return self.text(text.as_bytes()),
             Const::Bytes(bytes) => return self.bytes(bytes),
+            // A reference nothing has written yet, which only a task frame
+            // holds (LR27).
+            Const::Nil
+                if result
+                    .is_some_and(|value| layout::is_aggregate(self.function.type_of(value))) =>
+            {
+                self.builder.ins().iconst(self.pointer, 0)
+            }
             Const::Nil => {
                 self.gap("a literal that is not an integer, a boolean, or a character");
                 return None;
