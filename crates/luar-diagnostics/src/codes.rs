@@ -302,6 +302,8 @@ registry! {
         "A package decorator expands through the metadata operations LR23.1 defines.";
     active 222 => COMPILE_TIME_FUNCTION, "LR23.1",
         "A compile-time function is called only while a decorator runs.";
+    active 223 => RANGE_BOUND_READ_ONLY, "LR10.4",
+        "Range bounds are read-only.";
 }
 
 #[cfg(test)]

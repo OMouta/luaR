@@ -13,6 +13,24 @@ impl Checker<'_> {
     pub(super) fn address_of(&mut self, mutable: bool, operand: &Expr, span: Span) {
         let taking = if mutable { "`&mut`" } else { "`&`" };
 
+        if mutable
+            && let ExprKind::Field { receiver, name, .. } = &operand.kind
+            && matches!(name.as_str(), "start" | "stop")
+            && matches!(
+                self.facts.type_of(receiver.span),
+                Some(Type::Builtin {
+                    kind: Builtin::RangeExclusive | Builtin::RangeInclusive,
+                    ..
+                })
+            )
+        {
+            self.diagnostics.push(Diagnostic::error(
+                codes::RANGE_BOUND_READ_ONLY,
+                operand.span,
+                "range bounds cannot be assigned through a pointer",
+            ));
+        }
+
         if self.unsafely == 0 {
             self.diagnostics.push(
                 Diagnostic::error(

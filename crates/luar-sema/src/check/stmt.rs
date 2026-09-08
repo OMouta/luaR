@@ -100,6 +100,23 @@ impl Checker<'_> {
                         "a frozen collection cannot be assigned through",
                     ));
                 }
+                if let ExprKind::Field { receiver, name, .. } = &target.kind
+                    && matches!(name.as_str(), "start" | "stop")
+                    && matches!(
+                        self.facts.type_of(receiver.span),
+                        Some(Type::Builtin {
+                            kind: Builtin::RangeExclusive | Builtin::RangeInclusive,
+                            ..
+                        })
+                    )
+                {
+                    self.diagnostics.push(Diagnostic::error(
+                        codes::RANGE_BOUND_READ_ONLY,
+                        target.span,
+                        "range bounds cannot be assigned",
+                    ));
+                }
+
                 // LR13: `length` is not a field.
                 if let ExprKind::Field { receiver, name, .. } = &target.kind
                     && name == "length"

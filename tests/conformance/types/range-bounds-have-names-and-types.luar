@@ -1,0 +1,29 @@
+--- expect: run
+--- exit: 0
+--- spec: LR10.4
+--- spec: LR54.1
+--- spec: LR19
+--- spec: LR8
+--- spec: LR39
+function first<T>(window: RangeExclusive<T>): T?
+    return window.start
+end
+
+export function main()
+    local window: RangeExclusive<int> = 2..<8
+    assert((window.start ?? unreachable()) == 2)
+    assert((window.stop ?? unreachable()) == 8)
+    assert((first(window) ?? unreachable()) == 2)
+    window = 3..<7
+    assert((window.start ?? unreachable()) == 3)
+    local narrow: RangeInclusive<u8> = 2..=8
+    local start: u8? = narrow.start
+    local stop: u8? = narrow.stop
+    assert((start ?? unreachable()) == 2)
+    assert((stop ?? unreachable()) == 8)
+    local open: RangeExclusive<int> = (..<)
+    assert(open.start == nil)
+    assert(open.stop == nil)
+    local tail: RangeInclusive<int> = (2..=)
+    assert(tail.stop == nil)
+end

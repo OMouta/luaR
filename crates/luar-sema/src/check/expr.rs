@@ -370,30 +370,34 @@ impl Checker<'_> {
                 end,
                 inclusive,
             } => {
-                let element = match (start.as_deref(), end.as_deref()) {
-                    (Some(start), Some(end)) => self.range_element(start, end),
-                    (Some(bound), None) | (None, Some(bound)) => settle(self.expr(bound)),
-                    (None, None) => self
-                        .expected
-                        .as_ref()
-                        .and_then(|expected| match expected {
-                            Type::Builtin { args, .. } => args.first().cloned(),
-                            Type::Union(members) => {
-                                members.iter().find_map(|member| match member {
-                                    Type::Builtin { args, .. } => args.first().cloned(),
-                                    _ => None,
-                                })
-                            }
-                            _ => None,
-                        })
-                        .unwrap_or(Type::Unresolved),
+                let kind = if *inclusive {
+                    Builtin::RangeInclusive
+                } else {
+                    Builtin::RangeExclusive
+                };
+                let range_element = |ty: &Type| match ty {
+                    Type::Builtin { kind: held, args } if *held == kind => args.first().cloned(),
+                    _ => None,
+                };
+                let expected = self.expected.take().as_ref().and_then(|ty| match ty {
+                    Type::Union(members) => members.iter().find_map(range_element),
+                    ty => range_element(ty),
+                });
+                let element = if let Some(expected) = expected {
+                    for bound in [start.as_deref(), end.as_deref()].into_iter().flatten() {
+                        let held = self.expr_wanting(bound, &expected);
+                        self.expect(&expected, &held, bound.span);
+                    }
+                    expected
+                } else {
+                    match (start.as_deref(), end.as_deref()) {
+                        (Some(start), Some(end)) => self.range_element(start, end),
+                        (Some(bound), None) | (None, Some(bound)) => settle(self.expr(bound)),
+                        (None, None) => Type::Unresolved,
+                    }
                 };
                 Type::Builtin {
-                    kind: if *inclusive {
-                        Builtin::RangeInclusive
-                    } else {
-                        Builtin::RangeExclusive
-                    },
+                    kind,
                     args: vec![element],
                 }
             }
@@ -620,6 +624,16 @@ impl Checker<'_> {
         // LR37: a string exposes its storage size in bytes.
         if matches!(held, Type::Primitive(Primitive::String)) && name == "byteLength" {
             return Type::Primitive(Primitive::I64);
+        }
+
+        // LR10.4: omitted range bounds read as nil.
+        if let Type::Builtin {
+            kind: Builtin::RangeExclusive | Builtin::RangeInclusive,
+            args,
+        } = held
+            && matches!(name, "start" | "stop")
+        {
+            return args.first().cloned().unwrap_or(Type::Unresolved).optional();
         }
 
         let Some(owner) = self.known(held) else {

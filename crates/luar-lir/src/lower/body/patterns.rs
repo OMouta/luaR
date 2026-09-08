@@ -652,6 +652,17 @@ impl<'a> Body<'a> {
     /// The fields a type stores, in the order it declares them.
     pub(super) fn fields_of(&self, ty: &Ty) -> Option<Vec<(String, Ty)>> {
         match ty {
+            // LR10.4: range bounds are optional and retain their element type.
+            Ty::Builtin {
+                kind: Builtin::RangeExclusive | Builtin::RangeInclusive,
+                args,
+            } => {
+                let bound = Ty::Optional(Box::new(args.first()?.clone()));
+                Some(vec![
+                    ("start".to_owned(), bound.clone()),
+                    ("stop".to_owned(), bound),
+                ])
+            }
             Ty::Named { id, args } => {
                 let nominal = self.context.program.nominal(*id);
                 let Shape::Struct(structure) = &nominal.shape else {
