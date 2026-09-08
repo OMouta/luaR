@@ -1,0 +1,42 @@
+--- expect: run
+--- exit: 0
+--- stdout: "child cancels parent\nchild cancelled\nchild done\nparent failed\n"
+--- spec: LR27.2
+--- spec: LR27.3
+--- spec: LR27
+--- spec: STD22
+import { Cancelled, yieldNow } from "std/async"
+
+ref struct Link
+    parent: Task<()>?
+end
+
+async function child(link: Link)
+    print("child cancels parent")
+    local parent = link.parent
+    if parent ~= nil then
+        parent:cancel()
+    end
+    try
+        local yielded: () = await yieldNow()
+    catch error: Cancelled
+        print("child cancelled")
+        local yielded: () = await yieldNow()
+    end
+    print("child done")
+end
+
+async function parent(link: Link)
+    local waited: () = await child(link)
+end
+
+export async function main()
+    local link = Link { parent = nil }
+    local task = parent(link)
+    link.parent = task
+    try
+        local finished: () = await task
+    catch error: Cancelled
+        print("parent failed")
+    end
+end

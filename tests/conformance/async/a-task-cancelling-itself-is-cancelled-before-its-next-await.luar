@@ -1,0 +1,37 @@
+--- expect: run
+--- exit: 0
+--- stdout: "body\ncancelled\ndone\n"
+--- spec: LR27.3
+--- spec: STD22
+import { Cancelled, yieldNow } from "std/async"
+
+ref struct Link
+    task: Task<()>?
+end
+
+function pending(): Task<()>
+    print("operand")
+    return yieldNow()
+end
+
+async function work(link: Link)
+    print("body")
+    local me = link.task
+    if me ~= nil then
+        me:cancel()
+    end
+    try
+        local waited: () = await pending()
+    catch error: Cancelled
+        print("cancelled")
+    end
+    local yielded: () = await yieldNow()
+    print("done")
+end
+
+export async function main()
+    local link = Link { task = nil }
+    local task = work(link)
+    link.task = task
+    local finished: () = await task
+end
