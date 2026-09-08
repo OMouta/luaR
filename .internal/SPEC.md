@@ -738,6 +738,8 @@ end
 
 Ranges are values and may be stored, passed, and used for slicing (LR38).
 
+`a..<b` has type `RangeExclusive<T>` and `a..=b` has type `RangeInclusive<T>`, where `T` is the bounds' common integer type. Both expose read-only `start: T?` and `stop: T?` properties containing the written bounds. An omitted bound is `nil`.
+
 ```lua
 const window = 10..<20
 local page = values[window]
@@ -2527,6 +2529,10 @@ text:chars():take(10)       -- ten Unicode scalar values
 text:graphemes():take(10)   -- ten user-perceived characters
 ```
 
+`string:byteSlice` accepts `RangeExclusive<int>` or `RangeInclusive<int>` and returns `Result<string, Utf8Error>`. `Utf8Error` is a fieldless struct exported by `std/prelude`.
+
+An omitted start is zero; an omitted stop is `byteLength`. A written inclusive stop includes that byte. Negative bounds, bounds past the string, and a start past the exclusive end panic. These bounds checks precede UTF-8 boundary checks. An endpoint within a UTF-8 scalar returns `Err(Utf8Error {})`, including when both endpoints are equal. Otherwise the result is `Ok` containing a copy of the selected bytes, without normalization. Zero and `byteLength` are valid UTF-8 boundaries.
+
 ---
 
 ## 39. Numeric Semantics
@@ -3009,6 +3015,8 @@ FrozenList
 FrozenMap
 FrozenSet
 Slice
+RangeExclusive
+RangeInclusive
 Task
 TaskScope
 ```
