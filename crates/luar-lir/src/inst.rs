@@ -492,6 +492,184 @@ pub enum InstKind {
 }
 
 impl InstKind {
+    /// Every value the instruction reads, in operand order.
+    #[must_use]
+    pub fn operands(&self) -> Vec<Value> {
+        let mut found = Vec::new();
+        self.clone().values_mut(|value| found.push(*value));
+        found
+    }
+
+    /// Visits every value the instruction reads, for renaming.
+    pub fn values_mut(&mut self, mut visit: impl FnMut(&mut Value)) {
+        match self {
+            Self::Const(_) | Self::AddressOf { .. } | Self::SlotGet { .. } => {}
+            Self::Unary { operand, .. } => visit(operand),
+            Self::Binary { left, right, .. }
+            | Self::HashCombine {
+                state: left,
+                value: right,
+            }
+            | Self::Contains {
+                receiver: left,
+                value: right,
+            }
+            | Self::MapRemove {
+                receiver: left,
+                key: right,
+            }
+            | Self::SetRemove {
+                receiver: left,
+                value: right,
+            }
+            | Self::SetInsert {
+                receiver: left,
+                value: right,
+            }
+            | Self::ListPush {
+                receiver: left,
+                value: right,
+            }
+            | Self::GetIndex {
+                receiver: left,
+                index: right,
+            }
+            | Self::GetUncheckedIndex {
+                receiver: left,
+                index: right,
+            }
+            | Self::GetCheckedIndex {
+                receiver: left,
+                index: right,
+            }
+            | Self::MakeSlice {
+                receiver: left,
+                range: right,
+                ..
+            }
+            | Self::MakeCheckedSlice {
+                receiver: left,
+                range: right,
+                ..
+            }
+            | Self::Offset {
+                pointer: left,
+                count: right,
+            }
+            | Self::Occupied {
+                receiver: left,
+                index: right,
+            }
+            | Self::EntryKey {
+                receiver: left,
+                index: right,
+            }
+            | Self::EntryValue {
+                receiver: left,
+                index: right,
+            }
+            | Self::Store {
+                pointer: left,
+                value: right,
+            }
+            | Self::SetField {
+                object: left,
+                value: right,
+                ..
+            }
+            | Self::Overflowing { left, right, .. } => {
+                visit(left);
+                visit(right);
+            }
+            Self::HashValue { value: held }
+            | Self::DisplayValue { value: held }
+            | Self::Print { value: held }
+            | Self::MakeError { message: held }
+            | Self::Panic { message: held }
+            | Self::Convert { value: held, .. }
+            | Self::Reinterpret { value: held, .. }
+            | Self::IsType { value: held, .. }
+            | Self::DynValue { value: held }
+            | Self::MakeDyn { value: held, .. }
+            | Self::MakeSome { value: held }
+            | Self::CopyValue { value: held, .. }
+            | Self::Freeze { value: held }
+            | Self::GetField { object: held, .. }
+            | Self::FieldAddress { object: held, .. }
+            | Self::GetTag { value: held }
+            | Self::GetPayload { value: held, .. }
+            | Self::GetElement { tuple: held, .. }
+            | Self::ListPop { receiver: held }
+            | Self::Clear { receiver: held }
+            | Self::Length { receiver: held }
+            | Self::Buckets { receiver: held }
+            | Self::IsSome { value: held }
+            | Self::Unwrap { value: held }
+            | Self::KeepAlive { value: held }
+            | Self::ReleaseSlice { value: held }
+            | Self::Load { pointer: held }
+            | Self::SlotSet { value: held, .. } => visit(held),
+            Self::Assert { condition, message } => {
+                visit(condition);
+                if let Some(message) = message {
+                    visit(message);
+                }
+            }
+            Self::Call { args, .. } => args.iter_mut().for_each(visit),
+            Self::CallIndirect { callee, args } => {
+                visit(callee);
+                args.iter_mut().for_each(visit);
+            }
+            Self::CallVirtual { receiver, args, .. } => {
+                visit(receiver);
+                args.iter_mut().for_each(visit);
+            }
+            Self::MakeClosure { captures, .. }
+            | Self::MakeStruct {
+                fields: captures, ..
+            }
+            | Self::MakeEnum {
+                payload: captures, ..
+            }
+            | Self::MakeTuple(captures)
+            | Self::MakeList {
+                values: captures, ..
+            }
+            | Self::MakeSet {
+                values: captures, ..
+            } => captures.iter_mut().for_each(visit),
+            Self::MakeMap { entries, .. } => {
+                for (key, held) in entries {
+                    visit(key);
+                    visit(held);
+                }
+            }
+            Self::SetIndex {
+                receiver,
+                index,
+                value: held,
+            }
+            | Self::SetUncheckedIndex {
+                receiver,
+                index,
+                value: held,
+            } => {
+                visit(receiver);
+                visit(index);
+                visit(held);
+            }
+        }
+    }
+
+    /// Visits every stack slot the instruction names, for renaming (LR72).
+    pub fn slots_mut(&mut self, mut visit: impl FnMut(&mut SlotId)) {
+        match self {
+            Self::AddressOf { slot, .. } | Self::SlotGet { slot } | Self::SlotSet { slot, .. } => {
+                visit(slot);
+            }
+            _ => {}
+        }
+    }
     /// What the instruction does besides producing its result (LR55).
     #[must_use]
     pub fn effect(&self) -> Effect {
