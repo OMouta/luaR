@@ -1,0 +1,41 @@
+--- expect: run
+--- exit: 0
+--- stdout: "body\ncleanup ends\ncancelled\n"
+--- spec: LR27.2
+--- spec: LR27.3
+--- spec: LR26
+--- spec: STD22
+import { Cancelled, yieldNow } from "std/async"
+
+ref struct Link
+    task: Task<()>?
+end
+
+async function cancel(link: Link)
+    local task = link.task
+    if task ~= nil then
+        task:cancel()
+    end
+    local done: () = await yieldNow()
+end
+
+async function work(link: Link)
+    try
+        print("body")
+    finally
+        local done: () = await cancel(link)
+        print("cleanup ends")
+    end
+    print("ordinary execution must not resume")
+end
+
+export async function main()
+    local link = Link { task = nil }
+    local task = work(link)
+    link.task = task
+    try
+        local done: () = await task
+    catch error: Cancelled
+        print("cancelled")
+    end
+end

@@ -1,0 +1,25 @@
+--- expect: run
+--- exit: 0
+--- stdout: "1\n2\n3\nafter\n"
+--- spec: LR27.2
+--- spec: LR26
+async function child()
+    print("child must not run")
+end
+
+export async function main()
+    for i in 1..=3 do
+        async scope tasks
+            defer print(i)
+            tasks:spawn(child())
+            continue
+        end
+    end
+    while true do
+        async scope tasks
+            tasks:spawn(child())
+            break
+        end
+    end
+    print("after")
+end

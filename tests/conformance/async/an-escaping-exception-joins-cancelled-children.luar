@@ -9,6 +9,12 @@ import { Cancelled, yieldNow } from "std/async"
 
 ref struct Link
     parent: Task<()>?
+    pause: Task<()>
+end
+
+async function pause()
+    local first: () = await yieldNow()
+    local second: () = await yieldNow()
 end
 
 async function child(link: Link)
@@ -21,7 +27,7 @@ async function child(link: Link)
         local yielded: () = await yieldNow()
     catch error: Cancelled
         print("child cancelled")
-        local yielded: () = await yieldNow()
+        local yielded: () = await link.pause
     end
     print("child done")
 end
@@ -31,12 +37,14 @@ async function parent(link: Link)
 end
 
 export async function main()
-    local link = Link { parent = nil }
-    local task = parent(link)
-    link.parent = task
-    try
-        local finished: () = await task
-    catch error: Cancelled
-        print("parent failed")
+    async scope tasks
+        local link = Link { parent = nil, pause = tasks:spawn(pause()) }
+        local task = parent(link)
+        link.parent = task
+        try
+            local finished: () = await task
+        catch error: Cancelled
+            print("parent failed")
+        end
     end
 end

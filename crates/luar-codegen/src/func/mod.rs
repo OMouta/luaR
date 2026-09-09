@@ -604,7 +604,14 @@ impl Translator<'_, '_> {
                 None
             }
 
-            InstKind::Await { .. } | InstKind::CancellationPoint | InstKind::Cancel { .. } => {
+            InstKind::Await { .. }
+            | InstKind::CancellationPoint
+            | InstKind::Cancel { .. }
+            | InstKind::ScopeOpen { .. }
+            | InstKind::ScopeJoin { .. }
+            | InstKind::ScopeClose { .. }
+            | InstKind::ScopeSpawn { .. }
+            | InstKind::ScopeCancel { .. } => {
                 self.gap("an async instruction the task pass did not expand");
                 None
             }

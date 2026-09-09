@@ -23,10 +23,6 @@ pub fn convert(ty: &Type, ids: &Ids) -> Result<Ty, Refused> {
             kind: SemaBuiltin::Error,
             ..
         } => Ty::Error,
-        Type::Builtin {
-            kind: SemaBuiltin::TaskScope,
-            ..
-        } => return Err("a task scope handle"),
         Type::Builtin { kind, args } => Ty::Builtin {
             kind: builtin(*kind),
             args: each(args, ids)?,
@@ -134,6 +130,6 @@ fn builtin(kind: SemaBuiltin) -> Builtin {
         SemaBuiltin::ReversedRangeExclusive => Builtin::ReversedRangeExclusive,
         SemaBuiltin::ReversedRangeInclusive => Builtin::ReversedRangeInclusive,
         SemaBuiltin::Task => Builtin::Task,
-        SemaBuiltin::TaskScope => unreachable!("TaskScope has no LIR representation yet"),
+        SemaBuiltin::TaskScope => Builtin::TaskScope,
     }
 }

@@ -127,6 +127,10 @@ pub(super) struct Body<'a> {
     /// What each open scope runs on the way out, in the order it was written
     /// (LR25.3, LR26). One frame per entry in `scopes`.
     deferred: Vec<Vec<Cleanup>>,
+    task_scopes: HashMap<usize, (Value, bool)>,
+    propagating: bool,
+    pending_exception: Option<Value>,
+    cleanup_handlers: Vec<usize>,
     /// The `try` statements open around what is being lowered, innermost
     /// last. Empty where a thrown value leaves the function (LR25.3).
     handlers: Vec<Handler>,
@@ -179,6 +183,10 @@ impl<'a> Body<'a> {
             left: false,
             scopes: vec![Vec::new()],
             deferred: vec![Vec::new()],
+            task_scopes: HashMap::new(),
+            propagating: false,
+            pending_exception: None,
+            cleanup_handlers: Vec::new(),
             handlers: Vec::new(),
             declared,
             throws,
@@ -234,7 +242,26 @@ impl<'a> Body<'a> {
             self.bind_value(binding, value, block.span);
         }
 
-        self.block(block);
+        if self.function.asynchronous {
+            self.open();
+            let root = self.emit(
+                InstKind::ScopeOpen {
+                    kind: crate::inst::ScopeKind::Implicit,
+                },
+                crate::tasks::scope_type(),
+                block.span,
+            );
+            self.task_scopes.insert(self.scopes.len() - 1, (root, true));
+            for stmt in &block.stmts {
+                if self.left {
+                    break;
+                }
+                self.stmt(stmt);
+            }
+            self.close();
+        } else {
+            self.block(block);
+        }
 
         // LR9.1: a body that runs off its end returns nothing, which is only a
         // value where the function writes no result.
@@ -323,6 +350,7 @@ impl<'a> Body<'a> {
         if !self.left {
             self.unwind(self.scopes.len() - 1);
         }
+        self.task_scopes.remove(&(self.scopes.len() - 1));
         self.scopes.pop();
         self.deferred.pop();
     }
@@ -330,10 +358,50 @@ impl<'a> Body<'a> {
     /// Runs what scope `frame` deferred, in reverse order of registration
     /// (LR25.3, LR26).
     fn unwind(&mut self, frame: usize) -> bool {
+        self.unwind_scope(frame, false)
+    }
+
+    fn unwind_scope(&mut self, frame: usize, abrupt: bool) -> bool {
+        if let Some((scope, implicit)) = self.task_scopes.remove(&frame) {
+            let span = self.function.span;
+            let error = self.emit(
+                InstKind::ScopeJoin {
+                    scope,
+                    cancel: abrupt && (!implicit || self.propagating),
+                    propagating: self.propagating,
+                },
+                Ty::Optional(Box::new(Ty::Dynamic)),
+                span,
+            );
+            self.emit_void(InstKind::ScopeClose { scope }, span);
+            if !self.propagating {
+                let depth = self
+                    .handlers
+                    .partition_point(|handler| handler.frame <= frame);
+                let exited = self.handlers.split_off(depth);
+                self.raise_pending(error, span);
+                self.handlers.extend(exited);
+            }
+            self.task_scopes.insert(frame, (scope, implicit));
+        }
         let mut index = self.deferred[frame].len();
         while index > 0 {
             index -= 1;
             let cleanup = self.deferred[frame].remove(index);
+            self.cleanup_handlers.push(self.handlers.len());
+            let shielded = self.function.asynchronous && !matches!(&cleanup, Cleanup::Slice(..));
+            if shielded {
+                self.open();
+                let scope = self.emit(
+                    InstKind::ScopeOpen {
+                        kind: crate::inst::ScopeKind::Cleanup,
+                    },
+                    crate::tasks::scope_type(),
+                    self.function.span,
+                );
+                self.task_scopes
+                    .insert(self.scopes.len() - 1, (scope, true));
+            }
             match &cleanup {
                 Cleanup::Deferred(call) => {
                     self.expr(call, None);
@@ -347,6 +415,18 @@ impl<'a> Body<'a> {
                     }
                 }
             }
+            if shielded {
+                self.close();
+                if !self.left && !self.propagating {
+                    let depth = self
+                        .handlers
+                        .partition_point(|handler| handler.frame <= frame);
+                    let exited = self.handlers.split_off(depth);
+                    self.cancellation_point(self.function.span);
+                    self.handlers.extend(exited);
+                }
+            }
+            self.cleanup_handlers.pop();
             self.deferred[frame].insert(index, cleanup);
             if self.left {
                 return true;
@@ -359,7 +439,7 @@ impl<'a> Body<'a> {
     /// which is what leaving several of them at once does (LR26).
     fn unwind_from(&mut self, depth: usize) -> bool {
         for frame in (depth..self.scopes.len()).rev() {
-            if self.unwind(frame) {
+            if self.unwind_scope(frame, true) {
                 return true;
             }
         }

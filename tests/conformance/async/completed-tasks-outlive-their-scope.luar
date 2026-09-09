@@ -1,0 +1,19 @@
+--- expect: run
+--- exit: 0
+--- stdout: "42\n42\n"
+--- spec: LR27.2
+--- spec: LR27
+async function child(): int
+    return 42
+end
+
+export async function main()
+    local held: Task<int>? = nil
+    async scope tasks
+        held = tasks:spawn(child())
+    end
+    if held ~= nil then
+        print(await held)
+        print(await held)
+    end
+end

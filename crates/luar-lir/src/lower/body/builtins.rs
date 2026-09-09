@@ -37,8 +37,16 @@ impl<'a> Body<'a> {
             Builtin::StringBytes => self.string_bytes(callee, span),
             Builtin::StringByte => self.string_byte(args, span),
             Builtin::CancelTask => self.cancel_task(args, span),
-            Builtin::SpawnTask | Builtin::CancelScope => {
-                self.missing(span, "a task scope operation")
+            Builtin::SpawnTask => {
+                let scope = self.expr(callee, None);
+                let task = self.expr(&args[0].value, None);
+                let ty = self.function.type_of(task).clone();
+                self.emit(InstKind::ScopeSpawn { scope, task }, ty, span)
+            }
+            Builtin::CancelScope => {
+                let scope = self.expr(callee, None);
+                self.emit_void(InstKind::ScopeCancel { scope }, span);
+                self.emit(InstKind::Const(Const::Unit), Ty::Unit, span)
             }
             Builtin::Freeze => {
                 let value = self.expr(callee, None);

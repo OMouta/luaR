@@ -106,6 +106,7 @@ pub enum Builtin {
     ReversedRangeExclusive,
     ReversedRangeInclusive,
     Task,
+    TaskScope,
 }
 
 impl Builtin {
@@ -125,6 +126,7 @@ impl Builtin {
             Self::ReversedRangeExclusive => "reversed range",
             Self::ReversedRangeInclusive => "reversed range",
             Self::Task => "Task",
+            Self::TaskScope => "TaskScope",
         }
     }
 }

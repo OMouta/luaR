@@ -1,0 +1,20 @@
+--- expect: run
+--- exit: 0
+--- stdout: "cleanup\n42\n"
+--- spec: LR27.2
+--- spec: LR26
+async function child()
+    print("child must not run")
+end
+
+async function work(): int
+    async scope tasks
+        defer print("cleanup")
+        tasks:spawn(child())
+        return 42
+    end
+end
+
+export async function main()
+    print(await work())
+end

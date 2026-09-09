@@ -161,6 +161,13 @@ pub enum Effect {
     State,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScopeKind {
+    Implicit,
+    Explicit,
+    Cleanup,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum InstKind {
     /// A literal (LR4).
@@ -216,6 +223,26 @@ pub enum InstKind {
     /// The cancellation request the running task must deliver here, or
     /// nothing (LR27.3).
     CancellationPoint,
+    /// LR27.2: opens an explicit scope or reads the function's implicit scope.
+    ScopeOpen {
+        kind: ScopeKind,
+    },
+    /// LR27.2: joins before block defers, cancelling on abrupt exits.
+    ScopeJoin {
+        scope: Value,
+        cancel: bool,
+        propagating: bool,
+    },
+    ScopeClose {
+        scope: Value,
+    },
+    ScopeSpawn {
+        scope: Value,
+        task: Value,
+    },
+    ScopeCancel {
+        scope: Value,
+    },
     /// `task:cancel()`, with the exception it delivers (LR27.3).
     Cancel {
         task: Value,
@@ -521,6 +548,7 @@ impl InstKind {
         match self {
             Self::Const(_)
             | Self::CancellationPoint
+            | Self::ScopeOpen { .. }
             | Self::AddressOf { .. }
             | Self::SlotGet { .. } => {}
             Self::Unary { operand, .. } => visit(operand),
@@ -600,6 +628,10 @@ impl InstKind {
                 task: left,
                 error: right,
             }
+            | Self::ScopeSpawn {
+                scope: left,
+                task: right,
+            }
             | Self::Overflowing { left, right, .. } => {
                 visit(left);
                 visit(right);
@@ -632,6 +664,9 @@ impl InstKind {
             | Self::ReleaseSlice { value: held }
             | Self::Load { pointer: held }
             | Self::Await { task: held }
+            | Self::ScopeJoin { scope: held, .. }
+            | Self::ScopeClose { scope: held }
+            | Self::ScopeCancel { scope: held }
             | Self::SlotSet { value: held, .. } => visit(held),
             Self::Assert { condition, message } => {
                 visit(condition);
@@ -770,6 +805,11 @@ impl InstKind {
             Self::Print { .. }
             | Self::Await { .. }
             | Self::CancellationPoint
+            | Self::ScopeOpen { .. }
+            | Self::ScopeJoin { .. }
+            | Self::ScopeClose { .. }
+            | Self::ScopeSpawn { .. }
+            | Self::ScopeCancel { .. }
             | Self::Cancel { .. } => Effect::State,
         }
     }

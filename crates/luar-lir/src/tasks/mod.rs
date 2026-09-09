@@ -4,6 +4,7 @@
 mod build;
 mod machine;
 mod runtime;
+mod scopes;
 
 use crate::inst::{Allocation, Inst, InstKind};
 use crate::lower::Gap;
@@ -22,19 +23,13 @@ pub const DELIVERED: u32 = 4;
 pub const QUEUED: u32 = 5;
 pub const WAITING: u32 = 6;
 pub const WAITERS: u32 = 7;
-pub const CHILDREN: u32 = 8;
+pub const ROOT_SCOPE: u32 = 8;
 pub const SCHEDULER: u32 = 9;
 pub const OWNER: u32 = 10;
-pub const FAILURES: u32 = 11;
+pub const ACTIVE_SCOPE: u32 = 11;
 pub const OBSERVED: u32 = 12;
 
-/// What a `Task<T>` holds: the closure that advances it and says whether it
-/// completed, its completion, whether it started, its cancellation request
-/// and whether that was delivered, whether it is queued, the task it waits
-/// for, the tasks waiting for it, the children its implicit scope owns, and
-/// the scheduler it runs on, its owner, failed children in completion order,
-/// and whether an await observed its completion. Only the completion depends
-/// on `T`, so a handle can be read as `Task<()>` where `T` is not needed.
+/// Only the completion depends on `T`; runtime operations erase it to `()`.
 #[must_use]
 pub fn task_fields(result: &Ty) -> Vec<Ty> {
     let optional_dynamic = Ty::Optional(Box::new(Ty::Dynamic));
@@ -54,12 +49,36 @@ pub fn task_fields(result: &Ty) -> Vec<Ty> {
         Ty::Bool,
         optional_dynamic,
         list_of_dynamic(),
-        list_of_dynamic(),
+        scope_type(),
         Ty::Dynamic,
         Ty::Optional(Box::new(Ty::Dynamic)),
-        list_of_dynamic(),
+        scope_type(),
         Ty::Bool,
     ]
+}
+
+pub const SCOPE_CHILDREN: u32 = 0;
+pub const SCOPE_FAILURES: u32 = 1;
+pub const SCOPE_REQUEST: u32 = 2;
+pub const SCOPE_PARENT: u32 = 3;
+pub const SCOPE_SHIELDED: u32 = 4;
+
+#[must_use]
+pub fn scope_fields() -> Vec<Ty> {
+    vec![
+        list_of_dynamic(),
+        list_of_dynamic(),
+        Ty::Optional(Box::new(Ty::Dynamic)),
+        Ty::Optional(Box::new(scope_type())),
+        Ty::Bool,
+    ]
+}
+
+pub(crate) fn scope_type() -> Ty {
+    Ty::Builtin {
+        kind: Builtin::TaskScope,
+        args: Vec::new(),
+    }
 }
 
 pub(crate) fn erased_task() -> Ty {

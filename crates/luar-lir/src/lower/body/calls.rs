@@ -43,6 +43,10 @@ impl<'a> Body<'a> {
             Ty::Optional(Box::new(Ty::Dynamic)),
             span,
         );
+        self.raise_pending(request, span);
+    }
+
+    pub(super) fn raise_pending(&mut self, request: Value, span: Span) {
         let pending = self.emit(InstKind::IsSome { value: request }, Ty::Bool, span);
         let deliver = self.function.add_block();
         let proceed = self.function.add_block();

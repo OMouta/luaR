@@ -92,6 +92,10 @@ pub fn size(program: &Program, ty: &Ty, pointer: Type) -> Option<i32> {
             kind: Builtin::Task,
             args,
         } if args.len() == 1 => u32::try_from(luar_lir::tasks::task_fields(&args[0]).len()).ok()?,
+        Ty::Builtin {
+            kind: Builtin::TaskScope,
+            ..
+        } => 5,
         // LR13: a count, a capacity, and the storage the elements live in.
         Ty::Builtin {
             kind:
@@ -231,6 +235,10 @@ pub fn parts(program: &Program, ty: &Ty) -> Option<Vec<Ty>> {
             kind: Builtin::Task,
             args,
         } if args.len() == 1 => Some(luar_lir::tasks::task_fields(&args[0])),
+        Ty::Builtin {
+            kind: Builtin::TaskScope,
+            ..
+        } => Some(luar_lir::tasks::scope_fields()),
         _ => None,
     }
 }
@@ -335,6 +343,7 @@ pub fn is_aggregate(ty: &Ty) -> bool {
                     | Builtin::FrozenSet
                     | Builtin::Slice
                     | Builtin::Task
+                    | Builtin::TaskScope
                     | Builtin::RangeExclusive
                     | Builtin::RangeInclusive
                     | Builtin::ReversedRangeExclusive

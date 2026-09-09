@@ -57,7 +57,26 @@ impl<'a> Body<'a> {
             } => self.try_stmt(body, catches, finally.as_ref(), stmt.span),
             // LR29.2: `unsafe` is a promise the checker made the caller keep.
             StmtKind::Unsafe(block) => self.block(block),
-            StmtKind::AsyncScope { .. } => self.gap(stmt.span, "an explicit task scope"),
+            StmtKind::AsyncScope { name, body } => {
+                self.open();
+                let scope = self.emit(
+                    InstKind::ScopeOpen {
+                        kind: crate::inst::ScopeKind::Explicit,
+                    },
+                    crate::tasks::scope_type(),
+                    stmt.span,
+                );
+                self.bind_name(name, scope, stmt.span);
+                self.task_scopes
+                    .insert(self.scopes.len() - 1, (scope, false));
+                for stmt in &body.stmts {
+                    if self.left {
+                        break;
+                    }
+                    self.stmt(stmt);
+                }
+                self.close();
+            }
             StmtKind::Expr(expr) => {
                 self.expr(expr, None);
             }
@@ -283,6 +302,23 @@ impl<'a> Body<'a> {
     /// Sends a thrown value to the innermost `try` around it, or out of the
     /// function where there is none (LR25.3).
     pub(super) fn raise(&mut self, thrown: Value, span: Span) {
+        let thrown = if self
+            .cleanup_handlers
+            .last()
+            .is_some_and(|depth| self.handlers.len() <= *depth)
+        {
+            self.pending_exception.unwrap_or(thrown)
+        } else {
+            thrown
+        };
+        let pending = self.pending_exception.replace(thrown);
+        let propagating = std::mem::replace(&mut self.propagating, true);
+        self.raise_inner(thrown, span);
+        self.propagating = propagating;
+        self.pending_exception = pending;
+    }
+
+    fn raise_inner(&mut self, thrown: Value, span: Span) {
         let Some(handler) = self.handlers.last().cloned() else {
             if !self.throws {
                 self.gap(span, "a throw the call graph did not reach");

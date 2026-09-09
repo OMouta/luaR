@@ -1,0 +1,18 @@
+--- expect: run
+--- exit: 0
+--- stdout: "body\nfirst\nsecond\ncleanup\nafter\n"
+--- spec: LR27.2
+--- spec: LR26
+async function child(name: string)
+    print(name)
+end
+
+export async function main()
+    async scope tasks
+        defer print("cleanup")
+        tasks:spawn(child("first"))
+        tasks:spawn(child("second"))
+        print("body")
+    end
+    print("after")
+end

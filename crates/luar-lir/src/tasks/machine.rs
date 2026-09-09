@@ -20,12 +20,12 @@ use crate::ty::{Builtin, Ty};
 use super::build::Builder;
 use super::runtime::{Runtime, list_of_dynamic};
 use super::{
-    CHILDREN, COMPLETION, DELIVERED, FAILURES, OBSERVED, OWNER, POLL, QUEUED, REQUEST, SCHEDULER,
-    STARTED, WAITERS, WAITING,
+    ACTIVE_SCOPE, COMPLETION, DELIVERED, OBSERVED, OWNER, POLL, QUEUED, REQUEST, ROOT_SCOPE,
+    SCHEDULER, STARTED, WAITERS, WAITING, scope_type,
 };
 
 /// The frame's fixed fields. The parameters follow, then the spilled values.
-const STATE: u32 = 0;
+pub(super) const STATE: u32 = 0;
 const TASK: u32 = 1;
 const RESULT: u32 = 2;
 const FIRST_PARAM: u32 = 3;
@@ -130,14 +130,21 @@ pub(super) fn transform(
         let Some(at) = b.function.block(block).insts.iter().position(|inst| {
             matches!(
                 inst.kind,
-                InstKind::Await { .. } | InstKind::CancellationPoint
+                InstKind::Await { .. }
+                    | InstKind::CancellationPoint
+                    | InstKind::ScopeOpen { .. }
+                    | InstKind::ScopeJoin { .. }
+                    | InstKind::ScopeClose { .. }
+                    | InstKind::ScopeSpawn { .. }
+                    | InstKind::ScopeCancel { .. }
             )
         }) else {
             continue;
         };
         let (inst, post) = split(b.function, block, at);
-        let result = inst.result.expect("an await produces a value");
-        b.function.block_mut(post).params.push(result);
+        if let Some(result) = inst.result {
+            b.function.block_mut(post).params.push(result);
+        }
         b.switch_to(block);
         match inst.kind {
             InstKind::CancellationPoint => expand_point(&mut b, me, post),
@@ -148,6 +155,38 @@ pub(super) fn transform(
                 cases.push((state as u64, Target::to(resume)));
                 resumes.push(resume);
                 awaited.push(task);
+            }
+            InstKind::ScopeJoin {
+                scope,
+                cancel,
+                propagating,
+            } => {
+                let state = next_state;
+                next_state += 1;
+                let resume = super::scopes::join(
+                    &mut b,
+                    runtime,
+                    frame,
+                    me,
+                    scope,
+                    cancel,
+                    propagating,
+                    cancelled,
+                    state,
+                    post,
+                );
+                cases.push((state as u64, Target::to(resume)));
+                resumes.push(resume);
+            }
+            InstKind::ScopeOpen { kind } => super::scopes::open(&mut b, me, kind, post),
+            InstKind::ScopeClose { scope } => super::scopes::close(&mut b, me, scope, post),
+            InstKind::ScopeCancel { scope } => {
+                let error = cancellation(&mut b, cancelled);
+                super::scopes::cancel(&mut b, runtime, scope, error);
+                b.jump(post);
+            }
+            InstKind::ScopeSpawn { scope, task } => {
+                super::scopes::spawn(&mut b, runtime, me, scope, task, post)
             }
             _ => unreachable!(),
         }
@@ -195,7 +234,8 @@ pub(super) fn transform(
     b.jump(join);
 
     b.switch_to(join);
-    let boxed = b.boxed(me);
+    let root = b.get(me, ROOT_SCOPE, scope_type());
+    let boxed = b.boxed(root);
     let next = b.call(
         runtime.next_child,
         vec![boxed],
@@ -242,7 +282,8 @@ pub(super) fn transform(
     let preserve = b.block();
     b.branch(failed, preserve, select);
     b.switch_to(select);
-    let boxed = b.boxed(me);
+    let root = b.get(me, ROOT_SCOPE, scope_type());
+    let boxed = b.boxed(root);
     let error = b.call(
         runtime.child_error,
         vec![boxed],
@@ -366,6 +407,18 @@ pub(super) fn transform(
     let waiting = b.nil(Ty::Optional(Box::new(Ty::Dynamic)));
     let waiters = empty_list(&mut b);
     let children = empty_list(&mut b);
+    let failures = empty_list(&mut b);
+    let scope_request = b.nil(Ty::Optional(Box::new(Ty::Dynamic)));
+    let parent = b.nil(Ty::Optional(Box::new(scope_type())));
+    let shielded = b.bool(false);
+    let root = b.emit(
+        InstKind::MakeStruct {
+            ty: scope_type(),
+            fields: vec![children, failures, scope_request, parent, shielded],
+            allocation: Allocation::Managed,
+        },
+        scope_type(),
+    );
     let scheduler = b.nil(Ty::Dynamic);
     let mut task_fields = vec![Value(0); super::task_fields(&Ty::Unit).len()];
     task_fields[POLL as usize] = poll_closure;
@@ -376,10 +429,10 @@ pub(super) fn transform(
     task_fields[QUEUED as usize] = queued;
     task_fields[WAITING as usize] = waiting;
     task_fields[WAITERS as usize] = waiters;
-    task_fields[CHILDREN as usize] = children;
+    task_fields[ROOT_SCOPE as usize] = root;
     task_fields[SCHEDULER as usize] = scheduler;
     task_fields[OWNER as usize] = b.nil(Ty::Optional(Box::new(Ty::Dynamic)));
-    task_fields[FAILURES as usize] = empty_list(&mut b);
+    task_fields[ACTIVE_SCOPE as usize] = root;
     task_fields[OBSERVED as usize] = b.bool(false);
     let task = b.emit(
         InstKind::MakeStruct {
@@ -413,12 +466,16 @@ fn split(function: &mut Function, block: BlockId, at: usize) -> (Inst, BlockId) 
 }
 
 /// The task's pending request, and whether it is still to be delivered.
-fn due_request(b: &mut Builder<'_>, me: Value) -> (Value, Value) {
+pub(super) fn due_request(b: &mut Builder<'_>, me: Value) -> (Value, Value) {
     let request = b.get(me, REQUEST, Ty::Optional(Box::new(Ty::Dynamic)));
     let delivered = b.get(me, DELIVERED, Ty::Bool);
     let pending = b.is_some(request);
     let undelivered = b.not(delivered);
     let due = b.and(pending, undelivered);
+    let scope = b.get(me, ACTIVE_SCOPE, scope_type());
+    let shielded = b.get(scope, super::SCOPE_SHIELDED, Ty::Bool);
+    let unshielded = b.not(shielded);
+    let due = b.and(due, unshielded);
     (request, due)
 }
 
@@ -538,7 +595,7 @@ fn expand_await(
     let parent = b.boxed(me);
     let child = b.boxed(task);
     b.call(runtime.start, vec![parent, child], Ty::Unit);
-    b.jump(wait);
+    b.jump(retry);
 
     b.switch_to(wait);
     let waiter = b.boxed(me);

@@ -181,6 +181,20 @@ fn instruction(inst: &Inst, function: &Function) -> String {
         InstKind::Panic { message } => format!("panic {}", name(*message)),
         InstKind::Await { task } => format!("await {}", name(*task)),
         InstKind::CancellationPoint => "cancellation point".to_owned(),
+        InstKind::ScopeOpen { kind } => format!("scope open {kind:?}"),
+        InstKind::ScopeJoin {
+            scope,
+            cancel,
+            propagating,
+        } => format!(
+            "scope join {} cancel={cancel} propagating={propagating}",
+            name(*scope)
+        ),
+        InstKind::ScopeClose { scope } => format!("scope close {}", name(*scope)),
+        InstKind::ScopeSpawn { scope, task } => {
+            format!("scope spawn {} {}", name(*scope), name(*task))
+        }
+        InstKind::ScopeCancel { scope } => format!("scope cancel {}", name(*scope)),
         InstKind::Cancel { task, error } => format!("cancel {} {}", name(*task), name(*error)),
         InstKind::Convert { value, to } => format!("convert {} to {to}", name(*value)),
         InstKind::Reinterpret { value, to } => {

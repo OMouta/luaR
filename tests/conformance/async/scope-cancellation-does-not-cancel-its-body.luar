@@ -1,0 +1,29 @@
+--- expect: run
+--- exit: 0
+--- stdout: "body\ncancelled\nafter\n"
+--- spec: LR27.2
+--- spec: STD22
+import { Cancelled } from "std/async"
+
+async function child()
+    print("child must not run")
+end
+
+export async function main()
+    async scope tasks
+        tasks:spawn(child())
+        tasks:cancel()
+        tasks:cancel()
+        print("body")
+        local task = tasks:spawn(child())
+        try
+            local done: () = await task
+        catch error: Cancelled
+            print("cancelled")
+        end
+        async scope nested
+            nested:spawn(child())
+        end
+    end
+    print("after")
+end

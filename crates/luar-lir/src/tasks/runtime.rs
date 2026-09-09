@@ -11,8 +11,9 @@ use crate::ty::{Builtin, Ty};
 
 use super::build::Builder;
 use super::{
-    CHILDREN, COMPLETION, FAILURES, OBSERVED, OWNER, POLL, QUEUED, REQUEST, SCHEDULER, STARTED,
-    WAITERS, WAITING, erased_task,
+    ACTIVE_SCOPE, COMPLETION, OBSERVED, OWNER, POLL, QUEUED, REQUEST, SCHEDULER, SCOPE_CHILDREN,
+    SCOPE_FAILURES, SCOPE_PARENT, SCOPE_REQUEST, STARTED, WAITERS, WAITING, erased_task,
+    scope_type,
 };
 
 /// The runnable queue and where its next entry sits.
@@ -26,6 +27,7 @@ pub(super) struct Runtime {
     pub wake: FuncId,
     pub cancel: FuncId,
     pub cancel_children: FuncId,
+    pub cancel_scope: FuncId,
     pub next_child: FuncId,
     pub child_error: FuncId,
     pub wait: FuncId,
@@ -88,6 +90,7 @@ pub(super) fn declare(program: &mut Program, span: Span) -> Runtime {
     let wake = program.add_function(reserved("#task.wake", 1, span));
     let cancel = program.add_function(reserved("#task.cancel", 2, span));
     let cancel_children = program.add_function(reserved("#task.cancelChildren", 2, span));
+    let cancel_scope = program.add_function(reserved("#scope.cancel", 2, span));
     let next_child = {
         let mut function = reserved("#task.nextChild", 1, span);
         function.result = optional_dynamic();
@@ -107,6 +110,7 @@ pub(super) fn declare(program: &mut Program, span: Span) -> Runtime {
         wake,
         cancel,
         cancel_children,
+        cancel_scope,
         next_child,
         child_error,
         wait,
@@ -119,6 +123,7 @@ pub(super) fn declare(program: &mut Program, span: Span) -> Runtime {
     define_wake(program.function_mut(wake), &runtime, cancelled, span);
     define_cancel(program.function_mut(cancel), &runtime, span);
     define_cancel_children(program.function_mut(cancel_children), &runtime, span);
+    define_cancel_scope(program.function_mut(cancel_scope), &runtime, span);
     define_next_child(program.function_mut(next_child), span);
     define_child_error(program.function_mut(child_error), span);
     define_wait(program.function_mut(wait), span);
@@ -168,19 +173,34 @@ fn define_start(function: &mut Function, runtime: &Runtime, span: Span) {
     let child = function.block(entry).params[1];
     let mut b = Builder::new(function, entry, span);
     let c = b.unboxed(child, erased_task());
-    let yes = b.bool(true);
-    b.set(c, STARTED, yes);
     let p = b.unboxed(parent, erased_task());
     let sched = b.get(p, SCHEDULER, Ty::Dynamic);
     b.set(c, SCHEDULER, sched);
-    let owner = b.some(parent);
+    let scope = b.get(p, ACTIVE_SCOPE, scope_type());
+    let boxed_scope = b.boxed(scope);
+    let owner = b.some(boxed_scope);
     b.set(c, OWNER, owner);
-    let children = b.get(p, CHILDREN, list_of_dynamic());
+    let children = b.get(scope, SCOPE_CHILDREN, list_of_dynamic());
     b.emit_void(InstKind::ListPush {
         receiver: children,
         value: child,
     });
+    let request = b.get(scope, SCOPE_REQUEST, optional_dynamic());
+    let cancelled = b.is_some(request);
+    let cancel = b.block();
+    let enqueue = b.block();
+    let done = b.block();
+    b.branch(cancelled, cancel, enqueue);
+    b.switch_to(cancel);
+    let error = b.unwrap(request, Ty::Dynamic);
+    b.call(runtime.cancel, vec![child, error], Ty::Unit);
+    b.jump(done);
+    b.switch_to(enqueue);
+    let yes = b.bool(true);
+    b.set(c, STARTED, yes);
     b.call(runtime.enqueue, vec![sched, child], Ty::Unit);
+    b.jump(done);
+    b.switch_to(done);
     let unit = b.unit();
     b.ret(unit);
 }
@@ -233,18 +253,14 @@ fn define_wake(function: &mut Function, runtime: &Runtime, cancelled: Option<Typ
     }
     b.switch_to(record);
     let parent = b.unwrap(owner, Ty::Dynamic);
-    let p = b.unboxed(parent, erased_task());
-    let failures = b.get(p, FAILURES, list_of_dynamic());
+    let p = b.unboxed(parent, scope_type());
+    let failures = b.get(p, SCOPE_FAILURES, list_of_dynamic());
     b.emit_void(InstKind::ListPush {
         receiver: failures,
         value: task,
     });
     let cancellation = super::machine::cancellation(&mut b, cancelled);
-    b.call(
-        runtime.cancel_children,
-        vec![parent, cancellation],
-        Ty::Unit,
-    );
+    b.call(runtime.cancel_scope, vec![parent, cancellation], Ty::Unit);
     b.jump(notify);
     b.switch_to(notify);
     let waiters = b.get(t, WAITERS, list_of_dynamic());
@@ -334,7 +350,42 @@ fn define_cancel_children(function: &mut Function, runtime: &Runtime, span: Span
     let error = function.block(entry).params[1];
     let mut b = Builder::new(function, entry, span);
     let t = b.unboxed(task, erased_task());
-    let children = b.get(t, CHILDREN, list_of_dynamic());
+    let active = b.get(t, ACTIVE_SCOPE, scope_type());
+    let walk = b.block();
+    let scope = b.param(walk, scope_type());
+    let next = b.block();
+    let done = b.block();
+    b.jump_with(walk, vec![active]);
+    b.switch_to(walk);
+    let shielded = b.get(scope, super::SCOPE_SHIELDED, Ty::Bool);
+    let mark = b.block();
+    let follow = b.block();
+    b.branch(shielded, follow, mark);
+    b.switch_to(mark);
+    let request = b.some(error);
+    b.set(scope, SCOPE_REQUEST, request);
+    let boxed = b.boxed(scope);
+    b.call(runtime.cancel_scope, vec![boxed, error], Ty::Unit);
+    b.jump(follow);
+    b.switch_to(follow);
+    let parent = b.get(scope, SCOPE_PARENT, Ty::Optional(Box::new(scope_type())));
+    let has_parent = b.is_some(parent);
+    b.branch(has_parent, next, done);
+    b.switch_to(next);
+    let parent = b.unwrap(parent, scope_type());
+    b.jump_with(walk, vec![parent]);
+    b.switch_to(done);
+    let unit = b.unit();
+    b.ret(unit);
+}
+
+fn define_cancel_scope(function: &mut Function, runtime: &Runtime, span: Span) {
+    let entry = function.entry;
+    let task = function.block(entry).params[0];
+    let error = function.block(entry).params[1];
+    let mut b = Builder::new(function, entry, span);
+    let t = b.unboxed(task, scope_type());
+    let children = b.get(t, SCOPE_CHILDREN, list_of_dynamic());
     let count = b.length(children);
     let head = b.block();
     let index = b.param(head, Ty::INT);
@@ -364,8 +415,8 @@ fn define_next_child(function: &mut Function, span: Span) {
     let entry = function.entry;
     let task = function.block(entry).params[0];
     let mut b = Builder::new(function, entry, span);
-    let t = b.unboxed(task, erased_task());
-    let children = b.get(t, CHILDREN, list_of_dynamic());
+    let t = b.unboxed(task, scope_type());
+    let children = b.get(t, SCOPE_CHILDREN, list_of_dynamic());
     let count = b.length(children);
     let head = b.block();
     let index = b.param(head, Ty::INT);
@@ -406,8 +457,8 @@ fn define_child_error(function: &mut Function, span: Span) {
     let entry = function.entry;
     let task = function.block(entry).params[0];
     let mut b = Builder::new(function, entry, span);
-    let t = b.unboxed(task, erased_task());
-    let failures = b.get(t, FAILURES, list_of_dynamic());
+    let t = b.unboxed(task, scope_type());
+    let failures = b.get(t, SCOPE_FAILURES, list_of_dynamic());
     let count = b.length(failures);
     let head = b.block();
     let index = b.param(head, Ty::INT);

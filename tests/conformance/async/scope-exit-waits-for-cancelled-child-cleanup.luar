@@ -1,0 +1,32 @@
+--- expect: run
+--- exit: 0
+--- stdout: "child cleanup starts\nchild cleanup ends\nscope cleanup\n42\n"
+--- spec: LR27.2
+--- spec: LR27.3
+--- spec: LR26
+--- spec: STD22
+import { yieldNow } from "std/async"
+
+async function child()
+    try
+        local done: () = await yieldNow()
+    finally
+        print("child cleanup starts")
+        local done: () = await yieldNow()
+        print("child cleanup ends")
+    end
+    print("child must not resume")
+end
+
+async function work(): int
+    async scope tasks
+        defer print("scope cleanup")
+        tasks:spawn(child())
+        local done: () = await yieldNow()
+        return 42
+    end
+end
+
+export async function main()
+    print(await work())
+end

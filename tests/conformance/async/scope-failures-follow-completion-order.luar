@@ -1,0 +1,33 @@
+--- expect: run
+--- exit: 0
+--- stdout: "2\n"
+--- spec: LR27.2
+--- spec: STD22
+import { Cancelled, yieldNow } from "std/async"
+
+struct Failure
+    code: int
+end
+
+async function slow()
+    try
+        local done: () = await yieldNow()
+    catch error: Cancelled
+        throw Failure { code = 1 }
+    end
+end
+
+async function fast()
+    throw Failure { code = 2 }
+end
+
+export async function main()
+    try
+        async scope tasks
+            tasks:spawn(slow())
+            tasks:spawn(fast())
+        end
+    catch error: Failure
+        print(error.code)
+    end
+end

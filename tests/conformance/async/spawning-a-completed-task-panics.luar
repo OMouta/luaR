@@ -1,0 +1,15 @@
+--- expect: run
+--- exit: 101
+--- stdout: ""
+--- spec: LR27.2
+--- spec: LR25.4
+async function child()
+end
+
+export async function main()
+    local task = child()
+    local done: () = await task
+    async scope tasks
+        tasks:spawn(task)
+    end
+end

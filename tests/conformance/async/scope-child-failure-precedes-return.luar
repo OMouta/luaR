@@ -1,0 +1,37 @@
+--- expect: run
+--- exit: 0
+--- stdout: "7\n"
+--- spec: LR27.2
+--- spec: STD22
+import { yieldNow } from "std/async"
+
+struct Failure
+    code: int
+end
+
+async function fail()
+    throw Failure { code = 7 }
+end
+
+async function work(): int
+    async scope outer
+        local pause = outer:spawn(yieldNow())
+        async scope inner
+            inner:spawn(fail())
+            local done: () = await pause
+            try
+                return 42
+            catch error: Failure
+                print("an exited catch must not run")
+            end
+        end
+    end
+end
+
+export async function main()
+    try
+        print(await work())
+    catch error: Failure
+        print(error.code)
+    end
+end

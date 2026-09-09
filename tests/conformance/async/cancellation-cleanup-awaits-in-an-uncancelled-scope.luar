@@ -1,0 +1,37 @@
+--- expect: run
+--- exit: 0
+--- stdout: "cleanup starts\ncleanup ends\ncancelled\n"
+--- spec: LR27.2
+--- spec: LR27.3
+--- spec: LR26
+--- spec: STD22
+import { Cancelled, yieldNow } from "std/async"
+
+ref struct Link
+    task: Task<()>?
+end
+
+async function work(link: Link)
+    try
+        local task = link.task
+        if task ~= nil then
+            task:cancel()
+        end
+        local done: () = await yieldNow()
+    finally
+        print("cleanup starts")
+        local done: () = await yieldNow()
+        print("cleanup ends")
+    end
+end
+
+export async function main()
+    local link = Link { task = nil }
+    local task = work(link)
+    link.task = task
+    try
+        local done: () = await task
+    catch error: Cancelled
+        print("cancelled")
+    end
+end

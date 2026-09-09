@@ -2,6 +2,7 @@
 --- exit: 0
 --- stdout: "body\ncancelled\ndone\n"
 --- spec: LR27.3
+--- spec: LR27.2
 --- spec: STD22
 import { Cancelled, yieldNow } from "std/async"
 
@@ -15,6 +16,8 @@ function pending(): Task<()>
 end
 
 async function work(link: Link)
+    local ready = yieldNow()
+    local initial: () = await ready
     print("body")
     local me = link.task
     if me ~= nil then
@@ -25,7 +28,7 @@ async function work(link: Link)
     catch error: Cancelled
         print("cancelled")
     end
-    local yielded: () = await yieldNow()
+    local yielded: () = await ready
     print("done")
 end
 

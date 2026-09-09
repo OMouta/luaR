@@ -1,0 +1,18 @@
+--- expect: run
+--- exit: 0
+--- stdout: "inner\nchild\nouter\n"
+--- spec: LR27.2
+async function child()
+    print("child")
+end
+
+export async function main()
+    async scope outer
+        async scope inner
+            outer:spawn(child())
+            inner:cancel()
+        end
+        print("inner")
+    end
+    print("outer")
+end
