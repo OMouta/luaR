@@ -3189,6 +3189,27 @@ end
 
 Parameterized testing belongs to the testing library rather than requiring special core syntax.
 
+`@test` takes no arguments and may appear once on a module-level, unqualified
+function with a body, no parameters, no type parameters, and a declared or
+inferred result of `()`. The function must not be `unsafe` or `extern`.
+For an async test, `()` is the task's result.
+
+`luarc test <file>...` runs the test functions declared in each requested file,
+in file argument order and then declaration order. Tests need not be exported.
+Imported modules' tests are not discovered unless those files are also requested.
+An ordinary build does not run tests automatically. The test runner does not
+call `main`.
+
+Each test runs in a fresh process after normal module initialization (LR78).
+An async test runs to completion under LR27, including its child joins and
+cleanup. Normal completion passes. An uncaught exception, panic, trap, or other
+unsuccessful process exit fails the test. A failed test does not prevent later
+tests from running.
+
+The runner reports each test's name and outcome and the total passed and failed.
+It exits successfully only if compilation and execution succeeded for every
+requested file and test. A file with no tests contributes no failures.
+
 ---
 
 ## 62. Documentation Comments
