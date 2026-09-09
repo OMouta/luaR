@@ -122,6 +122,7 @@ fn binary(cursor: &mut Cursor, level: Level) -> Expr {
         }
 
         let op_span = cursor.span();
+        cursor.layout_space();
         cursor.advance();
 
         let right = match level.associativity() {
@@ -289,6 +290,7 @@ fn power(cursor: &mut Cursor) -> Expr {
         return base;
     }
     let op_span = cursor.span();
+    cursor.layout_space();
     cursor.advance();
 
     // The right operand is a full unary expression, so `2 ** -1` reads, and
@@ -366,6 +368,7 @@ fn postfix_operators(cursor: &mut Cursor, mut value: Expr, propagation: bool) ->
             }
             TokenKind::LeftBracket => index(cursor, value, false),
             TokenKind::Colon => {
+                cursor.layout_tight();
                 cursor.advance();
                 let (method, _) = cursor.name();
 

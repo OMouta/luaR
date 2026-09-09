@@ -174,6 +174,7 @@ fn array(cursor: &mut Cursor) -> Type {
 
     let element = ty(cursor);
 
+    cursor.layout_keep();
     if !cursor.eat(TokenKind::Semicolon) {
         let here = cursor.span();
         cursor

@@ -1,0 +1,33 @@
+--- expect: run
+--- format: true
+--- exit: 0
+--- stdout: "4\n7\n"
+--- spec: LR64
+--- spec: LR18
+--- spec: LR43
+--- spec: LR48
+interface Readable
+function read(self):int
+end
+struct Boxed implements Readable
+inner:int
+property value:int
+get return self.inner end
+set(written) self.inner=written end
+end
+function read(self):int return self.value end
+end
+#if target.os == "nowhere"
+function unavailable():int return "not checked" end
+#else
+function identity<T>(value:T):T return value end
+#end
+export function main()
+local boxed=Boxed {
+inner=1,
+}
+boxed.value=4
+print(boxed:read())
+local result=if true then identity<int>(7) else 0
+print(result)
+end

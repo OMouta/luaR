@@ -8,6 +8,7 @@ use std::path::Path;
 use luar_diagnostics::{Diagnostic, FileId, SourceMap};
 use luar_lir::lower::Lowered;
 use luar_parser::Target;
+pub use luar_parser::format;
 
 pub use luar_lir::lower::CompilationMode;
 

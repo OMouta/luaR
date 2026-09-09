@@ -48,6 +48,7 @@ pub(crate) fn module(cursor: &mut Cursor) -> Module {
 /// One declaration or statement into `items`, or the ones a `#if` selects
 /// (LR48).
 fn read_item(cursor: &mut Cursor, items: &mut Vec<Item>) {
+    cursor.layout_break();
     if cursor.at_directive(Keyword::If) {
         items.extend(conditional(cursor));
         return;
@@ -501,11 +502,13 @@ fn structure(
         }
     }
 
+    let layout_start = cursor.previous_span().end;
     let mut members = Vec::new();
     while !matches!(
         cursor.kind(),
         TokenKind::Keyword(Keyword::End) | TokenKind::Eof
     ) {
+        cursor.layout_break();
         let before = cursor.mark();
         members.push(member(cursor));
 
@@ -514,6 +517,7 @@ fn structure(
         }
     }
 
+    cursor.layout_body(layout_start);
     if !cursor.eat_keyword(Keyword::End) {
         let here = cursor.span();
         cursor
@@ -627,6 +631,8 @@ fn property(cursor: &mut Cursor, start: Span, visibility: Option<Visibility>) ->
     }
     let ty = ty::ty(cursor);
 
+    let layout_start = cursor.previous_span().end;
+    cursor.layout_break();
     let get = if cursor.eat_contextual("get") {
         let body = stmt::block(cursor);
         close(cursor, start, "get");
@@ -643,8 +649,10 @@ fn property(cursor: &mut Cursor, start: Span, visibility: Option<Visibility>) ->
         }
     };
 
+    cursor.layout_break();
     let set = cursor.eat_contextual("set").then(|| setter(cursor));
 
+    cursor.layout_body(layout_start);
     close(cursor, start, "property");
 
     Property {
@@ -742,11 +750,13 @@ fn enumeration(
     let name = cursor.name().0;
     let type_params = type_parameters(cursor);
 
+    let layout_start = cursor.previous_span().end;
     let mut variants = Vec::new();
     while !matches!(
         cursor.kind(),
         TokenKind::Keyword(Keyword::End) | TokenKind::Eof
     ) {
+        cursor.layout_break();
         let before = cursor.mark();
         variants.push(variant(cursor));
 
@@ -755,6 +765,7 @@ fn enumeration(
         }
     }
 
+    cursor.layout_body(layout_start);
     close(cursor, start, "enum");
 
     Enum {
@@ -815,11 +826,13 @@ fn interface(
     let name = cursor.name().0;
     let type_params = type_parameters(cursor);
 
+    let layout_start = cursor.previous_span().end;
     let mut members = Vec::new();
     while !matches!(
         cursor.kind(),
         TokenKind::Keyword(Keyword::End) | TokenKind::Eof
     ) {
+        cursor.layout_break();
         let before = cursor.mark();
         members.push(interface_member(cursor));
 
@@ -828,6 +841,7 @@ fn interface(
         }
     }
 
+    cursor.layout_body(layout_start);
     close(cursor, start, "interface");
 
     Interface {
@@ -905,11 +919,13 @@ fn extension(
 
     let target = ty::ty(cursor);
 
+    let layout_start = cursor.previous_span().end;
     let mut functions = Vec::new();
     while !matches!(
         cursor.kind(),
         TokenKind::Keyword(Keyword::End) | TokenKind::Eof
     ) {
+        cursor.layout_break();
         let before = cursor.mark();
 
         let member_decorators = self::decorators(cursor);
@@ -934,6 +950,7 @@ fn extension(
         }
     }
 
+    cursor.layout_body(layout_start);
     close(cursor, start, "extend");
 
     Extend {
@@ -991,6 +1008,7 @@ fn decorators(cursor: &mut Cursor) -> Vec<Decorator> {
             Vec::new()
         };
 
+        cursor.layout_break();
         decorators.push(Decorator {
             name,
             args,
@@ -1040,6 +1058,7 @@ fn conditional(cursor: &mut Cursor) -> Vec<Item> {
 /// Declarations up to the directive that closes the branch, which the caller
 /// consumes.
 fn items_until_directive(cursor: &mut Cursor) -> Vec<Item> {
+    let layout_start = cursor.previous_span().end;
     let mut items = Vec::new();
 
     while cursor.kind() != TokenKind::Eof
@@ -1057,5 +1076,6 @@ fn items_until_directive(cursor: &mut Cursor) -> Vec<Item> {
         }
     }
 
+    cursor.layout_body(layout_start);
     items
 }

@@ -14,6 +14,7 @@ pub(crate) struct Cursor<'src> {
     /// happens only when a `>>` closes a type-argument list.
     split: Option<Token>,
     diagnostics: Vec<Diagnostic>,
+    pub(crate) layout: Option<crate::format::Layout>,
     /// What a compile-time condition is decided against (LR48).
     pub(crate) target: Target,
 }
@@ -24,6 +25,7 @@ pub(crate) struct Mark {
     at: usize,
     split: Option<Token>,
     diagnostics: usize,
+    layout: usize,
 }
 
 impl<'src> Cursor<'src> {
@@ -35,7 +37,43 @@ impl<'src> Cursor<'src> {
             at: 0,
             split: None,
             diagnostics: lexed.diagnostics,
+            layout: None,
             target,
+        }
+    }
+
+    pub(crate) fn layout_break(&mut self) {
+        let at = self.span().start;
+        if let Some(layout) = &mut self.layout {
+            layout.events.push(crate::format::Event::Break(at));
+        }
+    }
+
+    pub(crate) fn layout_body(&mut self, start: u32) {
+        let end = self.span().start;
+        if let Some(layout) = &mut self.layout {
+            layout.events.push(crate::format::Event::Body(start..end));
+        }
+    }
+
+    pub(crate) fn layout_space(&mut self) {
+        let span = self.span();
+        if let Some(layout) = &mut self.layout {
+            layout.events.push(crate::format::Event::Space(span));
+        }
+    }
+
+    pub(crate) fn layout_tight(&mut self) {
+        let end = self.span().end;
+        if let Some(layout) = &mut self.layout {
+            layout.events.push(crate::format::Event::Tight(end));
+        }
+    }
+
+    pub(crate) fn layout_keep(&mut self) {
+        let at = self.span().start;
+        if let Some(layout) = &mut self.layout {
+            layout.events.push(crate::format::Event::Keep(at));
         }
     }
 
@@ -113,6 +151,7 @@ impl<'src> Cursor<'src> {
             at: self.at,
             split: self.split,
             diagnostics: self.diagnostics.len(),
+            layout: self.layout.as_ref().map_or(0, |layout| layout.events.len()),
         }
     }
 
@@ -132,6 +171,9 @@ impl<'src> Cursor<'src> {
         self.at = mark.at;
         self.split = mark.split;
         self.diagnostics.truncate(mark.diagnostics);
+        if let Some(layout) = &mut self.layout {
+            layout.events.truncate(mark.layout);
+        }
     }
 
     /// Whether a conditional compilation directive starts here (LR48).
@@ -200,6 +242,11 @@ impl<'src> Cursor<'src> {
                 true
             }
             TokenKind::GtEquals => {
+                if let Some(layout) = &mut self.layout {
+                    layout
+                        .events
+                        .push(crate::format::Event::Split(span.start + 1));
+                }
                 self.split = Some(rest(TokenKind::Equals));
                 true
             }

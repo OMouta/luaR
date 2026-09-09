@@ -43,6 +43,7 @@ pub struct Directives {
     pub stderr: Option<String>,
     pub trap: Option<String>,
     pub mode: Option<Mode>,
+    pub format: bool,
 }
 
 /// A header that does not say what it means.
@@ -65,8 +66,8 @@ impl fmt::Display for DirectiveError {
 
 impl std::error::Error for DirectiveError {}
 
-const KEYS: [&str; 9] = [
-    "expect", "code", "span", "spec", "exit", "stdout", "trap", "mode", "stderr",
+const KEYS: [&str; 10] = [
+    "expect", "code", "span", "spec", "exit", "stdout", "trap", "mode", "stderr", "format",
 ];
 
 /// Splits `--- key: value` into its parts, for known keys only.
@@ -87,6 +88,7 @@ pub fn parse(source: &str) -> Result<Directives, DirectiveError> {
     let mut stderr = None;
     let mut trap = None;
     let mut mode = None;
+    let mut format = None;
 
     let mut lines = source.lines().enumerate();
     let mut header_end = None;
@@ -105,6 +107,15 @@ pub fn parse(source: &str) -> Result<Directives, DirectiveError> {
         let twice = || at(format!("`{key}` is given twice"));
 
         match key {
+            "format" => {
+                if format.is_some() {
+                    return Err(twice());
+                }
+                if value != "true" {
+                    return Err(at("`format` must be `true`".to_owned()));
+                }
+                format = Some(true);
+            }
             "expect" => {
                 if expect.is_some() {
                     return Err(twice());
@@ -219,6 +230,7 @@ pub fn parse(source: &str) -> Result<Directives, DirectiveError> {
         stderr,
         trap,
         mode,
+        format: format.unwrap_or(false),
     };
     directives.validate()?;
     Ok(directives)

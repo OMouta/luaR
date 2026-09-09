@@ -84,6 +84,28 @@ pub fn run(path: &Path) -> Outcome {
         Err(e) => return Outcome::Failed(format!("bad directive header, {e}")),
     };
 
+    let source = if directives.format {
+        let formatted = match luar_driver::format(&source, luar_diagnostics::FileId(0)) {
+            Ok(formatted) => formatted,
+            Err(_) => return Outcome::Failed("formatter rejected the source".to_owned()),
+        };
+        let expected = match fs::read_to_string(path.with_extension("formatted")) {
+            Ok(expected) => expected.replace("\r\n", "\n"),
+            Err(error) => {
+                return Outcome::Failed(format!("could not read formatter output: {error}"));
+            }
+        };
+        if formatted != expected {
+            return Outcome::Failed(format!("formatter output differs:\n{formatted}"));
+        }
+        match luar_driver::format(&formatted, luar_diagnostics::FileId(0)) {
+            Ok(again) if again == formatted => {}
+            _ => return Outcome::Failed("formatting is not idempotent".to_owned()),
+        }
+        formatted
+    } else {
+        source
+    };
     check(path, source, &directives)
 }
 

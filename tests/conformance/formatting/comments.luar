@@ -1,0 +1,17 @@
+--- expect: run
+--- format: true
+--- exit: 0
+--- stdout: "  first\n second  \nvalue: 3\n"
+--- spec: LR64
+--- spec: LR3.3
+--- spec: LR4.5
+--- spec: LR4.6
+--- Keeps its documentation.
+export function main() -- keeps its trailing comment
+--[[ outer --[[ nested ]] comment ]]
+local text = [[  first
+ second  ]]
+print(text)
+local value= - -3
+print(`value: {value}`) -- final comment
+end

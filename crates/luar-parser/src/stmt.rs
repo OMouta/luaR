@@ -15,6 +15,7 @@ use crate::ty;
 
 /// Statements up to whatever closes the block, which the caller consumes.
 pub(crate) fn block(cursor: &mut Cursor) -> Block {
+    let layout_start = cursor.previous_span().end;
     let start = cursor.span();
     let mut stmts = Vec::new();
 
@@ -36,6 +37,7 @@ pub(crate) fn block(cursor: &mut Cursor) -> Block {
         }
     }
 
+    cursor.layout_body(layout_start);
     Block {
         stmts,
         span: start.to(cursor.previous_span()),
@@ -69,6 +71,7 @@ fn at_block_end(cursor: &Cursor) -> bool {
 }
 
 pub(crate) fn statement(cursor: &mut Cursor) -> Stmt {
+    cursor.layout_break();
     let start = cursor.span();
 
     let kind = match cursor.kind() {
@@ -493,10 +496,12 @@ fn assignment_operator(kind: TokenKind) -> Option<Option<BinaryOp>> {
 
 /// `match value ... end` (LR16.1).
 pub(crate) fn match_arms(cursor: &mut Cursor, opened: Span) -> Vec<MatchArm> {
+    let layout_start = cursor.previous_span().end;
     let mut arms: Vec<MatchArm> = Vec::new();
     let mut first_form: Option<bool> = None;
 
     while cursor.kind() == TokenKind::Keyword(Keyword::Case) {
+        cursor.layout_break();
         let start = cursor.span();
         cursor.advance();
 
@@ -549,6 +554,7 @@ pub(crate) fn match_arms(cursor: &mut Cursor, opened: Span) -> Vec<MatchArm> {
             .label(opened, "this `match` has none");
     }
 
+    cursor.layout_body(layout_start);
     arms
 }
 

@@ -1,6 +1,8 @@
 //! Parser: tokens in, `luar_ast` out.
 
 mod cursor;
+mod format;
+pub use format::format;
 mod decl;
 mod expr;
 mod pattern;

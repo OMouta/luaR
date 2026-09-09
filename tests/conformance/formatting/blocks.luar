@@ -1,0 +1,18 @@
+--- expect: run
+--- format: true
+--- exit: 0
+--- stdout: "large: 12\n3\n"
+--- spec: LR64
+--- spec: LR10.1
+--- spec: LR10.5
+function example(value:int):string
+if value>10 then return `large: {value}` end
+
+return `small: {value}`
+end
+export function main()
+print(example(12))
+local total=0
+for value in 0..<3 do total+=value end
+print(total)
+end

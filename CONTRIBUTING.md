@@ -84,6 +84,9 @@ reason.
 `STD…`. A test that cites nothing checks only that the compiler
 agrees with itself.
 
+`format: true` compares formatter output with a sibling `.formatted` file,
+checks idempotence, then compiles or runs the formatted source.
+
 `run` builds, links, and executes the program. It reports as skipped when
 lowering or code generation does not cover the program yet.
 
