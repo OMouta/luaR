@@ -88,6 +88,19 @@ impl Checker<'_> {
                     ExprKind::Name(name) => self.unnarrowed(name),
                     _ => self.expr(target),
                 };
+                if matches!(
+                    &wanted,
+                    Type::Builtin {
+                        kind: Builtin::TaskScope,
+                        ..
+                    }
+                ) {
+                    self.diagnostics.push(Diagnostic::error(
+                        codes::TASK_SCOPE_USE,
+                        target.span,
+                        "a task scope binding cannot be assigned",
+                    ));
+                }
                 if let ExprKind::Index { receiver, .. } = &target.kind
                     && self
                         .facts
@@ -405,6 +418,29 @@ impl Checker<'_> {
                 self.block(body);
                 self.unsafely -= 1;
             }
+            StmtKind::AsyncScope { name, body } => {
+                if !self.asynchronously.last().copied().unwrap_or(false) {
+                    self.diagnostics.push(Diagnostic::error(
+                        codes::TASK_SCOPE_OUTSIDE_ASYNC,
+                        stmt.span,
+                        "an async scope requires an async function",
+                    ));
+                }
+                let held = Type::Builtin {
+                    kind: Builtin::TaskScope,
+                    args: Vec::new(),
+                };
+                self.facts.record_binding(stmt.span, held.clone());
+                self.push();
+                let unwritten = self.unwritten.remove(name);
+                self.bind(name, held);
+                self.block(body);
+                self.pop();
+                self.unwritten.remove(name);
+                if unwritten {
+                    self.unwritten.insert(name.clone());
+                }
+            }
             // LR26: a deferred call is checked where it is written, because
             // that is the scope whose names it reads.
             StmtKind::Defer(deferred) => {
@@ -657,7 +693,8 @@ fn assigned_stmt(stmt: &Stmt, names: &mut HashSet<String>) {
         StmtKind::While { body, .. }
         | StmtKind::Repeat { body, .. }
         | StmtKind::For { body, .. }
-        | StmtKind::Unsafe(body) => names.extend(assigned(body)),
+        | StmtKind::Unsafe(body)
+        | StmtKind::AsyncScope { body, .. } => names.extend(assigned(body)),
         StmtKind::Match { arms, .. } => {
             for arm in arms {
                 if let ArmBody::Block(body) = &arm.body {

@@ -1,0 +1,17 @@
+--- expect: compile-ok
+--- spec: LR27.2
+--- spec: LR54.1
+--- spec: LR19
+async function work<T>(value: T): T
+    return value
+end
+
+export async function main()
+    async scope tasks
+        local first: Task<int> = tasks:spawn(work(42))
+        local second: Task<string> = tasks:spawn<string>(work("hello"))
+        local third: Task<bool> = tasks:spawn(task = work(true))
+        print(await first, await second, await third)
+        tasks:cancel()
+    end
+end

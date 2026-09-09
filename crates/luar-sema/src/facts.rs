@@ -35,6 +35,8 @@ pub enum Builtin {
     StringBytes,
     StringByte,
     CancelTask,
+    SpawnTask,
+    CancelScope,
     Freeze,
     CheckedIndex,
     CheckedSlice,

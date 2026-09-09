@@ -160,6 +160,8 @@ pub enum Builtin {
     ReversedRangeInclusive,
     /// `Task<T>`, what calling an async function produces (LR27).
     Task,
+    /// The handle bound by `async scope` (LR27.2).
+    TaskScope,
 }
 
 impl Builtin {
@@ -178,6 +180,7 @@ impl Builtin {
             "RangeExclusive" => Self::RangeExclusive,
             "RangeInclusive" => Self::RangeInclusive,
             "Task" => Self::Task,
+            "TaskScope" => Self::TaskScope,
             _ => return None,
         };
         Some(builtin)
@@ -200,6 +203,7 @@ impl Builtin {
             Self::ReversedRangeExclusive => "reversed range",
             Self::ReversedRangeInclusive => "reversed range",
             Self::Task => "Task",
+            Self::TaskScope => "TaskScope",
         }
     }
 }

@@ -57,6 +57,7 @@ impl<'a> Body<'a> {
             } => self.try_stmt(body, catches, finally.as_ref(), stmt.span),
             // LR29.2: `unsafe` is a promise the checker made the caller keep.
             StmtKind::Unsafe(block) => self.block(block),
+            StmtKind::AsyncScope { .. } => self.gap(stmt.span, "an explicit task scope"),
             StmtKind::Expr(expr) => {
                 self.expr(expr, None);
             }

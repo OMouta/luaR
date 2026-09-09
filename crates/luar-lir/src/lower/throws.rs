@@ -92,6 +92,7 @@ impl Scan<'_> {
             StmtKind::Repeat { body, until, .. } => self.block(body) || self.expr(until),
             StmtKind::For { iterable, body, .. } => self.expr(iterable) || self.block(body),
             StmtKind::Unsafe(body) => self.block(body),
+            StmtKind::AsyncScope { .. } => true,
             StmtKind::Defer(value) | StmtKind::Expr(value) => self.expr(value),
             StmtKind::Match { scrutinee, arms } => {
                 self.expr(scrutinee)

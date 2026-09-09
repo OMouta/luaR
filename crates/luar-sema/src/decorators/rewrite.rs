@@ -268,6 +268,11 @@ impl<'a> Rewrite<'a> {
                 self.shadowed.pop();
             }
             StmtKind::Unsafe(block) => self.block(block),
+            StmtKind::AsyncScope { name, body } => {
+                self.shadowed.push(vec![name.clone()]);
+                self.block(body);
+                self.shadowed.pop();
+            }
             StmtKind::Defer(expression)
             | StmtKind::Throw(expression)
             | StmtKind::Expr(expression)

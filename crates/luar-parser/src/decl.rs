@@ -60,6 +60,9 @@ fn read_item(cursor: &mut Cursor, items: &mut Vec<Item>) {
 
 /// A declaration, if one starts here.
 fn item(cursor: &mut Cursor) -> Option<Item> {
+    if stmt::async_scope_start(cursor) {
+        return None;
+    }
     let start = cursor.span();
 
     // LR21.1: an import takes no decorators, so it is read before them.

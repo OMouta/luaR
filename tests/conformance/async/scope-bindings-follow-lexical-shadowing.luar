@@ -1,0 +1,27 @@
+--- expect: compile-ok
+--- spec: LR27.2
+--- spec: LR53
+--- spec: LR54
+export async function main()
+    local tasks = 1
+    async scope tasks
+        async scope nested
+            tasks:cancel()
+            nested:cancel()
+        end
+        async scope tasks
+            tasks:cancel()
+            local tasks = 2
+            local copy = tasks
+            print(copy)
+        end
+        local closure = async function()
+            async scope tasks
+                tasks:cancel()
+            end
+        end
+        local done: () = await closure()
+        tasks:cancel()
+    end
+    tasks += 1
+end

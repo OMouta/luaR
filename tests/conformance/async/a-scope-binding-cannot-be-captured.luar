@@ -1,0 +1,12 @@
+--- expect: compile-error
+--- code: LR0225
+--- span: 8:13
+--- spec: LR27.2
+export async function main()
+    async scope tasks
+        local closure = function()
+            tasks:cancel()
+        end
+        closure()
+    end
+end

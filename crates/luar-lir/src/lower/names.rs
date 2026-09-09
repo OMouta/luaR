@@ -114,7 +114,7 @@ fn walk_stmt(stmt: &Stmt, visit: &mut impl Visit) {
             walk_expr(iterable, visit);
             walk_block(body, visit);
         }
-        StmtKind::Unsafe(body) => walk_block(body, visit),
+        StmtKind::Unsafe(body) | StmtKind::AsyncScope { body, .. } => walk_block(body, visit),
         StmtKind::Defer(expr) | StmtKind::Expr(expr) => walk_expr(expr, visit),
         StmtKind::Match { scrutinee, arms } => {
             walk_expr(scrutinee, visit);

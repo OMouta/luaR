@@ -136,6 +136,14 @@ pub(super) fn builtin_method(
                 args: args.clone(),
             };
             match (kind, name) {
+                (Kind::TaskScope, "spawn") => {
+                    let task = Type::Builtin {
+                        kind: Kind::Task,
+                        args: vec![Type::Parameter("T".to_owned())],
+                    };
+                    (Builtin::SpawnTask, vec![param("task", task.clone())], task)
+                }
+                (Kind::TaskScope, "cancel") => (Builtin::CancelScope, Vec::new(), unit),
                 (Kind::List, "frozen") => (Builtin::Freeze, Vec::new(), frozen(Kind::FrozenList)),
                 (Kind::Map, "frozen") => (Builtin::Freeze, Vec::new(), frozen(Kind::FrozenMap)),
                 (Kind::Set, "frozen") => (Builtin::Freeze, Vec::new(), frozen(Kind::FrozenSet)),
@@ -311,7 +319,11 @@ pub(super) fn builtin_method(
         kind,
         Signature {
             asynchronous: false,
-            type_params: Vec::new(),
+            type_params: if kind == Builtin::SpawnTask {
+                vec!["T".to_owned()]
+            } else {
+                Vec::new()
+            },
             constraints: Vec::new(),
             params,
             result,

@@ -83,6 +83,8 @@ pub enum StmtKind {
     Continue(Option<String>),
     /// `unsafe ... end`, where the low-level operations are allowed (LR29.2).
     Unsafe(Block),
+    /// `async scope name ... end` (LR27.2).
+    AsyncScope { name: String, body: Block },
     /// `defer call()`, run when the scope it is written in is left (LR26).
     Defer(Expr),
     /// `throw value`, which does not complete (LR25.3).

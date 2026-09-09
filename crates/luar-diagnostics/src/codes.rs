@@ -304,6 +304,12 @@ registry! {
         "A compile-time function is called only while a decorator runs.";
     active 223 => RANGE_BOUND_READ_ONLY, "LR10.4",
         "Range bounds are read-only.";
+    active 224 => TASK_SCOPE_OUTSIDE_ASYNC, "LR27.2",
+        "An async scope is written in an async function.";
+    active 225 => TASK_SCOPE_USE, "LR27.2",
+        "A scope binding is used only as the receiver of spawn or cancel, without capture or assignment.";
+    active 226 => TASK_SCOPE_CONSTRUCTION, "LR27.2",
+        "TaskScope has no public constructor.";
 }
 
 #[cfg(test)]

@@ -260,6 +260,12 @@ impl Resolver<'_> {
             }
             StmtKind::Break(_) | StmtKind::Continue(_) | StmtKind::Error => {}
             StmtKind::Unsafe(body) => self.block(body),
+            StmtKind::AsyncScope { name, body } => {
+                self.push();
+                self.bind(name);
+                self.block(body);
+                self.pop();
+            }
             // LR26: what is deferred is written here and runs on the way out,
             // so its names are the ones in scope where it is written.
             StmtKind::Defer(deferred) => self.expr(deferred),

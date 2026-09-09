@@ -37,6 +37,9 @@ impl<'a> Body<'a> {
             Builtin::StringBytes => self.string_bytes(callee, span),
             Builtin::StringByte => self.string_byte(args, span),
             Builtin::CancelTask => self.cancel_task(args, span),
+            Builtin::SpawnTask | Builtin::CancelScope => {
+                self.missing(span, "a task scope operation")
+            }
             Builtin::Freeze => {
                 let value = self.expr(callee, None);
                 let ty = self.recorded(span);

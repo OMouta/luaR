@@ -336,6 +336,19 @@ impl Checker<'_> {
                 }
 
                 let held = self.name(name);
+                if matches!(
+                    &held,
+                    Type::Builtin {
+                        kind: Builtin::TaskScope,
+                        ..
+                    }
+                ) {
+                    self.diagnostics.push(Diagnostic::error(
+                        codes::TASK_SCOPE_USE,
+                        expr.span,
+                        "a task scope binding is used only as a spawn or cancel receiver",
+                    ));
+                }
                 // LR21.1, LR24: a module-level `const` read from outside the
                 // function's own bindings, imported or written further down.
                 if matches!(held, Type::Unresolved)
@@ -411,7 +424,9 @@ impl Checker<'_> {
                 // The callee is an expression of its own, and what the call
                 // is used at says nothing about it.
                 let expected = self.expected.take();
-                let receiver = self.read_off(callee);
+                let receiver = self
+                    .scope_receiver(callee, method.as_deref())
+                    .unwrap_or_else(|| self.read_off(callee));
                 self.expected = expected;
                 let produced = self.call(
                     callee,
@@ -956,6 +971,23 @@ impl Checker<'_> {
             .named(path, Vec::new())
             .unwrap_or(Type::Unresolved);
 
+        if path == ["TaskScope"]
+            || matches!(
+                &built,
+                Type::Builtin {
+                    kind: Builtin::TaskScope,
+                    ..
+                }
+            )
+        {
+            self.diagnostics.push(Diagnostic::error(
+                codes::TASK_SCOPE_CONSTRUCTION,
+                span,
+                "TaskScope has no public constructor",
+            ));
+            return Type::Unresolved;
+        }
+
         let Type::Named { module, name, .. } = &built else {
             return built;
         };
@@ -1197,6 +1229,42 @@ impl Checker<'_> {
         // What a condition proved wins over what the declaration said, for as
         // long as the branch that proved it lasts (LR57).
         self.proved(&Place::name(name)).unwrap_or(declared)
+    }
+
+    fn scope_receiver(&mut self, callee: &Expr, method: Option<&str>) -> Option<Type> {
+        if !matches!(method, Some("spawn" | "cancel")) {
+            return None;
+        }
+        let ExprKind::Name(name) = &callee.kind else {
+            return None;
+        };
+        if self.unwritten.contains(name) {
+            return None;
+        }
+        let (index, held) = self
+            .values
+            .iter()
+            .enumerate()
+            .rev()
+            .find_map(|(index, values)| values.get(name).map(|held| (index, held.clone())))?;
+        if !matches!(
+            &held,
+            Type::Builtin {
+                kind: Builtin::TaskScope,
+                ..
+            }
+        ) {
+            return None;
+        }
+        if self.closures.iter().any(|closure| index < closure.base) {
+            self.diagnostics.push(Diagnostic::error(
+                codes::TASK_SCOPE_USE,
+                callee.span,
+                "a task scope binding cannot be captured",
+            ));
+        }
+        self.facts.record_type(callee.span, held.clone());
+        Some(held)
     }
 
     /// The type `name` was declared with, with nothing a condition proved

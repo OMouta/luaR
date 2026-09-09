@@ -72,6 +72,7 @@ pub(crate) fn statement(cursor: &mut Cursor) -> Stmt {
     let start = cursor.span();
 
     let kind = match cursor.kind() {
+        TokenKind::Keyword(Keyword::Async) if async_scope_start(cursor) => async_scope(cursor),
         TokenKind::Keyword(Keyword::Local) => local(cursor),
         TokenKind::Keyword(Keyword::Const) => constant(cursor),
         TokenKind::Keyword(Keyword::If) => conditional(cursor),
@@ -124,6 +125,21 @@ fn labels_a_loop(cursor: &Cursor) -> bool {
         cursor.peek_kind(2),
         TokenKind::Keyword(Keyword::For | Keyword::While | Keyword::Repeat)
     )
+}
+
+pub(crate) fn async_scope_start(cursor: &Cursor) -> bool {
+    cursor.kind() == TokenKind::Keyword(Keyword::Async)
+        && cursor.peek_kind(1) == TokenKind::Keyword(Keyword::Scope)
+}
+
+fn async_scope(cursor: &mut Cursor) -> StmtKind {
+    let opened = cursor.span();
+    cursor.advance();
+    cursor.advance();
+    let name = cursor.name().0;
+    let body = block(cursor);
+    close(cursor, opened, "async scope");
+    StmtKind::AsyncScope { name, body }
 }
 
 /// The label on a `break` or `continue`, if it names one (LR10.7).
