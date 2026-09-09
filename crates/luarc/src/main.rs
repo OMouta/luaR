@@ -1,6 +1,7 @@
 //! The LuaR compiler command line.
 
 mod check;
+mod format;
 mod lir;
 mod run;
 
@@ -13,6 +14,7 @@ usage:
   luarc check <file>...     read the files and report what is wrong with them
   luarc run <file> [args]   run a program
   luarc lir <file>          print what a program lowers to
+  luarc fmt [--check] <file>...  format files or check their formatting
 
 Paths are relative to the working directory.
 ";
@@ -31,6 +33,7 @@ fn main() -> ExitCode {
         "check" => check::run(rest),
         "run" => run::run(rest),
         "lir" => lir::run(rest),
+        "fmt" => format::run(rest),
         "help" | "--help" | "-h" => {
             print!("{USAGE}");
             ExitCode::SUCCESS
