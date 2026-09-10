@@ -1,0 +1,23 @@
+--- expect: doc
+--- stdout: "## `answer`\n\nReturns **42**.\n\n- Always an integer.\n\n## `answerAgain`\n\nSame answer.\n\n"
+--- spec: LR62
+--- spec: LR63
+
+-- Not documentation.
+--- Returns **42**.
+---
+--- - Always an integer.
+export function answer(): int
+    --- A body comment is not API documentation.
+    return 42
+end
+
+@deprecated("Call answer")
+--- Same answer.
+export function answerAgain(): int
+    return 42
+end
+
+--- Private documentation.
+function hidden()
+end

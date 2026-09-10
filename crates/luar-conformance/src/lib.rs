@@ -122,7 +122,7 @@ pub fn run_suite(root: &Path) -> io::Result<Vec<(PathBuf, Outcome)>> {
 
 fn check(path: &Path, source: String, directives: &Directives) -> Outcome {
     let mut sources = SourceMap::new();
-    let file = sources.add(path, source);
+    let file = sources.add(path, source.clone());
 
     let diagnostics = match luar_driver::check(&mut sources, file) {
         Check::Ran(diagnostics) => diagnostics,
@@ -134,6 +134,20 @@ fn check(path: &Path, source: String, directives: &Directives) -> Outcome {
     let errors: Vec<&Diagnostic> = diagnostics.iter().filter(|d| d.is_error()).collect();
 
     match directives.expect {
+        Expect::Doc => {
+            if !errors.is_empty() {
+                return Outcome::Failed(describe(&sources, &errors));
+            }
+            match luar_driver::document(&source, file) {
+                Ok(output) if Some(&output) == directives.stdout.as_ref() => Outcome::Passed,
+                Ok(output) => {
+                    Outcome::Failed(format!("unexpected documentation output: {output:?}"))
+                }
+                Err(diagnostics) => {
+                    Outcome::Failed(luar_diagnostics::render_all(&sources, &diagnostics))
+                }
+            }
+        }
         Expect::CompileOk => {
             if errors.is_empty() {
                 Outcome::Passed

@@ -1,6 +1,8 @@
 //! Parser: tokens in, `luar_ast` out.
 
 mod cursor;
+mod documentation;
+pub use documentation::{Documentation, documentation};
 mod format;
 pub use format::format;
 mod decl;

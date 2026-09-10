@@ -6,6 +6,7 @@ use luar_diagnostics::{Code, Position};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Expect {
+    Doc,
     /// Compiles without errors.
     CompileOk,
     /// Rejected, with a specific diagnostic at a specific place.
@@ -23,6 +24,7 @@ pub enum Mode {
 impl Expect {
     fn label(self) -> &'static str {
         match self {
+            Self::Doc => "doc",
             Self::CompileOk => "compile-ok",
             Self::CompileError => "compile-error",
             Self::Run => "run",
@@ -124,9 +126,10 @@ pub fn parse(source: &str) -> Result<Directives, DirectiveError> {
                     "compile-ok" => Expect::CompileOk,
                     "compile-error" => Expect::CompileError,
                     "run" => Expect::Run,
+                    "doc" => Expect::Doc,
                     other => {
                         return Err(at(format!(
-                            "unknown expectation `{other}`, want compile-ok, compile-error, or run"
+                            "unknown expectation `{other}`, want compile-ok, compile-error, run, or doc"
                         )));
                     }
                 });
@@ -249,6 +252,7 @@ impl Directives {
     /// is an error rather than a warning.
     fn validate(&self) -> Result<(), DirectiveError> {
         let (required, allowed): (&[&str], &[&str]) = match self.expect {
+            Expect::Doc => (&["stdout"], &["stdout"]),
             Expect::CompileOk => (&[], &[]),
             Expect::CompileError => (&["code", "span"], &["code", "span"]),
             Expect::Run => (&["exit"], &["exit", "stdout", "stderr", "trap", "mode"]),

@@ -1,0 +1,43 @@
+--- expect: doc
+--- stdout: "## `Point`\n\nA point.\n\n## `Point.x`\n\nHorizontal coordinate.\n\n## `Point.read`\n\nReads x.\n\n## `Choice`\n\nA choice.\n\n## `Choice.Yes`\n\nAffirmative.\n\n## `Reader`\n\nReads an integer.\n\n## `Reader.read`\n\nThe integer.\n\n## `Count`\n\nAn integer alias.\n\n## `limit`\n\nMaximum count.\n\n## `Numbers`\n\nInteger helpers.\n\n## `Numbers.twice`\n\nDoubles an integer.\n\n"
+--- spec: LR62
+--- spec: LR63
+
+--- A point.
+export struct Point
+    --- Horizontal coordinate.
+    x: int
+    --- Hidden coordinate.
+    private y: int
+    --- Reads x.
+    function read(self): int
+        return self.x
+    end
+end
+
+--- A choice.
+export enum Choice
+    --- Affirmative.
+    Yes
+    No
+end
+
+--- Reads an integer.
+export interface Reader
+    --- The integer.
+    function read(self): int
+end
+
+--- An integer alias.
+export type Count = int
+
+--- Maximum count.
+export const limit = 42
+
+--- Integer helpers.
+export extend Numbers for int
+    --- Doubles an integer.
+    function twice(self): int
+        return self * 2
+    end
+end

@@ -1,0 +1,14 @@
+--- expect: doc
+--- stdout: "## `answer`\n\nBefore.\nBetween.\nAfter.\n\n"
+--- spec: LR62
+--- spec: LR63
+
+--- Before.
+@deprecated("Not prose")
+--- Between.
+@noinline
+--- After.
+export function answer(): int
+    local text = "--- Not documentation"
+    return 42
+end

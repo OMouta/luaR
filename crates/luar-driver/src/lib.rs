@@ -10,6 +10,16 @@ use luar_diagnostics::{Diagnostic, FileId, SourceMap};
 use luar_lir::lower::Lowered;
 use luar_parser::Target;
 pub use luar_parser::format;
+pub use luar_parser::{Documentation, documentation};
+
+pub fn document(source: &str, file: FileId) -> Result<String, Vec<Diagnostic>> {
+    let mut output = String::new();
+    for document in documentation(source, file)? {
+        use std::fmt::Write;
+        writeln!(output, "## `{}`\n\n{}\n", document.name, document.markdown).unwrap();
+    }
+    Ok(output)
+}
 
 pub use luar_lir::lower::CompilationMode;
 
