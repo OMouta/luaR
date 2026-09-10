@@ -2498,6 +2498,25 @@ This avoids pretending that UTF-8 strings are arrays of characters. `text.length
 
 Strings are not sliced with `[]` either (LR38).
 
+`text:parse<T>()` returns `Result<T, Error>`. Supported targets are the integer
+types, `f32`, `f64`, and `bool`. Other targets return `Err`.
+
+Parsing consumes the whole string without trimming whitespace. Empty strings,
+digit separators, radix prefixes, embedded zero bytes, and trailing text return
+`Err`. Digits are ASCII.
+
+Integer input is an optional `+` or `-` followed by one or more decimal digits.
+The value must fit the target type. Unsigned targets reject `-`, including `-0`.
+
+Floating-point input matches
+`[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?`.
+Conversion rounds to the target format using round-to-nearest, ties-to-even.
+Overflow to infinity returns `Err`; underflow may produce a subnormal or signed
+zero. The decimal separator is `.` regardless of locale. `NaN` and infinity
+spellings return `Err`.
+
+Boolean input is exactly `true` or `false`, in lowercase.
+
 ---
 
 ## 38. Slices and Ranges
