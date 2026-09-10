@@ -467,6 +467,20 @@ impl<'a> Body<'a> {
         match &target.kind {
             ExprKind::Name(name) => {
                 let Some(var) = self.lookup(name) else {
+                    if let Some(global) = self.global(name) {
+                        let held = self.read_global(global, target.span);
+                        let wanted = self.function.type_of(held).clone();
+                        let written =
+                            self.written_into(Some(held), &wanted, op, value, target.span, span);
+                        self.emit_void(
+                            InstKind::GlobalSet {
+                                global,
+                                value: written,
+                            },
+                            span,
+                        );
+                        return;
+                    }
                     self.gap(span, "an assignment to a name from another scope");
                     return;
                 };

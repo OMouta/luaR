@@ -111,6 +111,7 @@ pub(super) struct Context<'a> {
     /// Each module-level `const`, with the span of its declaration and its
     /// initializer (LR24).
     pub constants: &'a HashMap<(ModuleId, String), (Span, Expr)>,
+    pub globals: &'a HashMap<(ModuleId, String), (Span, u32)>,
 }
 
 pub(super) struct Body<'a> {
@@ -149,6 +150,7 @@ pub(super) struct Body<'a> {
     shared: Vec<String>,
     /// The stack slot a binding whose address is taken lives in (LR72).
     slots: HashMap<Var, SlotId>,
+    globals: HashMap<Var, u32>,
     /// The module-level constants being read, outermost first (LR24).
     expanding: Vec<(ModuleId, String)>,
     next_var: u32,
@@ -194,6 +196,7 @@ impl<'a> Body<'a> {
             cells: HashSet::new(),
             shared: Vec::new(),
             slots: HashMap::new(),
+            globals: HashMap::new(),
             expanding: Vec::new(),
             next_var: 0,
             loops: Vec::new(),
@@ -450,6 +453,11 @@ impl<'a> Body<'a> {
     /// worked out where the name is read. LR21.1: an imported one is read in
     /// the module declaring it, whose names its initializer is written in.
     fn constant(&mut self, name: &str, wanted: Option<&Ty>, span: Span) -> Value {
+        if self.context.facts.constant(span).is_none()
+            && let Some(global) = self.global(name)
+        {
+            return self.read_global(global, span);
+        }
         let key = self
             .context
             .facts
@@ -474,6 +482,9 @@ impl<'a> Body<'a> {
     /// What `var` holds now: its slot's contents where it has one, and its
     /// value otherwise (LR72).
     fn read_var(&mut self, var: Var, span: Span) -> Value {
+        if let Some(global) = self.globals.get(&var).copied() {
+            return self.read_global(global, span);
+        }
         if let Some(slot) = self.slots.get(&var).copied() {
             let ty = self.function.slot_type(slot).clone();
             return self.emit(InstKind::SlotGet { slot }, ty, span);
@@ -496,6 +507,10 @@ impl<'a> Body<'a> {
     /// LR9.8: a binding in a cell is written through it, and one anywhere
     /// else is given its next value.
     fn write_var(&mut self, var: Var, value: Value, span: Span) {
+        if let Some(global) = self.globals.get(&var).copied() {
+            self.emit_void(InstKind::GlobalSet { global, value }, span);
+            return;
+        }
         if self.cells.contains(&var) {
             self.emit_void(
                 InstKind::SetField {
@@ -879,6 +894,19 @@ impl<'a> Body<'a> {
                 self.bind_value(binding, held, span);
             }
             None => {
+                if let Binding::Name(name) = binding
+                    && let Some(&(declared, global)) = self
+                        .context
+                        .globals
+                        .get(&(self.context.module, name.clone()))
+                    && declared == span
+                {
+                    let var = self.declare(name);
+                    let value = self.read_global(global, span);
+                    self.defs.insert(var, value);
+                    self.globals.insert(var, global);
+                    return;
+                }
                 // LR5.1: nothing has been written yet, and the checker proved
                 // nothing reads it before something does.
                 if let Binding::Name(name) = binding
@@ -915,6 +943,18 @@ impl<'a> Body<'a> {
     }
 
     fn bind_name(&mut self, name: &str, value: Value, span: Span) {
+        if let Some(&(declared, global)) = self
+            .context
+            .globals
+            .get(&(self.context.module, name.to_owned()))
+            && declared == span
+        {
+            let var = self.declare(name);
+            self.defs.insert(var, value);
+            self.globals.insert(var, global);
+            self.emit_void(InstKind::GlobalSet { global, value }, span);
+            return;
+        }
         if self.goes_in_a_cell(name) {
             let held = self.function.type_of(value).clone();
             self.bind_cell(name, held, Some(value), span);
@@ -962,6 +1002,18 @@ impl<'a> Body<'a> {
             ),
             _ => false,
         }
+    }
+
+    fn global(&self, name: &str) -> Option<u32> {
+        self.context
+            .globals
+            .get(&(self.context.module, name.to_owned()))
+            .map(|(_, global)| *global)
+    }
+
+    fn read_global(&mut self, global: u32, span: Span) -> Value {
+        let ty = self.context.program.globals[global as usize].clone();
+        self.emit(InstKind::GlobalGet { global }, ty, span)
     }
 
     fn bind_value(&mut self, binding: &Binding, value: Value, span: Span) {

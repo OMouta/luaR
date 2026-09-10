@@ -79,6 +79,8 @@ pub(crate) fn signature(
 }
 
 pub(crate) struct Translator<'a, 'b> {
+    pub globals: Option<GlobalValue>,
+    pub global_offsets: &'a [i32],
     pub program: &'a Program,
     pub function: &'a Function,
     pub external_abis: &'a HashMap<FuncId, CAbi>,
@@ -624,6 +626,32 @@ impl Translator<'_, '_> {
                 }
                 None => None,
             },
+            InstKind::GlobalGet { global } => {
+                let data = self
+                    .builder
+                    .ins()
+                    .global_value(self.pointer, self.globals.expect("module storage exists"));
+                let ty = inst
+                    .result
+                    .map_or(types::I8, |value| self.machine_or_gap(value));
+                Some(self.builder.ins().load(
+                    ty,
+                    OWNED,
+                    data,
+                    self.global_offsets[*global as usize],
+                ))
+            }
+            InstKind::GlobalSet { global, value } => {
+                let data = self
+                    .builder
+                    .ins()
+                    .global_value(self.pointer, self.globals.expect("module storage exists"));
+                let value = self.value(*value);
+                self.builder
+                    .ins()
+                    .store(OWNED, value, data, self.global_offsets[*global as usize]);
+                None
+            }
             InstKind::SlotSet { slot, value } => {
                 if let Some(stack) = self.slots.get(slot).copied() {
                     let written = self.value(*value);

@@ -121,10 +121,14 @@ pub fn compile(program: &Program) -> Result<Object, Error> {
         descriptors: HashMap::new(),
         vtables: HashMap::new(),
         gaps: Vec::new(),
+        globals: None,
+        global_offsets: Vec::new(),
+        global_roots: 0,
     };
     emitter.declare()?;
     emitter.constants()?;
     emitter.dynamics()?;
+    emitter.globals()?;
     emitter.define()?;
     emitter.entry()?;
 
@@ -138,6 +142,9 @@ pub fn compile(program: &Program) -> Result<Object, Error> {
 }
 
 struct Emitter<'a> {
+    globals: Option<DataId>,
+    global_offsets: Vec<i32>,
+    global_roots: usize,
     program: &'a Program,
     module: ObjectModule,
     pointer: types::Type,
@@ -160,6 +167,37 @@ struct Emitter<'a> {
 }
 
 impl Emitter<'_> {
+    fn globals(&mut self) -> Result<(), Error> {
+        if self.program.globals.is_empty() {
+            return Ok(());
+        }
+        let mut indices: Vec<_> = (0..self.program.globals.len()).collect();
+        indices.sort_by_key(|index| !layout::is_aggregate(&self.program.globals[*index]));
+        self.global_roots = indices
+            .iter()
+            .take_while(|index| layout::is_aggregate(&self.program.globals[**index]))
+            .count();
+        self.global_offsets.resize(indices.len(), 0);
+        let cell = self.pointer.bytes() as i32;
+        for (position, index) in indices.into_iter().enumerate() {
+            self.global_offsets[index] = (gc::ROOT_FRAME_HEADER + position as i32) * cell;
+        }
+        let data = self
+            .module
+            .declare_data("luar_module_storage", Linkage::Local, true, false)
+            .map_err(|error| Error::Cranelift(error.to_string()))?;
+        let mut description = DataDescription::new();
+        description.define_zeroinit(
+            (gc::ROOT_FRAME_HEADER as usize + self.program.globals.len()) * cell as usize,
+        );
+        description.set_align(cell as u64);
+        self.module
+            .define_data(data, &description)
+            .map_err(|error| Error::Cranelift(error.to_string()))?;
+        self.globals = Some(data);
+        Ok(())
+    }
+
     /// Declares every function before any body is written, so that a call
     /// reaches one whatever order the two were emitted in.
     fn declare(&mut self) -> Result<(), Error> {
@@ -561,7 +599,12 @@ impl Emitter<'_> {
                     Some((ty.clone(), reference))
                 })
                 .collect();
+            let globals = self
+                .globals
+                .map(|data| self.module.declare_data_in_func(data, &mut context.func));
             let translator = Translator {
+                globals,
+                global_offsets: &self.global_offsets,
                 program: self.program,
                 function,
                 external_abis: &self.external_abis,
@@ -667,11 +710,27 @@ impl Emitter<'_> {
             .runtime
             .arguments_in(&mut self.module, &mut context.func);
 
+        let globals = self
+            .globals
+            .map(|data| self.module.declare_data_in_func(data, &mut context.func));
+        let roots = self.runtime.roots_in(&mut self.module, &mut context.func);
         let mut builder = FunctionBuilder::new(&mut context.func, &mut frame);
         let block = builder.create_block();
         builder.append_block_params_for_function_params(block);
         builder.switch_to_block(block);
 
+        if let Some(globals) = globals {
+            // LR29, LR78: module references remain roots throughout execution.
+            let storage = builder.ins().global_value(self.pointer, globals);
+            let top = builder.ins().global_value(self.pointer, roots);
+            let previous = builder.ins().load(self.pointer, MemFlags::new(), top, 0);
+            builder.ins().store(MemFlags::new(), previous, storage, 0);
+            let count = builder.ins().iconst(self.pointer, self.global_roots as i64);
+            builder
+                .ins()
+                .store(MemFlags::new(), count, storage, self.pointer.bytes() as i32);
+            builder.ins().store(MemFlags::new(), storage, top, 0);
+        }
         for initializer in initializers {
             builder.ins().call(initializer, &[]);
         }

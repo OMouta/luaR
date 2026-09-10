@@ -317,6 +317,8 @@ impl Function {
 /// Every type and function one compilation reaches.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Program {
+    /// Module storage (LR52, LR78).
+    pub globals: Vec<Ty>,
     types: Vec<Nominal>,
     functions: Vec<Function>,
     /// The function the program starts at (LR45). Absent for an artifact that

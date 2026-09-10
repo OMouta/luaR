@@ -80,12 +80,14 @@ pub fn lower_in_mode(
         displays: HashMap::new(),
         throwing: HashSet::new(),
         constants: HashMap::new(),
+        globals: HashMap::new(),
         gaps: Vec::new(),
     };
 
     lowering.collect_constants();
     lowering.name_types();
     lowering.build_types();
+    lowering.declare_globals();
     lowering.find_throwing();
     lowering.declare_functions();
     lowering.declare_initializers();
@@ -138,6 +140,7 @@ struct Lowering<'a> {
     /// Each module-level `const`, by the module and the name, with the span
     /// of its declaration and its initializer (LR24).
     constants: HashMap<(ModuleId, String), (Span, luar_ast::Expr)>,
+    globals: HashMap<(ModuleId, String), (Span, u32)>,
     gaps: Vec<Gap>,
 }
 
@@ -449,6 +452,31 @@ impl Lowering<'_> {
         let declarations = self.declarations();
         for (module, path, function) in declarations {
             self.declare(module, &path, &function);
+        }
+    }
+
+    fn declare_globals(&mut self) {
+        for (module, node) in self.graph.modules() {
+            for item in &node.ast.items {
+                let Item::Stmt(luar_ast::Stmt {
+                    kind:
+                        luar_ast::StmtKind::Local {
+                            binding: Binding::Name(name),
+                            ..
+                        },
+                    span,
+                }) = item
+                else {
+                    continue;
+                };
+                let Some(ty) = self.facts.binding(*span).cloned() else {
+                    continue;
+                };
+                let ty = self.convert(&ty, *span);
+                let global = self.program.globals.len() as u32;
+                self.program.globals.push(ty);
+                self.globals.insert((module, name.clone()), (*span, global));
+            }
         }
     }
 
@@ -989,6 +1017,7 @@ impl Lowering<'_> {
                 program: &self.program,
                 module: pending.module,
                 constants: &self.constants,
+                globals: &self.globals,
             };
             let shell = self.program.function(pending.id).clone();
             let (function, closures, gaps) = body::Body::new(context, shell, pending.throws).lower(

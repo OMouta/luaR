@@ -532,6 +532,14 @@ pub enum InstKind {
         slot: SlotId,
         value: Value,
     },
+    /// Module storage (LR52, LR78).
+    GlobalGet {
+        global: u32,
+    },
+    GlobalSet {
+        global: u32,
+        value: Value,
+    },
 }
 
 impl InstKind {
@@ -550,7 +558,8 @@ impl InstKind {
             | Self::CancellationPoint
             | Self::ScopeOpen { .. }
             | Self::AddressOf { .. }
-            | Self::SlotGet { .. } => {}
+            | Self::SlotGet { .. }
+            | Self::GlobalGet { .. } => {}
             Self::Unary { operand, .. } => visit(operand),
             Self::Binary { left, right, .. }
             | Self::HashCombine {
@@ -667,7 +676,8 @@ impl InstKind {
             | Self::ScopeJoin { scope: held, .. }
             | Self::ScopeClose { scope: held }
             | Self::ScopeCancel { scope: held }
-            | Self::SlotSet { value: held, .. } => visit(held),
+            | Self::SlotSet { value: held, .. }
+            | Self::GlobalSet { value: held, .. } => visit(held),
             Self::Assert { condition, message } => {
                 visit(condition);
                 if let Some(message) = message {
@@ -801,7 +811,9 @@ impl InstKind {
             | Self::Load { .. }
             | Self::Store { .. }
             | Self::SlotGet { .. }
-            | Self::SlotSet { .. } => Effect::State,
+            | Self::SlotSet { .. }
+            | Self::GlobalGet { .. }
+            | Self::GlobalSet { .. } => Effect::State,
             Self::Print { .. }
             | Self::Await { .. }
             | Self::CancellationPoint

@@ -400,6 +400,8 @@ fn instruction(inst: &Inst, function: &Function) -> String {
         }
         InstKind::SlotGet { slot } => format!("get slot{}", slot.0),
         InstKind::SlotSet { slot, value } => format!("set slot{} = {}", slot.0, name(*value)),
+        InstKind::GlobalGet { global } => format!("get global{global}"),
+        InstKind::GlobalSet { global, value } => format!("set global{global} = {}", name(*value)),
     };
 
     match inst.result {

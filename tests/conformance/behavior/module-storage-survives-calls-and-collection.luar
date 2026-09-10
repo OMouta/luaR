@@ -1,0 +1,44 @@
+--- expect: run
+--- exit: 0
+--- spec: LR52
+--- spec: LR78
+--- spec: LR29
+--- spec: LR53
+--- spec: LR5.1
+ref struct Box
+    value: int
+end
+
+local count: int
+count = 4
+local ratio = 1.5
+local ready = false
+local held = Box { value = 7 }
+
+function change()
+    count += 1
+    ratio = 2.5
+    ready = true
+end
+
+change()
+assert(count == 5)
+
+function allocate()
+    for i in 0..<40000 do
+        local discarded = Box { value = i }
+    end
+end
+
+export function main()
+    allocate()
+    assert(held.value == 7)
+    assert(ratio == 2.5)
+    assert(ready)
+    local count = 100
+    change()
+    assert(count == 100)
+    held = Box { value = 9 }
+    allocate()
+    assert(held.value == 9)
+end
