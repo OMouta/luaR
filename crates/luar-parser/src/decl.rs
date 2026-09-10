@@ -77,6 +77,7 @@ fn item(cursor: &mut Cursor) -> Option<Item> {
     let exported = cursor.eat_keyword(Keyword::Export);
 
     if cursor.kind() == TokenKind::Keyword(Keyword::Decorator) {
+        reject_test_target(cursor, &decorators);
         return Some(Item::DecoratorDecl(decorator_declaration(
             cursor, start, exported,
         )));
@@ -130,6 +131,7 @@ fn item(cursor: &mut Cursor) -> Option<Item> {
             TokenKind::Keyword(Keyword::Const | Keyword::Local)
         )
     {
+        reject_test_target(cursor, &decorators);
         return Some(Item::Stmt(exported_binding(cursor, export_span)));
     }
 
@@ -555,6 +557,7 @@ fn member(cursor: &mut Cursor) -> Member {
 
     if cursor.kind() == TokenKind::Keyword(Keyword::Property) {
         reject_finalizer_target(cursor, &decorators);
+        reject_test_target(cursor, &decorators);
         return Member::Property(property(cursor, start, visibility));
     }
 
@@ -567,7 +570,21 @@ fn member(cursor: &mut Cursor) -> Member {
     }
 
     reject_finalizer_target(cursor, &decorators);
+    reject_test_target(cursor, &decorators);
     Member::Field(field(cursor, start, visibility))
+}
+
+fn reject_test_target(cursor: &mut Cursor, decorators: &[Decorator]) {
+    for decorator in decorators
+        .iter()
+        .filter(|decorator| decorator.name == "test")
+    {
+        cursor.error(
+            codes::TEST_DECLARATION,
+            decorator.span,
+            "`@test` applies to a module function",
+        );
+    }
 }
 
 fn reject_finalizer_target(cursor: &mut Cursor, decorators: &[Decorator]) {

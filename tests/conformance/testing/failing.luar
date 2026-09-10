@@ -1,0 +1,49 @@
+--- expect: compile-ok
+--- spec: LR61
+--- spec: LR25.3
+--- spec: LR25.4
+--- spec: LR27.2
+--- spec: LR49
+--- spec: LR70
+
+@test
+function assertion()
+    print("assertion entered")
+    assert(false)
+end
+
+@test
+function exception()
+    print("exception entered")
+    throw Error("failed")
+end
+
+@test
+function panics()
+    print("panic entered")
+    panic("failed")
+end
+
+@test
+function bounds()
+    print("bounds entered")
+    local values = [1]
+    print(values[3])
+end
+
+async function child()
+    print("child entered")
+    throw Error("child failed")
+end
+
+@test
+async function asynchronous()
+    async scope tasks
+        tasks:spawn(child())
+    end
+end
+
+@test
+function last()
+    print("still runs")
+end

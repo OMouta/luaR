@@ -1,0 +1,7 @@
+--- expect: run
+--- exit: 0
+--- stdout: "main\n"
+--- spec: LR61
+export function main()
+    print("main")
+end

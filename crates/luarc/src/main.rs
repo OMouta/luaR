@@ -4,6 +4,7 @@ mod check;
 mod format;
 mod lir;
 mod run;
+mod test;
 
 use std::process::ExitCode;
 
@@ -13,6 +14,7 @@ luarc — the LuaR compiler
 usage:
   luarc check <file>...     read the files and report what is wrong with them
   luarc run <file> [args]   run a program
+  luarc test <file>...      run @test functions
   luarc lir <file>          print what a program lowers to
   luarc fmt [--check] <file>...  format files or check their formatting
 
@@ -32,6 +34,7 @@ fn main() -> ExitCode {
     match command {
         "check" => check::run(rest),
         "run" => run::run(rest),
+        "test" => test::run(rest),
         "lir" => lir::run(rest),
         "fmt" => format::run(rest),
         "help" | "--help" | "-h" => {

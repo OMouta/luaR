@@ -310,6 +310,8 @@ registry! {
         "A scope binding is used only as the receiver of spawn or cancel, without capture or assignment.";
     active 226 => TASK_SCOPE_CONSTRUCTION, "LR27.2",
         "TaskScope has no public constructor.";
+    active 227 => TEST_DECLARATION, "LR61",
+        "A test is a parameterless module function returning unit, with one argument-free @test.";
 }
 
 #[cfg(test)]

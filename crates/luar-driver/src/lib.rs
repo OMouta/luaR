@@ -2,6 +2,7 @@
 
 mod graph;
 mod packages;
+pub mod testing;
 
 use std::path::Path;
 
@@ -42,6 +43,12 @@ pub fn lower_in_mode(
         root,
         Target::host(matches!(mode, CompilationMode::Debug)),
     );
+    let mut lowered = lower_checked(checked, mode)?;
+    finish_lowering(&mut lowered);
+    Ok(lowered)
+}
+
+fn lower_checked(checked: Frontend, mode: CompilationMode) -> Result<Lowered, Vec<Diagnostic>> {
     if checked.diagnostics.iter().any(Diagnostic::is_error) {
         return Err(checked.diagnostics);
     }
@@ -53,12 +60,15 @@ pub fn lower_in_mode(
     // LR19: a generic function is a template until a call says what fills it,
     // so this runs over the whole program rather than one module at a time.
     luar_lir::mono::run(&mut lowered.program);
+    Ok(lowered)
+}
+
+fn finish_lowering(lowered: &mut Lowered) {
     let gaps = luar_lir::tasks::run(&mut lowered.program);
     lowered.gaps.extend(gaps);
     luar_lir::inline::run(&mut lowered.program);
     luar_lir::escape::run(&mut lowered.program);
     luar_lir::bounds::run(&mut lowered.program);
-    Ok(lowered)
 }
 
 /// Why a build produced no executable.
@@ -92,8 +102,12 @@ pub fn build_in_mode(
     mode: CompilationMode,
 ) -> Result<(), BuildError> {
     let lowered = lower_in_mode(sources, root, mode).map_err(BuildError::Rejected)?;
+    build_lowered(&lowered, output)
+}
+
+fn build_lowered(lowered: &Lowered, output: &Path) -> Result<(), BuildError> {
     if !lowered.gaps.is_empty() {
-        return Err(BuildError::NotLowered(lowered.gaps));
+        return Err(BuildError::NotLowered(lowered.gaps.clone()));
     }
 
     let object = luar_codegen::compile(&lowered.program).map_err(BuildError::Backend)?;

@@ -1,0 +1,8 @@
+export function value(): int
+    return 42
+end
+
+@test
+function imported()
+    panic("imported test ran")
+end

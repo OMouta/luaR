@@ -1,0 +1,44 @@
+--- expect: run
+--- exit: 0
+--- stdout: "init\nordinary\n"
+--- spec: LR61
+--- spec: LR78
+--- spec: LR27
+--- spec: LR27.2
+--- spec: LR26
+--- spec: STD22
+import { value } from "./support/imported"
+import { yieldNow } from "std/async"
+
+local state = 0
+print("init")
+
+@test
+function first()
+    assert(state == 0)
+    assert(value() == 42)
+    state = 1
+    print("first")
+end
+
+async function child()
+    local done: () = await yieldNow()
+    state = 2
+    print("child")
+end
+
+@test
+async function second(): ()
+    assert(state == 0)
+    async scope tasks
+        defer print("cleanup")
+        tasks:spawn(child())
+    end
+    assert(state == 2)
+    print("second")
+end
+
+export function main()
+    assert(state == 0)
+    print("ordinary")
+end

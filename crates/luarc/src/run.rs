@@ -49,7 +49,7 @@ pub fn run(args: &[String]) -> ExitCode {
 
 /// Where the built program goes. It is an intermediate of `run`, so it lives
 /// beside the other temporary files rather than in the source tree.
-fn executable(path: &str) -> PathBuf {
+pub(crate) fn executable(path: &str) -> PathBuf {
     let stem = std::path::Path::new(path).file_stem().map_or_else(
         || "program".to_owned(),
         |stem| stem.to_string_lossy().into_owned(),
@@ -60,7 +60,7 @@ fn executable(path: &str) -> PathBuf {
     built
 }
 
-fn report(sources: &SourceMap, error: &BuildError) {
+pub(crate) fn report(sources: &SourceMap, error: &BuildError) {
     match error {
         BuildError::Rejected(diagnostics) => {
             eprint!("{}", luar_diagnostics::render_all(sources, diagnostics));
@@ -82,9 +82,9 @@ fn report(sources: &SourceMap, error: &BuildError) {
                 );
             }
         }
-        BuildError::Backend(error) => eprintln!("luarc run: {error}"),
-        BuildError::Link(error) => eprintln!("luarc run: {error}"),
-        BuildError::Io(error) => eprintln!("luarc run: {error}"),
+        BuildError::Backend(error) => eprintln!("luarc: {error}"),
+        BuildError::Link(error) => eprintln!("luarc: {error}"),
+        BuildError::Io(error) => eprintln!("luarc: {error}"),
     }
 }
 
