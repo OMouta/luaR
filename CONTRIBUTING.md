@@ -50,6 +50,7 @@ them.
 | Task | Cargo |
 | --- | --- |
 | `cargo luar check file.luar` | `cargo run -q -p luarc -- check file.luar` |
+| API documentation as Markdown | `cargo run -q -p luarc -- doc file.luar` |
 | `cargo luar test [filter]` | `cargo run -q -p luar-conformance --features tools --bin conformance -- [filter]` |
 | `cargo luar coverage` | `cargo run -q -p luar-conformance --features tools --bin coverage` |
 | `cargo luar run file.luar [args]` | `cargo run -q -p luarc -- run file.luar [args]` |
@@ -73,7 +74,9 @@ directory, so there is no list to add it to.
 local ratio = 10 / 3
 ```
 
-`expect` is `compile-ok`, `compile-error`, or `run`.
+`expect` is `compile-ok`, `compile-error`, `run`, or `doc`.
+
+`expect: doc` checks generated API Markdown against `stdout` after type checking.
 
 `compile-error` needs `code` and `span`, and they are the only things it
 matches on. Never match message text. LR80 makes wording non-normative, so
