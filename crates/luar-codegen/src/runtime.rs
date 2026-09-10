@@ -35,6 +35,16 @@ const WRITE: &str = "_write";
 const WRITE: &str = "write";
 
 #[cfg(windows)]
+fn write_integer(_pointer: types::Type) -> types::Type {
+    types::I32
+}
+
+#[cfg(not(windows))]
+fn write_integer(pointer: types::Type) -> types::Type {
+    pointer
+}
+
+#[cfg(windows)]
 const GCVT: &str = "_gcvt";
 #[cfg(not(windows))]
 const GCVT: &str = "gcvt";
@@ -88,8 +98,8 @@ impl Runtime {
         let mut write = Signature::new(call_conv);
         write.params.push(AbiParam::new(types::I32));
         write.params.push(AbiParam::new(pointer));
-        write.params.push(AbiParam::new(types::I32));
-        write.returns.push(AbiParam::new(types::I32));
+        write.params.push(AbiParam::new(write_integer(pointer)));
+        write.returns.push(AbiParam::new(write_integer(pointer)));
         let write = module
             .declare_function(WRITE, Linkage::Import, &write)
             .map_err(|error| Error::Cranelift(error.to_string()))?;
@@ -763,16 +773,12 @@ fn define_print(
 
     let text = builder.block_params(entry)[0];
     let length = builder.ins().load(types::I64, MemFlags::trusted(), text, 0);
-    let length = if pointer.bits() > 32 {
-        builder.ins().ireduce(types::I32, length)
-    } else {
-        length
-    };
+    let length = integer_width(&mut builder, length, write_integer(pointer));
     let bytes = builder.ins().iadd_imm(text, 8);
     let stdout = builder.ins().iconst(types::I32, STDOUT);
     builder.ins().call(write, &[stdout, bytes, length]);
     let newline = builder.ins().global_value(pointer, newline);
-    let one = builder.ins().iconst(types::I32, 1);
+    let one = builder.ins().iconst(write_integer(pointer), 1);
     builder.ins().call(write, &[stdout, newline, one]);
     builder.ins().return_(&[]);
 
@@ -1620,7 +1626,7 @@ fn define_abort(
     let length = builder
         .ins()
         .load(types::I64, MemFlags::trusted(), value, 0);
-    let length = builder.ins().ireduce(types::I32, length);
+    let length = integer_width(&mut builder, length, write_integer(pointer));
     let text = builder.ins().iadd_imm(value, 8);
     let stderr = builder.ins().iconst(types::I32, STDERR);
     builder.ins().call(write, &[stderr, text, length]);
@@ -1664,11 +1670,7 @@ fn define_abort(
         builder
             .ins()
             .load(pointer, MemFlags::trusted(), frame, cell.saturating_mul(3));
-    let name_length = if pointer.bits() > 32 {
-        builder.ins().ireduce(types::I32, name_length)
-    } else {
-        name_length
-    };
+    let name_length = integer_width(&mut builder, name_length, write_integer(pointer));
     let stderr = builder.ins().iconst(types::I32, STDERR);
     builder.ins().call(write, &[stderr, name, name_length]);
     write_static(&mut builder, pointer, write, newline, newline_bytes.len());
@@ -1711,7 +1713,7 @@ fn write_static(
     let address = builder.ins().global_value(pointer, data);
     let length = builder
         .ins()
-        .iconst(types::I32, i64::try_from(length).unwrap_or(0));
+        .iconst(write_integer(pointer), i64::try_from(length).unwrap_or(0));
     let stderr = builder.ins().iconst(types::I32, STDERR);
     builder.ins().call(write, &[stderr, address, length]);
 }
@@ -1760,9 +1762,10 @@ fn handler(
     builder.switch_to_block(block);
 
     let address = builder.ins().global_value(pointer, text);
-    let length = builder
-        .ins()
-        .iconst(types::I32, i64::try_from(message.len()).unwrap_or(0));
+    let length = builder.ins().iconst(
+        write_integer(pointer),
+        i64::try_from(message.len()).unwrap_or(0),
+    );
     let stderr = builder.ins().iconst(types::I32, STDERR);
     builder.ins().call(write, &[stderr, address, length]);
 
