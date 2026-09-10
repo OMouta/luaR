@@ -507,6 +507,12 @@ pub enum InstKind {
         object: Value,
         field: u32,
     },
+    /// The address of `index` in `receiver` (LR72).
+    IndexAddress {
+        mutable: bool,
+        receiver: Value,
+        index: Value,
+    },
     /// `pointer` moved `count` values of its target forward, which
     /// `p:add(n)` does (LR72).
     Offset {
@@ -597,6 +603,11 @@ impl InstKind {
             | Self::GetCheckedIndex {
                 receiver: left,
                 index: right,
+            }
+            | Self::IndexAddress {
+                receiver: left,
+                index: right,
+                ..
             }
             | Self::MakeSlice {
                 receiver: left,
@@ -786,6 +797,7 @@ impl InstKind {
                 }
             }
             Self::GetIndex { .. } | Self::MakeSlice { .. } => Effect::Trap,
+            Self::IndexAddress { .. } => Effect::Trap,
             Self::MakeCheckedSlice { .. } => Effect::None,
             Self::Assert { .. } | Self::Panic { .. } => Effect::Trap,
 

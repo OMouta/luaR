@@ -679,6 +679,9 @@ impl Translator<'_, '_> {
                     }
                 })
             }
+            InstKind::IndexAddress {
+                receiver, index, ..
+            } => self.index_address(*receiver, *index),
             InstKind::Offset { pointer, count } => {
                 let target = match self.function.type_of(*pointer) {
                     Ty::Pointer { target, .. } => target.as_ref().clone(),

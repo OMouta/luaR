@@ -1,0 +1,11 @@
+--- expect: run
+--- exit: 7
+--- spec: LR72
+export function main(): int
+    local values: [int; 2] = [3, 4]
+    unsafe
+        local value = &mut values[1]
+        value:write(7)
+    end
+    return values[1]
+end

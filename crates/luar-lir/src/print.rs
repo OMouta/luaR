@@ -391,6 +391,14 @@ fn instruction(inst: &Inst, function: &Function) -> String {
             let qualifier = if *mutable { "mut " } else { "" };
             format!("address {qualifier}{}.{field}", name(*object))
         }
+        InstKind::IndexAddress {
+            mutable,
+            receiver,
+            index,
+        } => {
+            let qualifier = if *mutable { "mut " } else { "" };
+            format!("address {qualifier}{}[{}]", name(*receiver), name(*index))
+        }
         InstKind::Offset { pointer, count } => {
             format!("offset {} by {}", name(*pointer), name(*count))
         }

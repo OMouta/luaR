@@ -11,6 +11,21 @@ use crate::ty::machine;
 use super::{OWNED, Translator};
 
 impl Translator<'_, '_> {
+    pub(super) fn index_address(&mut self, receiver: Value, index: Value) -> Option<ir::Value> {
+        match self.function.type_of(receiver).clone() {
+            Ty::Builtin {
+                kind: Builtin::List | Builtin::Slice,
+                ..
+            } => Some(self.element_address(receiver, index, true)),
+            Ty::Array(_, length) => Some(self.array_address(receiver, index, length, true)),
+            Ty::Bytes => Some(self.byte_address(receiver, index, true)),
+            held => {
+                self.gap(format!("taking the address of an element of `{held}`"));
+                None
+            }
+        }
+    }
+
     pub(super) fn make_slice(
         &mut self,
         receiver: Value,

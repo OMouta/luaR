@@ -291,6 +291,39 @@ impl<'a> Body<'a> {
                         span,
                     )
                 }
+                ExprKind::Index {
+                    receiver,
+                    index,
+                    optional: false,
+                } => {
+                    let receiver = self.expr(receiver, None);
+                    let receiver = self.settled(receiver, operand.span);
+                    let held = self.function.type_of(receiver).clone();
+                    let key = match &held {
+                        Ty::Builtin {
+                            kind: Builtin::Map | Builtin::FrozenMap,
+                            args,
+                        } => args.first().cloned(),
+                        Ty::Builtin {
+                            kind: Builtin::List | Builtin::Slice,
+                            ..
+                        }
+                        | Ty::Array(_, _)
+                        | Ty::Bytes => Some(Ty::INT),
+                        _ => None,
+                    };
+                    let index = self.expr(index, key.as_ref());
+                    let ty = self.recorded(span);
+                    self.emit(
+                        InstKind::IndexAddress {
+                            mutable: *mutable,
+                            receiver,
+                            index,
+                        },
+                        ty,
+                        span,
+                    )
+                }
                 _ => self.missing(span, "an address of an element"),
             },
 
