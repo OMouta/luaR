@@ -1,0 +1,46 @@
+--- expect: run
+--- exit: 0
+--- spec: LR37
+function value<T>(result: Result<T, Error>): T
+    match result
+        case Result.Ok(parsed)
+            return parsed
+        case Result.Err(_)
+            panic("expected Ok")
+    end
+end
+
+function invalid<T>(result: Result<T, Error>)
+    match result
+        case Result.Ok(_)
+            panic("expected Err")
+        case Result.Err(_)
+            return
+    end
+end
+
+struct Unsupported
+end
+
+export function main()
+    assert(value("true":parse<bool>()))
+    assert(not value("false":parse<bool>()))
+    for text in ["", "+", "-", " 1", "1 ", "\t1", "1\n", "1_0", "0xff", "0b10", "0o10", "1x", "１", "١", "1\u{0}2", "--1", "+-1"] do
+        invalid(text:parse<int>())
+        invalid(text:parse<f64>())
+    end
+    for text in [".", ".e1", "1e", "1e+", "1e-", "1e+-2", "1e--2", "1e2.0", "1.2.3", "1e2e3", "1,5", "NaN", "nan", "inf", "-Infinity"] do
+        invalid(text:parse<f32>())
+        invalid(text:parse<f64>())
+    end
+    for text in ["True", "FALSE", "0", "1", " true", "false ", "true\u{0}"] do
+        invalid(text:parse<bool>())
+    end
+    invalid("1.0":parse<int>())
+    invalid("1e2":parse<int>())
+    invalid("-0":parse<u64>())
+    invalid("1":parse<string>())
+    invalid("1":parse<Unsupported>())
+    invalid("true":parse<unknown>())
+    invalid("true":parse<bool?>())
+end

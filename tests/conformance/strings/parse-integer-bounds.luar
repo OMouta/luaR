@@ -1,0 +1,72 @@
+--- expect: run
+--- exit: 0
+--- spec: LR37
+function value<T>(result: Result<T, Error>): T
+    match result
+        case Result.Ok(parsed)
+            return parsed
+        case Result.Err(_)
+            panic("expected Ok")
+    end
+end
+
+function invalid<T>(result: Result<T, Error>)
+    match result
+        case Result.Ok(_)
+            panic("expected Err")
+        case Result.Err(_)
+            return
+    end
+end
+
+export function main()
+    assert(value("-128":parse<i8>()) == -128)
+    assert(value("127":parse<i8>()) == 127)
+    invalid("-129":parse<i8>())
+    invalid("128":parse<i8>())
+    assert(value("-32768":parse<i16>()) == -32768)
+    assert(value("32767":parse<i16>()) == 32767)
+    invalid("-32769":parse<i16>())
+    invalid("32768":parse<i16>())
+    assert(value("-2147483648":parse<i32>()) == -2147483648)
+    assert(value("2147483647":parse<i32>()) == 2147483647)
+    invalid("-2147483649":parse<i32>())
+    invalid("2147483648":parse<i32>())
+    assert(value("-9223372036854775808":parse<i64>()) == -9223372036854775808)
+    assert(value("9223372036854775807":parse<i64>()) == 9223372036854775807)
+    invalid("-9223372036854775809":parse<i64>())
+    invalid("9223372036854775808":parse<i64>())
+    assert(value("-9223372036854775808":parse<int>()) == -9223372036854775808)
+    assert(value("9223372036854775807":parse<int>()) == 9223372036854775807)
+    invalid("-9223372036854775809":parse<int>())
+    invalid("9223372036854775808":parse<int>())
+    assert(value("0":parse<u8>()) == 0)
+    assert(value("255":parse<u8>()) == 255)
+    invalid("-0":parse<u8>())
+    invalid("256":parse<u8>())
+    assert(value("0":parse<u16>()) == 0)
+    assert(value("65535":parse<u16>()) == 65535)
+    invalid("-1":parse<u16>())
+    invalid("65536":parse<u16>())
+    assert(value("0":parse<u32>()) == 0)
+    assert(value("4294967295":parse<u32>()) == 4294967295)
+    invalid("-1":parse<u32>())
+    invalid("4294967296":parse<u32>())
+    assert(value("0":parse<u64>()) == 0)
+    assert(value("18446744073709551615":parse<u64>()) == 18446744073709551615)
+    invalid("-1":parse<u64>())
+    invalid("18446744073709551616":parse<u64>())
+    assert(value("+00042":parse<isize>()) == 42)
+    assert(value("42":parse<usize>()) == 42)
+    local unsignedMax = (0 as usize):wrappingSub(1)
+    assert(value(`{unsignedMax}`:parse<usize>()) == unsignedMax)
+    invalid(`{unsignedMax}0`:parse<usize>())
+    local signedMax = (unsignedMax >> 1) as isize
+    local signedMin = -signedMax - 1
+    assert(value(`{signedMax}`:parse<isize>()) == signedMax)
+    assert(value(`{signedMin}`:parse<isize>()) == signedMin)
+    invalid(`{signedMax}0`:parse<isize>())
+    assert(value("-0":parse<int>()) == 0)
+    local inferred: Result<i32, Error> = "123":parse()
+    assert(value(inferred) == 123)
+end

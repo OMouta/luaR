@@ -1,0 +1,47 @@
+--- expect: run
+--- exit: 0
+--- spec: LR37
+function value<T>(result: Result<T, Error>): T
+    match result
+        case Result.Ok(parsed)
+            return parsed
+        case Result.Err(_)
+            panic("expected Ok")
+    end
+end
+
+function invalid<T>(result: Result<T, Error>)
+    match result
+        case Result.Ok(_)
+            panic("expected Err")
+        case Result.Err(_)
+            return
+    end
+end
+
+export function main()
+    assert(value("1.25":parse<f32>()) == 1.25)
+    assert(value("+.5":parse<f64>()) == 0.5)
+    assert(value("-1.":parse<f64>()) == -1.0)
+    assert(value("1e+2":parse<f32>()) == 100.0)
+    assert(value("1E-2":parse<f64>()) == 0.01)
+    assert(value("16777217":parse<f32>()) == 16777216.0)
+    assert(value("16777219":parse<f32>()) == 16777220.0)
+    assert(value("1.0000000596046447753906250000000000000001":parse<f32>()) > 1.0)
+    assert(value("9007199254740993":parse<f64>()) == 9007199254740992.0)
+    assert(value("3.4028234663852886e38":parse<f32>()) > 3.4e38)
+    assert(value("1.7976931348623157e308":parse<f64>()) > 1.79e308)
+    assert(value("1.401298464324817e-45":parse<f32>()) > 0.0)
+    assert(value("4.9406564584124654e-324":parse<f64>()) > 0.0)
+    assert(value("1e-9999":parse<f64>()) == 0.0)
+    local negative = value("-0":parse<f64>())
+    assert(negative == 0.0)
+    assert(1.0 / negative < 0.0)
+    local underflow = value("-1e-9999":parse<f32>())
+    assert(underflow == 0.0)
+    assert(1.0 / underflow < 0.0)
+    invalid("3.4028236e38":parse<f32>())
+    invalid("1.7976931348623159e308":parse<f64>())
+    invalid("1e9999":parse<f64>())
+    invalid("-1e9999":parse<f32>())
+end

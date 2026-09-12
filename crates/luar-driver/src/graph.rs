@@ -25,6 +25,10 @@ const STD: &[(&str, &str)] = &[
     ("std/prelude", include_str!("../../../std/prelude.luar")),
     ("std/process", include_str!("../../../std/process.luar")),
     ("std/random", include_str!("../../../std/random.luar")),
+    (
+        "std/strings/parse",
+        include_str!("../../../std/strings/parse.luar"),
+    ),
     ("std/testing", include_str!("../../../std/testing.luar")),
     ("std/thread", include_str!("../../../std/thread.luar")),
     (

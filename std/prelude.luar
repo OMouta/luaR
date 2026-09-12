@@ -4,6 +4,7 @@
 import { reinterpret, bytesOf, stringFromBytes } from "std/mem"
 import { Cancelled } from "std/async"
 import { graphemeIterator } from "std/unicode/graphemes"
+import { parseString } from "std/strings/parse"
 
 @intrinsic
 function cancelTask<T>(task: Task<T>, error: unknown)
@@ -101,6 +102,12 @@ export extend StringCharacters for string
 
     function graphemes(self): Iterator<string>
         return graphemeIterator(self)
+    end
+end
+
+export extend StringParsing for string
+    function parse<T>(self): Result<T, Error>
+        return parseString<T>(self)
     end
 end
 

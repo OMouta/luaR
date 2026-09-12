@@ -1,0 +1,213 @@
+--- String parsing (LR37).
+import { bytesOf } from "std/mem"
+
+#if target.family == "windows"
+@extern("c")
+unsafe function _create_locale(category: i32, name: *const u8): *mut u8
+@extern("c")
+unsafe function _free_locale(locale: *mut u8)
+@extern("c")
+unsafe function _strtod_l(text: *const u8, stop: *mut *mut u8, locale: *mut u8): f64
+@extern("c")
+unsafe function _strtof_l(text: *const u8, stop: *mut *mut u8, locale: *mut u8): f32
+#else
+@extern("c")
+unsafe function newlocale(mask: i32, name: *const u8, base: *mut u8): *mut u8
+@extern("c")
+unsafe function freelocale(locale: *mut u8)
+@extern("c")
+unsafe function strtod_l(text: *const u8, stop: *mut *mut u8, locale: *mut u8): f64
+@extern("c")
+unsafe function strtof_l(text: *const u8, stop: *mut *mut u8, locale: *mut u8): f32
+#end
+
+function holds<T, U>(value: U): bool
+    local held: unknown = value
+    return held is T
+end
+
+function parsed<T, U>(value: U): Result<T, Error>
+    local held: unknown = value
+    if held is T then
+        return Result.Ok(held)
+    end
+    return Result.Err(Error("unsupported parsing target"))
+end
+
+function integer(text: string, maximum: u64, signed: bool): Result<(u64, bool), Error>
+    local value: u64 = 0
+    local negative = false
+    local digits = 0
+    local bytes = text:bytes()
+    for index in 0..<text.byteLength do
+        local byte = bytes:next() ?? unreachable()
+        if index == 0 and (byte == 43 or byte == 45) then
+            negative = byte == 45
+            if negative then
+                if not signed then
+                    return Result.Err(Error("negative unsigned integer"))
+                end
+                maximum += 1
+            end
+        else
+            if byte < 48 or byte > 57 then
+                return Result.Err(Error("invalid integer"))
+            end
+            local digit = (byte - 48) as u64
+            if value > maximum // 10 or (value == maximum // 10 and digit > maximum % 10) then
+                return Result.Err(Error("integer out of range"))
+            end
+            value = value * 10 + digit
+            digits += 1
+        end
+    end
+    if digits == 0 then
+        return Result.Err(Error("invalid integer"))
+    end
+    return Result.Ok((value, negative))
+end
+
+function signedInteger(text: string, maximum: u64): Result<i64, Error>
+    local (magnitude, negative) = integer(text, maximum, true)?
+    if negative and magnitude ~= 0 then
+        return Result.Ok(-((magnitude - 1) as i64) - 1)
+    end
+    return Result.Ok(magnitude as i64)
+end
+
+function decimal(text: string): bool
+    local mantissaDigits = 0
+    local exponentDigits = 0
+    local dot = false
+    local exponent = false
+    local exponentSign = false
+    local bytes = text:bytes()
+    for index in 0..<text.byteLength do
+        local byte = bytes:next() ?? unreachable()
+        if byte >= 48 and byte <= 57 then
+            if exponent then
+                exponentDigits += 1
+            else
+                mantissaDigits += 1
+            end
+            exponentSign = false
+        elseif byte == 43 or byte == 45 then
+            if index ~= 0 and not exponentSign then
+                return false
+            end
+            exponentSign = false
+        elseif byte == 46 and not dot and not exponent then
+            dot = true
+        elseif (byte == 69 or byte == 101) and not exponent and mantissaDigits > 0 then
+            exponent = true
+            exponentSign = true
+        else
+            return false
+        end
+    end
+    return mantissaDigits > 0 and (not exponent or exponentDigits > 0)
+end
+
+unsafe function numericLocale(): *mut u8
+    local name = "C\u{0}"
+    #if target.family == "windows"
+    return _create_locale(4, bytesOf(name))
+    #elseif target.os == "macos"
+    return newlocale(16, bytesOf(name), 0 as *mut u8)
+    #else
+    return newlocale(2, bytesOf(name), 0 as *mut u8)
+    #end
+end
+
+unsafe function closeLocale(locale: *mut u8)
+    #if target.family == "windows"
+    _free_locale(locale)
+    #else
+    freelocale(locale)
+    #end
+end
+
+export function parseString<T>(text: string): Result<T, Error>
+    if holds<T, bool>(false) then
+        if text == "true" then
+            return parsed<T, bool>(true)
+        elseif text == "false" then
+            return parsed<T, bool>(false)
+        end
+        return Result.Err(Error("invalid boolean"))
+    end
+    if holds<T, i8>(0) then
+        local value = signedInteger(text, 127)?
+        return parsed<T, i8>(value as i8)
+    end
+    if holds<T, i16>(0) then
+        local value = signedInteger(text, 32767)?
+        return parsed<T, i16>(value as i16)
+    end
+    if holds<T, i32>(0) then
+        local value = signedInteger(text, 2147483647)?
+        return parsed<T, i32>(value as i32)
+    end
+    if holds<T, i64>(0) then
+        local value = signedInteger(text, 9223372036854775807)?
+        return parsed<T, i64>(value as i64)
+    end
+    if holds<T, isize>(0) then
+        local value = signedInteger(text, (((0 as usize):wrappingSub(1)) >> 1) as u64)?
+        return parsed<T, isize>(value as isize)
+    end
+    if holds<T, u8>(0) then
+        local (value, _) = integer(text, 255, false)?
+        return parsed<T, u8>(value as u8)
+    end
+    if holds<T, u16>(0) then
+        local (value, _) = integer(text, 65535, false)?
+        return parsed<T, u16>(value as u16)
+    end
+    if holds<T, u32>(0) then
+        local (value, _) = integer(text, 4294967295, false)?
+        return parsed<T, u32>(value as u32)
+    end
+    if holds<T, u64>(0) then
+        local (value, _) = integer(text, 18446744073709551615, false)?
+        return parsed<T, u64>(value as u64)
+    end
+    if holds<T, usize>(0) then
+        local (value, _) = integer(text, ((0 as usize):wrappingSub(1)) as u64, false)?
+        return parsed<T, usize>(value as usize)
+    end
+    if not decimal(text) then
+        return Result.Err(Error("invalid decimal"))
+    end
+    unsafe
+        local locale = numericLocale()
+        if locale as usize == 0 then
+            return Result.Err(Error("cannot create numeric locale"))
+        end
+        defer closeLocale(locale)
+        local terminated = text .. "\u{0}"
+        if holds<T, f32>(0.0) then
+            #if target.family == "windows"
+            local value = _strtof_l(bytesOf(terminated), 0 as *mut *mut u8, locale)
+            #else
+            local value = strtof_l(bytesOf(terminated), 0 as *mut *mut u8, locale)
+            #end
+            if value - value ~= 0.0 then
+                return Result.Err(Error("float out of range"))
+            end
+            return parsed<T, f32>(value)
+        end
+        if holds<T, f64>(0.0) then
+            #if target.family == "windows"
+            local value = _strtod_l(bytesOf(terminated), 0 as *mut *mut u8, locale)
+            #else
+            local value = strtod_l(bytesOf(terminated), 0 as *mut *mut u8, locale)
+            #end
+            if value - value ~= 0.0 then
+                return Result.Err(Error("float out of range"))
+            end
+            return parsed<T, f64>(value)
+        end
+    end
+    return Result.Err(Error("unsupported parsing target"))
+end
