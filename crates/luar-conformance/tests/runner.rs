@@ -41,6 +41,24 @@ fn a_run_expectation_the_backend_covers_passes() {
 }
 
 #[test]
+fn a_hung_program_fails_and_the_runner_can_continue() {
+    let outcome = run(&fixtures().join("execution/hangs.txt"));
+    assert!(
+        matches!(&outcome, Outcome::Failed(why) if why.contains("execution exceeded 30 seconds")),
+        "reported {outcome}"
+    );
+    assert_eq!(run(&fixtures().join("runs.luar")), Outcome::Passed);
+}
+
+#[test]
+fn output_larger_than_a_pipe_buffer_does_not_block() {
+    assert_eq!(
+        run(&fixtures().join("execution/output.txt")),
+        Outcome::Passed
+    );
+}
+
+#[test]
 fn a_program_the_compiler_accepts_passes() {
     assert_eq!(run(&fixtures().join("accepted.luar")), Outcome::Passed);
 }

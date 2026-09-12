@@ -1,0 +1,7 @@
+--- expect: run
+--- exit: 0
+--- spec: LR10.2
+export function main()
+    while true do
+    end
+end

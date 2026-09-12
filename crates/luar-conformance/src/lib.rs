@@ -5,9 +5,11 @@ pub mod directives;
 
 use std::fmt;
 use std::fs;
-use std::io;
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use luar_diagnostics::{Diagnostic, SourceMap};
 use luar_driver::{BuildError, Check, CompilationMode};
@@ -111,13 +113,14 @@ pub fn run(path: &Path) -> Outcome {
 
 /// Runs every test under `root`, pairing each with its outcome.
 pub fn run_suite(root: &Path) -> io::Result<Vec<(PathBuf, Outcome)>> {
-    Ok(discover(root)?
-        .into_iter()
-        .map(|path| {
-            let outcome = run(&path);
-            (path, outcome)
-        })
-        .collect())
+    let mut outcomes = Vec::new();
+    for path in discover(root)? {
+        writeln!(io::stderr().lock(), "test {} ...", path.display())?;
+        let outcome = run(&path);
+        writeln!(io::stderr().lock(), "test {} ... {outcome}", path.display())?;
+        outcomes.push((path, outcome));
+    }
+    Ok(outcomes)
 }
 
 fn check(path: &Path, source: String, directives: &Directives) -> Outcome {
@@ -234,9 +237,7 @@ fn execute(
 
     // A program starts in the directory holding its test, so a fixture
     // beside the test is reached by name.
-    let produced = Command::new(&output)
-        .current_dir(path.parent().unwrap_or(Path::new(".")))
-        .output();
+    let produced = run_program(&output, path.parent().unwrap_or(Path::new(".")));
     let _ = fs::remove_file(&output);
     let produced = match produced {
         Ok(produced) => produced,
@@ -283,6 +284,56 @@ fn execute(
     } else {
         Outcome::Failed(wrong.join(", "))
     }
+}
+
+fn run_program(executable: &Path, directory: &Path) -> io::Result<Output> {
+    const TIMEOUT: Duration = Duration::from_secs(30);
+
+    let mut child = Command::new(executable)
+        .current_dir(directory)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let started = Instant::now();
+    let stdout = child.stdout.take().expect("stdout is piped");
+    let stderr = child.stderr.take().expect("stderr is piped");
+
+    thread::scope(|scope| {
+        let stdout = scope.spawn(|| read_output(stdout));
+        let stderr = scope.spawn(|| read_output(stderr));
+        let status = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break Ok(status),
+                Err(error) => break Err(error),
+                Ok(None) => {}
+            }
+            if started.elapsed() >= TIMEOUT {
+                break Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "execution exceeded 30 seconds",
+                ));
+            }
+            thread::sleep(Duration::from_millis(10));
+        };
+        if status.is_err() {
+            child.kill()?;
+            child.wait()?;
+        }
+        let stdout = stdout.join().expect("stdout reader panicked");
+        let stderr = stderr.join().expect("stderr reader panicked");
+        Ok(Output {
+            status: status?,
+            stdout: stdout?,
+            stderr: stderr?,
+        })
+    })
+}
+
+fn read_output(mut pipe: impl Read) -> io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    pipe.read_to_end(&mut bytes)?;
+    Ok(bytes)
 }
 
 fn normalized(bytes: &[u8]) -> String {
