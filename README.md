@@ -8,10 +8,7 @@
 
 ## Status
 
-LuaR is in development. There are no releases yet. The compiler can check,
-compile, link, and run native programs. The standard library and developer
-tooling are incomplete, so some examples below use APIs that are not available
-yet.
+LuaR is in development. There are no releases yet. Some examples below use APIs that are not available yet.
 
 The language specification is in [SPEC.md](.internal/SPEC.md).
 
