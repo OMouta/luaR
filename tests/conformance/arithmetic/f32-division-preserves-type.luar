@@ -1,0 +1,10 @@
+--- expect: run
+--- exit: 0
+--- spec: LR11.1
+--- spec: LR39
+export function main()
+    local divisor: f32 = 2.0
+    local quotient: f32 = 1.0 / divisor
+    assert(quotient == 0.5)
+    assert(1.0 / divisor < 1.0)
+end

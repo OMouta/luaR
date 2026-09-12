@@ -189,7 +189,7 @@ impl Checker<'_> {
                         ),
                     );
                 }
-                Type::Primitive(Primitive::F64)
+                self.arithmetic(op, &held_left, &held_right, op_span)
             }
             // LR11.1: `//` truncates toward zero, which is an answer only
             // integers have.
