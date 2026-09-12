@@ -11,6 +11,12 @@ unsafe function free(block: *mut u8)
 @extern("c")
 unsafe function _spawnvp(mode: i32, program: *const u8, arguments: *const *const u8): isize
 #else
+@repr("C")
+struct PipeDescriptors
+    reader: i32
+    writer: i32
+end
+
 @extern("c")
 unsafe function pipe(descriptors: *mut i32): i32
 
@@ -198,34 +204,34 @@ unsafe function run(
     executable: *const u8,
     arguments: *const *const u8,
 ): Result<ExitStatus, Error>
-    local descriptors: [i32; 2] = [0, 0]
-    if pipe(&mut descriptors[0]) ~= 0 then
+    local descriptors = PipeDescriptors { reader = 0, writer = 0 }
+    if pipe(&mut descriptors.reader) ~= 0 then
         return Result.Err(Error("cannot create child process error pipe"))
     end
 
     local process = fork()
     if process < 0 then
-        close(descriptors[0])
-        close(descriptors[1])
+        close(descriptors.reader)
+        close(descriptors.writer)
         return Result.Err(Error("cannot start child process"))
     end
     if process == 0 then
-        close(descriptors[0])
-        if fcntl(descriptors[1], 2, 1) < 0 then
+        close(descriptors.reader)
+        if fcntl(descriptors.writer, 2, 1) < 0 then
             local failed: u8 = 1
-            write(descriptors[1], &failed, 1)
+            write(descriptors.writer, &failed, 1)
             _exit(127)
         end
         execvp(executable, arguments)
         local failed: u8 = 1
-        write(descriptors[1], &failed, 1)
+        write(descriptors.writer, &failed, 1)
         _exit(127)
     end
 
-    close(descriptors[1])
+    close(descriptors.writer)
     local failed: u8 = 0
-    local failure = read(descriptors[0], &mut failed, 1)
-    close(descriptors[0])
+    local failure = read(descriptors.reader, &mut failed, 1)
+    close(descriptors.reader)
 
     local status: i32 = 0
     if waitpid(process, &mut status, 0) < 0 then
